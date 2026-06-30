@@ -1,0 +1,20 @@
+package:
+  name: hw_scheduler
+  authors:
+    - roundeodo
+
+sources:
+  - files:
+      - sched_pkg.sv
+      - sched_bw_ok.sv
+      - sched_mk_snap.sv
+      - sched_pick_shapes.sv
+      - sched_s2pf_pair.sv
+      - sched_score_unit.sv
+      - sched_candidate_eval_lane.sv
+      - sched_candidate_generator.sv
+      - sched_best_reduce.sv
+      - sched_commit_unit.sv
+      - sched_ghost_inject_unit.sv
+      - sched_schedule_core.sv
+      - moe_scheduler_reg_wrapper.sv
