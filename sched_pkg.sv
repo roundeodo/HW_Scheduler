@@ -126,7 +126,9 @@ package sched_pkg;
   endfunction
 
   function automatic logic [T_W-1:0] best_s2_t(input logic [NTOK_W-1:0] r);
-    best_s2_t = {best_s4_t(r)[T_W-2:0], 1'b0};  // best_s4_t(r) × 2
+    logic [T_W-1:0] s4;
+    s4 = best_s4_t(r);
+    best_s2_t = {s4[T_W-2:0], 1'b0};  // best_s4_t(r) × 2
   endfunction
 
   // ── best_task / best_conc（用于 greedy_h，tick 域）──────────────────
