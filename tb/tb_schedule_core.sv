@@ -51,9 +51,11 @@ module tb_schedule_core;
   logic [1:0] plan_slot_valid_o;
   task_desc_t [1:0] plan_task_desc_o;
   logic [1:0] plan_allow_s4pf_o;
+  slot_id_t [1:0] plan_local_slot_o;
   logic [1:0] plan_count_o;
   logic [1:0] plan_remove_count_o;
   logic plan_queue_full_o;
+  logic [3:0] plan_queue_count_o;
 
   logic busy_o;
   logic done_o;
@@ -78,9 +80,11 @@ module tb_schedule_core;
     .plan_slot_valid_o  (plan_slot_valid_o),
     .plan_task_desc_o   (plan_task_desc_o),
     .plan_allow_s4pf_o  (plan_allow_s4pf_o),
+    .plan_local_slot_o  (plan_local_slot_o),
     .plan_count_o       (plan_count_o),
     .plan_remove_count_o(plan_remove_count_o),
     .plan_queue_full_o  (plan_queue_full_o),
+    .plan_queue_count_o (plan_queue_count_o),
     .busy_o             (busy_o),
     .done_o             (done_o),
     .makespan_o         (makespan_o)
@@ -88,7 +92,6 @@ module tb_schedule_core;
 
   logic [EID_RAW_W-1:0] rem_eid [MAX_N_LOCAL];
   logic [NTOK_W-1:0]    rem_ntok [MAX_N_LOCAL];
-  logic [T_W-1:0]       rem_best_conc [MAX_N_LOCAL];
   logic                 rem_active [MAX_N_LOCAL];
 
   plan_entry_t golden_plan [MAX_PLAN_LOCAL];
@@ -140,12 +143,11 @@ module tb_schedule_core;
             head_i[h].valid       = 1'b1;
             head_i[h].eid         = rem_eid[i];
             head_i[h].ntok        = rem_ntok[i];
-            head_i[h].best_conc   = rem_best_conc[i];
             head_rem_index[h]     = NR_W'(i);
             h++;
           end
           active_cnt++;
-          total_conc += int'(rem_best_conc[i]);
+          total_conc += int'(best_conc_t(rem_ntok[i]));
         end
       end
 
@@ -167,6 +169,8 @@ module tb_schedule_core;
     input int plan_idx,
     input task_desc_t got,
     input logic got_allow,
+    input slot_id_t got_slot,
+    input slot_id_t exp_slot,
     input plan_entry_t exp
   );
     begin
@@ -183,13 +187,14 @@ module tb_schedule_core;
           got.skip_s1 !== exp.desc.skip_s1 ||
           got.skip_s3 !== exp.desc.skip_s3 ||
           got.has_s2pf !== exp.desc.has_s2pf ||
-          got_allow !== exp.allow_s4pf) begin
+          got_allow !== exp.allow_s4pf ||
+          got_slot !== exp_slot) begin
         $display("[FAIL] tid=%0d round=%0d plan=%0d mismatch", tid, round_idx, plan_idx);
-        $display("       got: cluster=%0d eid=%0d tok_start=%0d ntok=%0d s1=%0d s3=%0d skip_s1=%0d skip_s3=%0d has_s2pf=%0d allow_s4pf=%0d",
-                 got.cluster, got.eid, got.tok_start, got.ntok, got.s1, got.s3,
+        $display("       got: cluster=%0d slot=%0d eid=%0d tok_start=%0d ntok=%0d s1=%0d s3=%0d skip_s1=%0d skip_s3=%0d has_s2pf=%0d allow_s4pf=%0d",
+                 got.cluster, got_slot, got.eid, got.tok_start, got.ntok, got.s1, got.s3,
                  got.skip_s1, got.skip_s3, got.has_s2pf, got_allow);
-        $display("       exp: cluster=%0d eid=%0d tok_start=%0d ntok=%0d s1=%0d s3=%0d skip_s1=%0d skip_s3=%0d has_s2pf=%0d allow_s4pf=%0d",
-                 exp.desc.cluster, exp.desc.eid, exp.desc.tok_start, exp.desc.ntok,
+        $display("       exp: cluster=%0d slot=%0d eid=%0d tok_start=%0d ntok=%0d s1=%0d s3=%0d skip_s1=%0d skip_s3=%0d has_s2pf=%0d allow_s4pf=%0d",
+                 exp.desc.cluster, exp_slot, exp.desc.eid, exp.desc.tok_start, exp.desc.ntok,
                  exp.desc.s1, exp.desc.s3, exp.desc.skip_s1,
                  exp.desc.skip_s3, exp.desc.has_s2pf, exp.allow_s4pf);
         total_fail++;
@@ -245,7 +250,10 @@ module tb_schedule_core;
     int cycles;
     int active_before;
     int fail_before;
+    int c2_slot_exp;
+    int c3_slot_exp;
     logic [1:0] exp_slot_valid;
+    slot_id_t exp_local_slot;
     begin
       fail_before = total_fail;
       cache_eid_c2_i = cache_to_rtl(cache_c2);
@@ -261,6 +269,8 @@ module tb_schedule_core;
 
       round_idx = 0;
       plan_seen = 0;
+      c2_slot_exp = 0;
+      c3_slot_exp = 0;
 
       while (count_active(n_experts) > 0) begin
         drive_round_context(n_experts);
@@ -309,8 +319,26 @@ module tb_schedule_core;
         end else begin
           for (int s = 0; s < 2; s++) begin
             if (s < int'(plan_count_o)) begin
+              if (plan_task_desc_o[s].cluster) begin
+                if (c3_slot_exp >= (1 << SLOT_W)) begin
+                  $display("[FAIL] tid=%0d round=%0d C3 local_slot overflow exp=%0d",
+                           tid, round_idx, c3_slot_exp);
+                  total_fail++;
+                end
+                exp_local_slot = slot_id_t'(c3_slot_exp);
+                c3_slot_exp++;
+              end else begin
+                if (c2_slot_exp >= (1 << SLOT_W)) begin
+                  $display("[FAIL] tid=%0d round=%0d C2 local_slot overflow exp=%0d",
+                           tid, round_idx, c2_slot_exp);
+                  total_fail++;
+                end
+                exp_local_slot = slot_id_t'(c2_slot_exp);
+                c2_slot_exp++;
+              end
               compare_task(tid, round_idx, plan_seen + s,
                            plan_task_desc_o[s], plan_allow_s4pf_o[s],
+                           plan_local_slot_o[s], exp_local_slot,
                            golden_plan[plan_seen + s]);
             end
           end
@@ -412,7 +440,6 @@ module tb_schedule_core;
       for (int i = 0; i < MAX_N_LOCAL; i++) begin
         rem_eid[i] = '0;
         rem_ntok[i] = '0;
-        rem_best_conc[i] = '0;
         rem_active[i] = 1'b0;
       end
       for (int i = 0; i < MAX_PLAN_LOCAL; i++) begin
@@ -425,7 +452,6 @@ module tb_schedule_core;
         end
         rem_eid[i] = EID_RAW_W'(tmp_eid);
         rem_ntok[i] = NTOK_W'(tmp_ntok);
-        rem_best_conc[i] = T_W'(tmp_bc);
         rem_active[i] = 1'b1;
       end
 
