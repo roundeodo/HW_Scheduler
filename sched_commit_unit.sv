@@ -3,14 +3,12 @@
 //
 // MoE Hardware Scheduler — winning candidate commit helper
 //
-// Pure-slave datapath version.  This module does not write an internal
-// plan_sram and does not update a rem_manager.  It converts the replayed
-// winner into at most two compact single-task descriptors plus compact remove
-// information.  It also emits an explicit allow_s4pf bit per output task so
-// CVA6 does not need to save full timing snaps in L3 just to decide whether
-// the task can prefetch the next same-cluster expert during S4.
-// CVA6/software later reads these outputs, writes the real L3 plan buffer,
-// and updates the L3/software rem list.
+// Datapath helper.  This module does not write an internal plan_sram and does
+// not update a rem_manager.  It converts the replayed winner into at most two
+// compact single-task descriptors plus compact remove information.  It also
+// emits an explicit allow_s4pf bit per output task so CVA6 direct lowering does
+// not need full timing snaps just to decide whether the task can prefetch the
+// next same-cluster expert during S4.
 
 import sched_pkg::*;
 
@@ -88,7 +86,7 @@ module sched_commit_unit (
                         ((best_snap_b_i.s4_start + GHOST_WINDOW_TICKS) <= best_snap_b_i.task_end) &&
                         s4pf_bw_ok_b;
 
-  // plan 最终按“单个实际 task”写入 L3，而 best_plan_i 可能是 PAIR/SPLIT。
+  // FIFO 输出按“单个实际 task”规范化，而 best_plan_i 可能是 PAIR/SPLIT。
   // make_task_from_a/b 把 winner descriptor 的 A/B 两侧分别规范化成
   // task_desc_t，便于软件后续按单 task lowering/发射。
   function automatic task_desc_t make_task_from_a(input plan_desc_t p, input logic cluster);

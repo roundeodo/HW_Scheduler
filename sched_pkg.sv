@@ -30,11 +30,14 @@ package sched_pkg;
   localparam int unsigned BW_W      = 2;  // 带宽档位宽度（0/1/2 → 0/64/128 B/cc）
   localparam int unsigned NTOK_W    = 9;  // token 数宽度（≤511）
   localparam int unsigned CAND_ID_W = 6;  // 单轮候选 ID（覆盖 ≤64 个候选）
+  localparam int unsigned SLOT_W    = 6;  // dynamic args slot_id ABI: ctrl[19:14], 0..63
 
   // ── 唯一容量配置点：只改 E_MAX，EID_W/NR_W/T_W 自动推导 ─────────────────
   localparam int unsigned EID_W     = $clog2(E_MAX + 2); // 0=NONE,1=GHOST,2..E_MAX+1=experts
   localparam int unsigned EID_RAW_W = $clog2(E_MAX);     // 原始 expert ID 位宽（0..E_MAX-1）
   localparam int unsigned NR_W      = $clog2(E_MAX + 1); // rem 计数域 0..E_MAX
+
+  typedef logic [SLOT_W-1:0] slot_id_t;
 
   // ── EID 特殊编码 ─────────────────────────────────────────────────────────
   // pf_eid 含义：
@@ -49,6 +52,12 @@ package sched_pkg;
   localparam logic [BW_W-1:0] BW_0   = 2'd0;   // 0   B/cc（DMA 跳过或无活动）
   localparam logic [BW_W-1:0] BW_64  = 2'd1;   // 64  B/cc（IDMA 或 XDMA 单路）
   localparam logic [BW_W-1:0] BW_128 = 2'd2;   // 128 B/cc（IDMA+XDMA 合用）
+
+  // ── Dynamic args ctrl 中的 DMA binding 编码，与 moe_scheduler.h 保持一致 ──
+  localparam logic [1:0] DMA_NONE = 2'd0;
+  localparam logic [1:0] DMA_IDMA = 2'd1;
+  localparam logic [1:0] DMA_XDMA = 2'd2;
+  localparam logic [1:0] DMA_BOTH = 2'd3;
 
   // ── Shape 编码 ───────────────────────────────────────────────────────────
   localparam logic [1:0] SHAPE_A = 2'd0;  // M_dim=8, 64 B/cc DMA
@@ -126,7 +135,9 @@ package sched_pkg;
   endfunction
 
   function automatic logic [T_W-1:0] best_s2_t(input logic [NTOK_W-1:0] r);
-    best_s2_t = {best_s4_t(r)[T_W-2:0], 1'b0};  // best_s4_t(r) × 2
+    logic [T_W-1:0] s4;
+    s4 = best_s4_t(r);
+    best_s2_t = {s4[T_W-2:0], 1'b0};  // best_s4_t(r) × 2
   endfunction
 
   // ── best_task / best_conc（用于 greedy_h，tick 域）──────────────────
@@ -164,18 +175,17 @@ package sched_pkg;
     logic [EID_RAW_W-1:0]  eid;
     logic [NTOK_W-1:0]     ntok;
     logic [NR_W-1:0]       input_order;
-    logic [T_W-1:0]        best_conc;
   } rem_head_t;
 
-  // RTL 内部 top4 工作项。MMIO 使用 compact head32 ABI，只把调度 datapath
-  // 真正需要的字段落到 FF，避免保存 rem_index/input_order。
+  // RTL 内部 top4 工作项。MMIO 使用 compact head16 ABI，只把调度 datapath
+  // 真正需要的字段落到 FF，避免保存 rem_index/input_order/best_conc。
   //
-  // 位宽（E_MAX=64）：valid + eid + ntok + best_conc = 1 + 6 + 9 + 16 = 32 bits。
+  // 位宽（E_MAX=64）：valid + eid + ntok = 1 + 6 + 9 = 16 bits。
+  // best_conc 由 ntok 通过 best_conc_t() 组合推导，不驻留在 FF 或软件 rem 表中。
   typedef struct packed {
     logic                  valid;
     logic [EID_RAW_W-1:0]  eid;
     logic [NTOK_W-1:0]     ntok;
-    logic [T_W-1:0]        best_conc;
   } head_ctx_t;
 
   // ── Evaluator 内部精简 snap ─────────────────────────────────────────────
@@ -278,8 +288,8 @@ package sched_pkg;
   // ── Commit 后的单 task descriptor ──────────────────────────────────────
   //
   // plan_desc_t 用于 evaluator/best/replay 阶段，能表达 PAIR/SPLIT/SOLO
-  // candidate。commit 后输出到 CVA6/L3 的每个 entry 已经规范化成单个
-  // cluster task，因此只需要保存 A 侧字段对应的信息。
+  // candidate。commit 后进入 wrapper FIFO 的每个 entry 已经规范化成
+  // 单个 cluster task，因此只需要保存 A 侧字段对应的信息。
   //
   // 位宽（E_MAX=64, EID_RAW_W=6）：
   //   cluster + eid + ntok + tok_start + s1 + s3 + skip_s1 + skip_s3 + has_s2pf
@@ -295,6 +305,71 @@ package sched_pkg;
     logic                 skip_s3;
     logic                 has_s2pf;
   } task_desc_t;                       // 32 bits when E_MAX=64
+
+  // ── Plan FIFO 的 lightweight lowering scalar ─────────────────────────────
+  //
+  // 这些字段都能由 task_desc_t 组合推导，不需要跨 round 保存 snap，也不需要
+  // 输出完整 dynamic args。RTL 在 PLAN_FIFO_DATA reserved bits 中带出它们，
+  // 让 CVA6 fast lowering 少做 shape/tail/dma binding 相关的小计算。
+  typedef struct packed {
+    logic                 skip_s2;
+    logic                 skip_s4;
+    logic [1:0]           dma_s1_for_shape;
+    logic [1:0]           dma_s3_for_shape;
+    logic [NTOK_W-1:0]    m_s2_exec;
+    logic [NTOK_W-1:0]    m_s4_exec;
+  } task_lower_scalar_t;                // 24 bits when NTOK_W=9
+
+  function automatic logic [NTOK_W-1:0] shape_c_mtiles(input logic [NTOK_W-1:0] ntok);
+    logic [NTOK_W:0] tmp;
+    begin
+      tmp = {1'b0, ntok} + {{NTOK_W{1'b0}}, 1'b1};
+      shape_c_mtiles = tmp[NTOK_W:1];
+    end
+  endfunction
+
+  function automatic logic [1:0] s1_dma_for_shape(input logic [1:0] sh);
+    s1_dma_for_shape = (sh == SHAPE_C) ? DMA_BOTH : DMA_IDMA;
+  endfunction
+
+  function automatic logic [1:0] s3_dma_for_shape(input logic [1:0] sh);
+    s3_dma_for_shape = (sh == SHAPE_C) ? DMA_BOTH : DMA_XDMA;
+  endfunction
+
+  function automatic task_lower_scalar_t lower_scalar_from_task(input task_desc_t t);
+    task_lower_scalar_t r;
+    logic [NTOK_W-1:0]  s1_m;
+    logic [NTOK_W-1:0]  s3_m;
+    logic [NTOK_W-1:0]  s2_tail;
+    logic [NTOK_W-1:0]  s4_tail;
+    begin
+      r = '0;
+      s1_m = mdim(t.s1);
+      s3_m = mdim(t.s3);
+
+      if (t.skip_s1) begin
+        r.m_s2_exec = shape_c_mtiles(t.ntok);
+        r.skip_s2   = 1'b0;
+      end else begin
+        s2_tail     = (t.ntok > s1_m) ? (t.ntok - s1_m) : '0;
+        r.m_s2_exec = shape_c_mtiles(s2_tail);
+        r.skip_s2   = (r.m_s2_exec == '0);
+      end
+
+      if (t.skip_s3) begin
+        r.m_s4_exec = shape_c_mtiles(t.ntok);
+        r.skip_s4   = 1'b0;
+      end else begin
+        s4_tail     = (t.ntok > s3_m) ? (t.ntok - s3_m) : '0;
+        r.m_s4_exec = shape_c_mtiles(s4_tail);
+        r.skip_s4   = (r.m_s4_exec == '0);
+      end
+
+      r.dma_s1_for_shape = s1_dma_for_shape(t.s1);
+      r.dma_s3_for_shape = s3_dma_for_shape(t.s3);
+      lower_scalar_from_task = r;
+    end
+  endfunction
 
   // ── candidate_generator → candidate_eval_lane 的规范化候选 ─────────────
   //
@@ -346,7 +421,7 @@ package sched_pkg;
   // ── 1-lane 架构存储原则 ────────────────────────────────────────────────
   // E_MAX=64 时，完整 rem_eid/ntok/order 和完整 plan list 放在 L3/CVA6
   // 软件内存；scheduler 寄存器侧只保留本轮 top4、两个 cluster snap、
-  // compact best_id/best_score、depth=2 输出 buffer 和 FSM。
+  // compact best_id/best_score、depth=4 round FIFO 和 FSM。
   // 时序字段仍使用 tick 域，不回退到 32-bit raw-CC。
 
 endpackage

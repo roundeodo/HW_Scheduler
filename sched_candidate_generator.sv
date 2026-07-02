@@ -563,13 +563,13 @@ module sched_candidate_generator (
     // 遍历 top4：累加被移除项的 conc，并找出 commit 后剩余的第一、二项
     for (int i = 0; i < 4; i++) begin
       if (head_i[i].valid && remove_slot_mask[i]) begin
-        removed_conc = removed_conc + head_i[i].best_conc;
+        removed_conc = removed_conc + best_conc_t(head_i[i].ntok);
       end
       if (head_i[i].valid && !remove_slot_mask[i]) begin
         if (found == 2'd0) begin
           rem0_eid = head_i[i].eid;
           rem0_ntok = head_i[i].ntok;
-          max_conc_after = head_i[i].best_conc;  // 新 top0 的 best_conc
+          max_conc_after = best_conc_t(head_i[i].ntok);  // 新 top0 的 best_conc
         end else if (found == 2'd1) begin
           rem1_ntok = head_i[i].ntok;  // 新 top1 ntok（greedy_h nr==2 时用）
         end

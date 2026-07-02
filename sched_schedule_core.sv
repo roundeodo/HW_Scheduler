@@ -1,15 +1,16 @@
 // Copyright KU Leuven / MiCAS Lab
 // SPDX-License-Identifier: SHL-0.51
 //
-// MoE Hardware Scheduler — pure-slave one-round schedule core
+// MoE Hardware Scheduler — one-round datapath core
 //
-// This is the datapath-only core for the CVA6-controlled slave architecture:
-//   CVA6/L3 rem state -> top4 round context -> candidate_generator
+// This is the datapath-only core under the MMIO wrapper:
+//   wrapper-maintained top4/reserve state -> top4 round context -> candidate_generator
 //   -> candidate_eval_lane -> compact best_reduce -> replay(best_id)
-//   -> commit_unit -> remove metadata + depth-2 plan holding queue
+//   -> commit_unit -> remove metadata + depth-4 round FIFO
 //
 // There is intentionally no internal rem_sram, plan_sram, AXI master, or DMA
-// writer in this module.  The full plan/rem arrays live in L3/software.
+// writer in this module.  The full rem stream and final lowered args live
+// outside this core; the wrapper only exposes register/FIFO state to CVA6.
 
 import sched_pkg::*;
 
@@ -29,23 +30,25 @@ module sched_schedule_core (
   input  logic [NR_W-1:0]              active_count_i,
   input  logic [T_W-1:0]               total_conc_i,
 
-  // Fast path for round-to-round scheduling: CVA6 reads remove metadata first
-  // to refill top4 and start the next round.
+  // Core-level remove handshake.  In the 10K wrapper fast path this is driven
+  // internally by auto-run after a round completes.
   input  logic                         remove_ready_i,
   output logic                         remove_valid_o,
   output logic [1:0]                   remove_count_o,
   output logic [3:0]                   remove_slot_mask_o,
 
-  // Slow path for L3 plan writeback: CVA6 can pop one completed round plan
-  // while the scheduler computes the next round.
+  // FIFO drain path: CVA6 pops one completed round packet after reading it.
+  // In the current direct-lowering path this is not an L3 plan SRAM writeback.
   input  logic                         plan_pop_i,
   output logic                         plan_valid_o,
   output logic [1:0]                   plan_slot_valid_o,
   output task_desc_t [1:0]             plan_task_desc_o,
   output logic [1:0]                   plan_allow_s4pf_o,
+  output slot_id_t [1:0]               plan_local_slot_o,
   output logic [1:0]                   plan_count_o,
   output logic [1:0]                   plan_remove_count_o,
   output logic                         plan_queue_full_o,
+  output logic [3:0]                   plan_queue_count_o,
 
   output logic                         busy_o,
   output logic                         done_o,
@@ -66,6 +69,8 @@ module sched_schedule_core (
 
   eval_snap_t c2_snap_q, c2_snap_d;
   eval_snap_t c3_snap_q, c3_snap_d;
+  slot_id_t   c2_slot_q, c2_slot_d;
+  slot_id_t   c3_slot_q, c3_slot_d;
 
   logic eval_inflight_q, eval_inflight_d;
   logic done_q, done_d;
@@ -74,11 +79,15 @@ module sched_schedule_core (
   logic [1:0]        remove_count_q, remove_count_d;
   logic [3:0]        remove_slot_mask_q, remove_slot_mask_d;
 
-  logic [1:0]        planq_count_q, planq_count_d;
-  task_desc_t [1:0]  planq_task_desc_q [2], planq_task_desc_d [2];
-  logic [1:0]        planq_allow_s4pf_q [2], planq_allow_s4pf_d [2];
-  logic [1:0]        planq_plan_count_q [2], planq_plan_count_d [2];
-  logic [1:0]        planq_remove_count_q [2], planq_remove_count_d [2];
+  localparam int unsigned PLANQ_DEPTH = 4;
+  localparam int unsigned PLANQ_COUNT_W = $clog2(PLANQ_DEPTH + 1);
+
+  logic [PLANQ_COUNT_W-1:0] planq_count_q, planq_count_d;
+  task_desc_t [1:0]         planq_task_desc_q [PLANQ_DEPTH], planq_task_desc_d [PLANQ_DEPTH];
+  logic [1:0]               planq_allow_s4pf_q [PLANQ_DEPTH], planq_allow_s4pf_d [PLANQ_DEPTH];
+  slot_id_t [1:0]           planq_local_slot_q [PLANQ_DEPTH], planq_local_slot_d [PLANQ_DEPTH];
+  logic [1:0]               planq_plan_count_q [PLANQ_DEPTH], planq_plan_count_d [PLANQ_DEPTH];
+  logic [1:0]               planq_remove_count_q [PLANQ_DEPTH], planq_remove_count_d [PLANQ_DEPTH];
   logic              planq_has_space_after_pop;
   logic              remove_free_after_ready;
 
@@ -413,6 +422,9 @@ module sched_schedule_core (
   task_desc_t [1:0] commit_task_desc;
   logic [1:0]        commit_plan_allow_s4pf;
   logic [1:0]        commit_plan_count;
+  slot_id_t [1:0]    commit_local_slot;
+  slot_id_t          c2_slot_after_commit;
+  slot_id_t          c3_slot_after_commit;
   logic [1:0]        commit_remove_count_o;
   logic [3:0]        commit_remove_slot_mask_o;
 
@@ -435,11 +447,34 @@ module sched_schedule_core (
     .remove_slot_mask_o  (commit_remove_slot_mask_o)
   );
 
+  always_comb begin
+    commit_local_slot = '{default: '0};
+    c2_slot_after_commit = c2_slot_q;
+    c3_slot_after_commit = c3_slot_q;
+
+    // Assign local slots exactly when a committed task enters the output FIFO.
+    // The task descriptor already carries the physical cluster, so this is just
+    // two tiny per-cluster counters and no software-visible scheduling decision.
+    for (int s = 0; s < 2; s++) begin
+      if (s < int'(commit_plan_count)) begin
+        if (commit_task_desc[s].cluster) begin
+          commit_local_slot[s] = c3_slot_after_commit;
+          c3_slot_after_commit = c3_slot_after_commit + slot_id_t'(1);
+        end else begin
+          commit_local_slot[s] = c2_slot_after_commit;
+          c2_slot_after_commit = c2_slot_after_commit + slot_id_t'(1);
+        end
+      end
+    end
+  end
+
   // ── Control FSM ───────────────────────────────────────────────────────
   always_comb begin
     st_d                 = st_q;
     c2_snap_d            = c2_snap_q;
     c3_snap_d            = c3_snap_q;
+    c2_slot_d            = c2_slot_q;
+    c3_slot_d            = c3_slot_q;
     eval_inflight_d      = eval_inflight_q;
     done_d               = 1'b0;
 
@@ -448,9 +483,10 @@ module sched_schedule_core (
     remove_slot_mask_d    = remove_slot_mask_q;
 
     planq_count_d         = planq_count_q;
-    for (int q = 0; q < 2; q++) begin
+    for (int q = 0; q < PLANQ_DEPTH; q++) begin
       planq_task_desc_d[q]  = planq_task_desc_q[q];
       planq_allow_s4pf_d[q] = planq_allow_s4pf_q[q];
+      planq_local_slot_d[q] = planq_local_slot_q[q];
       planq_plan_count_d[q] = planq_plan_count_q[q];
       planq_remove_count_d[q] = planq_remove_count_q[q];
     end
@@ -462,7 +498,7 @@ module sched_schedule_core (
     best_clear  = 1'b0;
 
     remove_free_after_ready = !remove_valid_q || remove_ready_i;
-    planq_has_space_after_pop = (planq_count_q < 2'd2) ||
+    planq_has_space_after_pop = (planq_count_q < PLANQ_COUNT_W'(PLANQ_DEPTH)) ||
                                 (plan_pop_i && (planq_count_q != 2'd0));
 
     if (remove_ready_i) begin
@@ -474,37 +510,38 @@ module sched_schedule_core (
     // CVA6 pops the oldest queued plan entry after reading it.  Pop is handled
     // before an internal commit push, so pop+push in the same cycle is safe.
     if (plan_pop_i && (planq_count_q != 2'd0)) begin
-      if (planq_count_q == 2'd2) begin
-        planq_task_desc_d[0]  = planq_task_desc_q[1];
-        planq_allow_s4pf_d[0] = planq_allow_s4pf_q[1];
-        planq_plan_count_d[0] = planq_plan_count_q[1];
-        planq_remove_count_d[0] = planq_remove_count_q[1];
-
-        planq_task_desc_d[1]  = '{default: '0};
-        planq_allow_s4pf_d[1] = '0;
-        planq_plan_count_d[1] = '0;
-        planq_remove_count_d[1] = '0;
-        planq_count_d         = 2'd1;
-      end else begin
-        planq_task_desc_d[0]  = '{default: '0};
-        planq_allow_s4pf_d[0] = '0;
-        planq_plan_count_d[0] = '0;
-        planq_remove_count_d[0] = '0;
-        planq_count_d         = 2'd0;
+      for (int q = 0; q < PLANQ_DEPTH; q++) begin
+        if (q < PLANQ_DEPTH - 1) begin
+          planq_task_desc_d[q]  = planq_task_desc_q[q + 1];
+          planq_allow_s4pf_d[q] = planq_allow_s4pf_q[q + 1];
+          planq_local_slot_d[q] = planq_local_slot_q[q + 1];
+          planq_plan_count_d[q] = planq_plan_count_q[q + 1];
+          planq_remove_count_d[q] = planq_remove_count_q[q + 1];
+        end else begin
+          planq_task_desc_d[q]  = '{default: '0};
+          planq_allow_s4pf_d[q] = '0;
+          planq_local_slot_d[q] = '{default: '0};
+          planq_plan_count_d[q] = '0;
+          planq_remove_count_d[q] = '0;
+        end
       end
+      planq_count_d = planq_count_q - PLANQ_COUNT_W'(1);
     end
 
     if (init_i) begin
       c2_snap_d            = make_initial_snap(cache_eid_c2_i);
       c3_snap_d            = make_initial_snap(cache_eid_c3_i);
+      c2_slot_d            = '0;
+      c3_slot_d            = '0;
       eval_inflight_d      = 1'b0;
       remove_valid_d       = 1'b0;
       remove_count_d       = '0;
       remove_slot_mask_d   = '0;
       planq_count_d        = '0;
-      for (int q = 0; q < 2; q++) begin
+      for (int q = 0; q < PLANQ_DEPTH; q++) begin
         planq_task_desc_d[q]  = '{default: '0};
         planq_allow_s4pf_d[q] = '0;
+        planq_local_slot_d[q] = '{default: '0};
         planq_plan_count_d[q] = '0;
         planq_remove_count_d[q] = '0;
       end
@@ -566,21 +603,18 @@ module sched_schedule_core (
             if (commit_valid) begin
               c2_snap_d             = commit_c2_snap;
               c3_snap_d             = commit_c3_snap;
+              c2_slot_d             = c2_slot_after_commit;
+              c3_slot_d             = c3_slot_after_commit;
               remove_valid_d        = 1'b1;
               remove_count_d        = commit_remove_count_o;
               remove_slot_mask_d    = commit_remove_slot_mask_o;
-              if (planq_count_d == 2'd0) begin
-                planq_task_desc_d[0]  = commit_task_desc;
-                planq_allow_s4pf_d[0] = commit_plan_allow_s4pf;
-                planq_plan_count_d[0] = commit_plan_count;
-                planq_remove_count_d[0] = commit_remove_count_o;
-                planq_count_d         = 2'd1;
-              end else if (planq_count_d == 2'd1) begin
-                planq_task_desc_d[1]  = commit_task_desc;
-                planq_allow_s4pf_d[1] = commit_plan_allow_s4pf;
-                planq_plan_count_d[1] = commit_plan_count;
-                planq_remove_count_d[1] = commit_remove_count_o;
-                planq_count_d         = 2'd2;
+              if (planq_count_d < PLANQ_COUNT_W'(PLANQ_DEPTH)) begin
+                planq_task_desc_d[planq_count_d]  = commit_task_desc;
+                planq_allow_s4pf_d[planq_count_d] = commit_plan_allow_s4pf;
+                planq_local_slot_d[planq_count_d] = commit_local_slot;
+                planq_plan_count_d[planq_count_d] = commit_plan_count;
+                planq_remove_count_d[planq_count_d] = commit_remove_count_o;
+                planq_count_d = planq_count_d + PLANQ_COUNT_W'(1);
               end
             end
             done_d = 1'b1;
@@ -592,21 +626,18 @@ module sched_schedule_core (
           if (commit_valid) begin
             c2_snap_d             = commit_c2_snap;
             c3_snap_d             = commit_c3_snap;
+            c2_slot_d             = c2_slot_after_commit;
+            c3_slot_d             = c3_slot_after_commit;
             remove_valid_d        = 1'b1;
             remove_count_d        = commit_remove_count_o;
             remove_slot_mask_d    = commit_remove_slot_mask_o;
-            if (planq_count_d == 2'd0) begin
-              planq_task_desc_d[0]  = commit_task_desc;
-              planq_allow_s4pf_d[0] = commit_plan_allow_s4pf;
-              planq_plan_count_d[0] = commit_plan_count;
-              planq_remove_count_d[0] = commit_remove_count_o;
-              planq_count_d         = 2'd1;
-            end else if (planq_count_d == 2'd1) begin
-              planq_task_desc_d[1]  = commit_task_desc;
-              planq_allow_s4pf_d[1] = commit_plan_allow_s4pf;
-              planq_plan_count_d[1] = commit_plan_count;
-              planq_remove_count_d[1] = commit_remove_count_o;
-              planq_count_d         = 2'd2;
+            if (planq_count_d < PLANQ_COUNT_W'(PLANQ_DEPTH)) begin
+              planq_task_desc_d[planq_count_d]  = commit_task_desc;
+              planq_allow_s4pf_d[planq_count_d] = commit_plan_allow_s4pf;
+              planq_local_slot_d[planq_count_d] = commit_local_slot;
+              planq_plan_count_d[planq_count_d] = commit_plan_count;
+              planq_remove_count_d[planq_count_d] = commit_remove_count_o;
+              planq_count_d = planq_count_d + PLANQ_COUNT_W'(1);
             end
           end
           done_d = 1'b1;
@@ -627,15 +658,18 @@ module sched_schedule_core (
       st_q                  <= ST_IDLE;
       c2_snap_q             <= '0;
       c3_snap_q             <= '0;
+      c2_slot_q             <= '0;
+      c3_slot_q             <= '0;
       eval_inflight_q       <= 1'b0;
       done_q                <= 1'b0;
       remove_valid_q        <= 1'b0;
       remove_count_q        <= '0;
       remove_slot_mask_q    <= '0;
       planq_count_q         <= '0;
-      for (int q = 0; q < 2; q++) begin
+      for (int q = 0; q < PLANQ_DEPTH; q++) begin
         planq_task_desc_q[q]  <= '{default: '0};
         planq_allow_s4pf_q[q] <= '0;
+        planq_local_slot_q[q] <= '{default: '0};
         planq_plan_count_q[q] <= '0;
         planq_remove_count_q[q] <= '0;
       end
@@ -643,15 +677,18 @@ module sched_schedule_core (
       st_q                  <= st_d;
       c2_snap_q             <= c2_snap_d;
       c3_snap_q             <= c3_snap_d;
+      c2_slot_q             <= c2_slot_d;
+      c3_slot_q             <= c3_slot_d;
       eval_inflight_q       <= eval_inflight_d;
       done_q                <= done_d;
       remove_valid_q        <= remove_valid_d;
       remove_count_q        <= remove_count_d;
       remove_slot_mask_q    <= remove_slot_mask_d;
       planq_count_q         <= planq_count_d;
-      for (int q = 0; q < 2; q++) begin
+      for (int q = 0; q < PLANQ_DEPTH; q++) begin
         planq_task_desc_q[q]  <= planq_task_desc_d[q];
         planq_allow_s4pf_q[q] <= planq_allow_s4pf_d[q];
+        planq_local_slot_q[q] <= planq_local_slot_d[q];
         planq_plan_count_q[q] <= planq_plan_count_d[q];
         planq_remove_count_q[q] <= planq_remove_count_d[q];
       end
@@ -667,13 +704,16 @@ module sched_schedule_core (
                               (planq_plan_count_q[0] == 2'd1) ? 2'b01 : 2'b11;
   assign plan_task_desc_o   = planq_task_desc_q[0];
   assign plan_allow_s4pf_o  = planq_allow_s4pf_q[0];
+  assign plan_local_slot_o  = planq_local_slot_q[0];
   assign plan_count_o       = planq_plan_count_q[0];
   assign plan_remove_count_o = planq_remove_count_q[0];
-  assign plan_queue_full_o  = (planq_count_q == 2'd2);
+  assign plan_queue_full_o  = (planq_count_q == PLANQ_COUNT_W'(PLANQ_DEPTH));
+  assign plan_queue_count_o = {{(4-PLANQ_COUNT_W){1'b0}}, planq_count_q};
 
   assign busy_o = (st_q != ST_IDLE) ||
                   (remove_valid_q && !remove_ready_i) ||
-                  ((planq_count_q == 2'd2) && !(plan_pop_i && (planq_count_q != 2'd0)));
+                  ((planq_count_q == PLANQ_COUNT_W'(PLANQ_DEPTH)) &&
+                   !(plan_pop_i && (planq_count_q != PLANQ_COUNT_W'(0))));
   assign done_o = done_q;
   assign makespan_o = (c2_snap_q.task_end > c3_snap_q.task_end) ?
                       c2_snap_q.task_end : c3_snap_q.task_end;
