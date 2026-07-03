@@ -32,10 +32,8 @@ module sched_mk_snap (
   output logic [T_W-1:0]   task_start_o,
   output logic [T_W-1:0]   task_end_o,
   output logic [T_W-1:0]   dma1_end_o,
-  output logic [T_W-1:0]   s1_end_o,
   output logic [T_W-1:0]   s2_end_o,
   output logic [T_W-1:0]   dma3_end_o,
-  output logic [T_W-1:0]   s3_end_o,
   output logic [T_W-1:0]   s4_start_o,
 
   // ── 带宽档位输出（2-bit：0/1/2 → 0/64/128 B/cc）────────────────────────
@@ -59,8 +57,27 @@ module sched_mk_snap (
   // ── 中间信号 ──────────────────────────────────────────────────────────────
   logic [NTOK_W-1:0] s1_tail;
   logic [NTOK_W-1:0] s3_tail;
+  logic [NTOK_W-1:0] s1_mdim;
+  logic [NTOK_W-1:0] s3_mdim;
   logic [T_W-1:0]    bs2_ntok, bs4_ntok;  // full ntok 的 best_s2/best_s4
   logic [T_W-1:0]    bs2_s1t,  bs4_s3t;   // tail ntok 的 best_s2/best_s4
+  logic [T_W-1:0]    s1_ts;
+  logic [T_W-1:0]    s1_td;
+  logic [T_W-1:0]    s3_ts;
+  logic [T_W-1:0]    s3_td;
+  logic [BW_W-1:0]   s1_bw;
+  logic [BW_W-1:0]   s3_bw;
+  logic [T_W-1:0]    s1_compute_off;
+  logic [T_W-1:0]    dma1_end_off;
+  logic [T_W-1:0]    s2_dur;
+  logic [T_W-1:0]    front_off;
+  logic [T_W-1:0]    back_off;
+  logic [T_W-1:0]    s3_dur;
+  logic [T_W-1:0]    dma3_dur;
+  logic [T_W-1:0]    s4_dur;
+  logic [T_W-1:0]    s3_compute_off;
+  logic [T_W-1:0]    dma3_end_off;
+  logic [T_W-1:0]    task_end_off;
 
   // 统一复用 sched_pkg 的时序原语函数，避免与包内定义漂移。
   assign bs2_ntok = best_s2_t(ntok_i);
@@ -68,55 +85,81 @@ module sched_mk_snap (
   assign bs2_s1t  = best_s2_t(s1_tail);
   assign bs4_s3t  = best_s4_t(s3_tail);
 
+  // Shape 解码集中在这里，避免在 tail/timing/DMA 选择里重复实例化同一组
+  // case/mux。后续组合路径只使用这些小 fanout 的预解码信号。
+  assign s1_mdim = mdim(shape_s1_i);
+  assign s3_mdim = mdim(shape_s3_i);
+  assign s1_ts   = kTs1(shape_s1_i);
+  assign s1_td   = kTd1(shape_s1_i);
+  assign s3_ts   = kTs3(shape_s3_i);
+  assign s3_td   = kTd3(shape_s3_i);
+  assign s1_bw   = alloc_bw(shape_s1_i);
+  assign s3_bw   = alloc_bw(shape_s3_i);
+
   // ── tail 计算 ─────────────────────────────────────────────────────────────
   always_comb begin
-    s1_tail = (ntok_i > mdim(shape_s1_i)) ? (ntok_i - mdim(shape_s1_i)) : '0;
-    s3_tail = (ntok_i > mdim(shape_s3_i)) ? (ntok_i - mdim(shape_s3_i)) : '0;
+    s1_tail = (ntok_i > s1_mdim) ? (ntok_i - s1_mdim) : '0;
+    s3_tail = (ntok_i > s3_mdim) ? (ntok_i - s3_mdim) : '0;
   end
 
   // ── 时序计算（组合逻辑）─────────────────────────────────────────────────
+  // 用 offset 形式直接生成后续真正使用的 timestamp，避免暴露并传播
+  // S1/S3 中间结束时间。最终每个 timestamp 都是 start_t_i + offset。
+  // 对 task_end 使用 front_off + back_off，其中 front_off=(S1+S2),
+  // back_off=(S3+S4)，让四项和以两级加法收敛，避免可见中间 timestamp
+  // 被串接成更深的 carry-propagate 链。
   always_comb begin
     task_start_o = start_t_i;
 
     // ── S1 / S2 阶段 ───────────────────────────────────────────────────────
     if (skip_s1_i) begin
-      dma1_end_o  = start_t_i;
-      s1_end_o    = start_t_i;
+      dma1_end_off = '0;
+      s1_compute_off = '0;
+      s2_dur       = bs2_ntok;
       bw_s1_o     = BW_0;
       m_s2_exec_o = ntok_i;
       skip_s2_o   = 1'b0;
-      s2_end_o    = start_t_i + bs2_ntok;
       dma_s1_o    = DMA_NONE;
     end else begin
-      dma1_end_o  = start_t_i + kTd1(shape_s1_i);
-      s1_end_o    = start_t_i + kTs1(shape_s1_i);
-      bw_s1_o     = alloc_bw(shape_s1_i);
+      dma1_end_off = s1_td;
+      s1_compute_off = s1_ts;
+      s2_dur       = bs2_s1t;
+      bw_s1_o     = s1_bw;
       m_s2_exec_o = s1_tail;
       skip_s2_o   = (s1_tail == '0);
-      s2_end_o    = s1_end_o + bs2_s1t;
-      dma_s1_o    = (alloc_bw(shape_s1_i) == BW_128) ? DMA_BOTH : DMA_IDMA;
+      dma_s1_o    = (s1_bw == BW_128) ? DMA_BOTH : DMA_IDMA;
     end
 
     // ── S3 / S4 阶段 ───────────────────────────────────────────────────────
     if (skip_s3_i) begin
-      dma3_end_o  = s2_end_o;
-      s3_end_o    = s2_end_o;
-      s4_start_o  = s2_end_o;
+      dma3_dur    = '0;
+      s3_dur      = '0;
+      s4_dur      = bs4_ntok;
       bw_s3_o     = BW_0;
       m_s4_exec_o = ntok_i;
       skip_s4_o   = 1'b0;
-      task_end_o  = s2_end_o + bs4_ntok;
       dma_s3_o    = DMA_NONE;
     end else begin
-      dma3_end_o  = s2_end_o + kTd3(shape_s3_i);
-      s3_end_o    = s2_end_o + kTs3(shape_s3_i);
-      s4_start_o  = s3_end_o;
-      bw_s3_o     = alloc_bw(shape_s3_i);
+      dma3_dur    = s3_td;
+      s3_dur      = s3_ts;
+      s4_dur      = bs4_s3t;
+      bw_s3_o     = s3_bw;
       m_s4_exec_o = s3_tail;
       skip_s4_o   = (s3_tail == '0);
-      task_end_o  = s3_end_o + bs4_s3t;
-      dma_s3_o    = (alloc_bw(shape_s3_i) == BW_128) ? DMA_BOTH : DMA_XDMA;
+      dma_s3_o    = (s3_bw == BW_128) ? DMA_BOTH : DMA_XDMA;
     end
+
+    front_off    = s1_compute_off + s2_dur;
+    back_off     = s3_dur + s4_dur;
+    s3_compute_off = front_off + s3_dur;
+    dma3_end_off = front_off + dma3_dur;
+    task_end_off = front_off + back_off;
+
+    dma1_end_o = start_t_i + dma1_end_off;
+    s2_end_o   = start_t_i + front_off;
+    dma3_end_o = start_t_i + dma3_end_off;
+    s4_start_o = start_t_i + s3_compute_off;
+    task_end_o = start_t_i + task_end_off;
   end
 
 endmodule

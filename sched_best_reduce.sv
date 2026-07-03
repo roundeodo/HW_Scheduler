@@ -46,47 +46,46 @@ module sched_best_reduce (
   //   4. snap_min  越大越好：makespan 相同则偏向更均衡/更晚的较早 cluster
   //   5. cand_id   越小越好：完全相等时保留更早枚举到的候选，匹配 C 的稳定性
   //
-  // 注意：这是本模块内部的 local function，不是 sched_pkg.sv 中的 function。
-  function automatic logic cand_better(
-    input logic                 have_best,
-    input score_key_t           best,
-    input logic [CAND_ID_W-1:0] best_id,
-    input score_key_t           cand,
-    input logic [CAND_ID_W-1:0] cand_id
+  // 分层比较比拼成一个超宽 key 更适合 timing：高优先级字段不相等时，
+  // 不需要让低优先级字段参与最终选择。这样代码表达了真实数据依赖，
+  // 综合器也更容易做分层比较/局部优化。
+  function automatic logic cand_score_better(
+    input score_key_t           cand_s,
+    input logic [CAND_ID_W-1:0] cand_id,
+    input score_key_t           best_s,
+    input logic [CAND_ID_W-1:0] best_id
   );
-    if (!have_best) begin
-      cand_better = 1'b1;
-    end else if (cand.cost != best.cost) begin
-      cand_better = (cand.cost < best.cost);
-    end else if (cand.rem_len != best.rem_len) begin
-      cand_better = (cand.rem_len < best.rem_len);
-    end else if (cand.snap_max != best.snap_max) begin
-      cand_better = (cand.snap_max < best.snap_max);
-    end else if (cand.snap_min != best.snap_min) begin
-      cand_better = (cand.snap_min > best.snap_min);
-    end else begin
-      cand_better = (cand_id < best_id);
+    begin
+      if (cand_s.cost != best_s.cost) begin
+        cand_score_better = (cand_s.cost < best_s.cost);
+      end else if (cand_s.rem_len != best_s.rem_len) begin
+        cand_score_better = (cand_s.rem_len < best_s.rem_len);
+      end else if (cand_s.snap_max != best_s.snap_max) begin
+        cand_score_better = (cand_s.snap_max < best_s.snap_max);
+      end else if (cand_s.snap_min != best_s.snap_min) begin
+        cand_score_better = (cand_s.snap_min > best_s.snap_min);
+      end else begin
+        cand_score_better = (cand_id < best_id);
+      end
     end
   endfunction
 
   always_comb begin
-    cand_remove_count = '0;
-
-    // candidate_generator 只产生 1-slot 或 2-slot remove mask。
-    // count 仅作为软件快速判断补几个新 expert；真正 compact 使用 4-bit slot mask。
-    for (int i = 0; i < 4; i++) begin
-      if (cand_remove_slot_mask_i[i]) begin
-        cand_remove_count = cand_remove_count + 2'd1;
-      end
-    end
+    // 4-bit popcount 写成两级 pair-sum，而不是 for-loop 线性累加链。
+    // remove_count 只用于 metadata；真正 compact 仍使用 4-bit slot mask。
+    cand_remove_count = ({1'b0, cand_remove_slot_mask_i[0]} +
+                         {1'b0, cand_remove_slot_mask_i[1]}) +
+                        ({1'b0, cand_remove_slot_mask_i[2]} +
+                         {1'b0, cand_remove_slot_mask_i[3]});
   end
 
   // 每 eval 完一个 candidate，eval_lane 会在结果有效的那个 cycle 拉高 cand_valid_i。
   // accepted_o=1 表示当前 candidate 比 best_*_q 中缓存的 best 更好；
   // 下一拍 always_ff 会用当前 candidate 覆盖 best cache。
   assign accepted_o = cand_valid_i &&
-                      cand_better(best_valid_q, best_score_q, best_id_q,
-                                  cand_score_i, cand_id_i);
+                      (!best_valid_q ||
+                       cand_score_better(cand_score_i, cand_id_i,
+                                         best_score_q, best_id_q));
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin

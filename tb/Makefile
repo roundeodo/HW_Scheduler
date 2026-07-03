@@ -26,6 +26,7 @@ VSIM    := vsim
 RTL_SRCS := \
     $(RTL_DIR)/sched_pkg.sv          \
     $(RTL_DIR)/sched_bw_ok.sv        \
+    $(RTL_DIR)/sched_bw_ok_seq.sv    \
     $(RTL_DIR)/sched_mk_snap.sv      \
     $(RTL_DIR)/sched_pick_shapes.sv  \
     $(RTL_DIR)/sched_s2pf_pair.sv    \
@@ -48,6 +49,7 @@ SCHED_INC  := ../../HeMAiA/target/sw/host/apps/offload_bingo_hw/single_chip/work
 CORE_RTL_SRCS := \
     $(RTL_DIR)/sched_pkg.sv                  \
     $(RTL_DIR)/sched_bw_ok.sv                \
+    $(RTL_DIR)/sched_bw_ok_seq.sv            \
     $(RTL_DIR)/sched_mk_snap.sv              \
     $(RTL_DIR)/sched_pick_shapes.sv          \
     $(RTL_DIR)/sched_s2pf_pair.sv            \

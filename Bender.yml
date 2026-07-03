@@ -7,6 +7,7 @@ sources:
   - files:
       - sched_pkg.sv
       - sched_bw_ok.sv
+      - sched_bw_ok_seq.sv
       - sched_mk_snap.sv
       - sched_pick_shapes.sv
       - sched_s2pf_pair.sv

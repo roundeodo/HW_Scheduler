@@ -4,7 +4,7 @@
 // MoE Hardware Scheduler — 1-lane candidate evaluator（Tick 域版本）
 //
 // 一个 lane 每次评估一个已经规范化的候选：
-//   pick_shapes/forced_shape -> mk_snap(A/B) -> try_s2pf_pair/latest -> bw_ok
+//   pick_shapes/forced_shape -> mk_snap(A/B) -> lite S2PF policy -> bw_ok
 //   -> continuation_cost -> score_key/plan_desc
 //
 // 本模块是带 start/done 握手的单候选 evaluator。外层
@@ -25,8 +25,7 @@ module sched_candidate_eval_lane (
   // ── 候选控制 ─────────────────────────────────────────────────────────────
   input  logic [1:0]         plan_type_i,          // 00=PAIR, 01=SPLIT, 10=SOLO
   input  logic               cluster_a_i,          // task A 所在 cluster（0=C2, 1=C3）
-  input  logic               enable_s2pf_i,
-  input  logic               single_latest_s2pf_i, // not_both_idle/latest-only 模式
+  input  s2pf_policy_t       s2pf_policy_i,
   input  logic               force_shape_a_i,
   input  logic               force_shape_b_i,
   input  logic [1:0]         forced_s1a_i,
@@ -66,6 +65,12 @@ module sched_candidate_eval_lane (
   input  logic [NTOK_W-1:0]  rem1_ntok_i,
   input  logic [T_W-1:0]     total_conc_after_i,
   input  logic [T_W-1:0]     max_conc_after_i,
+
+  output logic               bw_start_o,
+  output eval_snap_t         bw_snap_a_o,
+  output eval_snap_t         bw_snap_b_o,
+  input  logic               bw_done_i,
+  input  logic               bw_ok_i,
 
   // ── 评估结果 ─────────────────────────────────────────────────────────────
   output logic               eval_valid_o,
@@ -107,11 +112,11 @@ module sched_candidate_eval_lane (
 
   // ── mk_snap scalar wires ────────────────────────────────────────────────
   logic [T_W-1:0] raw_task_start_a, raw_task_end_a, raw_dma1_end_a;
-  logic [T_W-1:0] raw_s1_end_a, raw_s2_end_a, raw_dma3_end_a;
-  logic [T_W-1:0] raw_s3_end_a, raw_s4_start_a;
+  logic [T_W-1:0] raw_s2_end_a, raw_dma3_end_a;
+  logic [T_W-1:0] raw_s4_start_a;
   logic [T_W-1:0] raw_task_start_b, raw_task_end_b, raw_dma1_end_b;
-  logic [T_W-1:0] raw_s1_end_b, raw_s2_end_b, raw_dma3_end_b;
-  logic [T_W-1:0] raw_s3_end_b, raw_s4_start_b;
+  logic [T_W-1:0] raw_s2_end_b, raw_dma3_end_b;
+  logic [T_W-1:0] raw_s4_start_b;
 
   eval_snap_t raw_snap_a;
   eval_snap_t raw_snap_b;
@@ -121,9 +126,15 @@ module sched_candidate_eval_lane (
   logic s2pf_start;
   logic s2pf_busy;
   logic s2pf_done;
+  logic s2pf_bw_start;
+  eval_snap_t s2pf_bw_snap_a;
+  eval_snap_t s2pf_bw_snap_b;
   logic score_start;
   logic score_busy;
   logic score_done;
+  logic score_bw_start;
+  eval_snap_t score_bw_snap_a;
+  eval_snap_t score_bw_snap_b;
   logic eval_candidate_ok;
   logic [1:0] pick_s1a;
   logic [1:0] pick_s3a;
@@ -170,10 +181,8 @@ module sched_candidate_eval_lane (
     .task_start_o  (raw_task_start_a),
     .task_end_o    (raw_task_end_a),
     .dma1_end_o    (raw_dma1_end_a),
-    .s1_end_o      (raw_s1_end_a),
     .s2_end_o      (raw_s2_end_a),
     .dma3_end_o    (raw_dma3_end_a),
-    .s3_end_o      (raw_s3_end_a),
     .s4_start_o    (raw_s4_start_a),
     .bw_s1_o       (bw_s1a_o),
     .bw_s3_o       (bw_s3a_o),
@@ -195,10 +204,8 @@ module sched_candidate_eval_lane (
     .task_start_o  (raw_task_start_b),
     .task_end_o    (raw_task_end_b),
     .dma1_end_o    (raw_dma1_end_b),
-    .s1_end_o      (raw_s1_end_b),
     .s2_end_o      (raw_s2_end_b),
     .dma3_end_o    (raw_dma3_end_b),
-    .s3_end_o      (raw_s3_end_b),
     .s4_start_o    (raw_s4_start_b),
     .bw_s1_o       (bw_s1b_o),
     .bw_s3_o       (bw_s3b_o),
@@ -218,10 +225,8 @@ module sched_candidate_eval_lane (
       raw_snap_a.task_start   = raw_task_start_a;
       raw_snap_a.task_end     = raw_task_end_a;
       raw_snap_a.dma1_end     = raw_dma1_end_a;
-      raw_snap_a.s1_end       = raw_s1_end_a;
       raw_snap_a.s2_end       = raw_s2_end_a;
       raw_snap_a.dma3_end     = raw_dma3_end_a;
-      raw_snap_a.s3_end       = raw_s3_end_a;
       raw_snap_a.s4_start     = raw_s4_start_a;
       raw_snap_a.bw_s1        = bw_s1a_o;
       raw_snap_a.bw_s3        = bw_s3a_o;
@@ -236,10 +241,8 @@ module sched_candidate_eval_lane (
       raw_snap_b.task_start   = raw_task_start_b;
       raw_snap_b.task_end     = raw_task_end_b;
       raw_snap_b.dma1_end     = raw_dma1_end_b;
-      raw_snap_b.s1_end       = raw_s1_end_b;
       raw_snap_b.s2_end       = raw_s2_end_b;
       raw_snap_b.dma3_end     = raw_dma3_end_b;
-      raw_snap_b.s3_end       = raw_s3_end_b;
       raw_snap_b.s4_start     = raw_s4_start_b;
       raw_snap_b.bw_s1        = bw_s1b_o;
       raw_snap_b.bw_s3        = bw_s3b_o;
@@ -254,14 +257,18 @@ module sched_candidate_eval_lane (
     .start_i              (s2pf_start),
     .busy_o               (s2pf_busy),
     .done_o               (s2pf_done),
-    .enable_i             (enable_s2pf_i),
-    .single_latest_only_i (single_latest_s2pf_i),
+    .policy_i             (s2pf_policy_i),
     .side_a_active_i      (side_a_valid_i),
     .side_b_active_i      (side_b_valid_i),
     .shape_s3_a_i         (shape_s3a_o),
     .shape_s3_b_i         (shape_s3b_o),
     .snap_a_i             (raw_snap_a),
     .snap_b_i             (raw_snap_b),
+    .bw_start_o           (s2pf_bw_start),
+    .bw_snap_a_o          (s2pf_bw_snap_a),
+    .bw_snap_b_o          (s2pf_bw_snap_b),
+    .bw_done_i            ((ev_st_q == EV_WAIT_S2PF) ? bw_done_i : 1'b0),
+    .bw_ok_i              (bw_ok_i),
     .ok_o                 (bw_ok_o),
     .snap_a_o             (post_s2pf_a),
     .snap_b_o             (post_s2pf_b)
@@ -283,8 +290,17 @@ module sched_candidate_eval_lane (
     .rem1_ntok_i        (rem1_ntok_i),
     .total_conc_i       (total_conc_after_i),
     .max_conc_i         (max_conc_after_i),
+    .bw_start_o         (score_bw_start),
+    .bw_snap_a_o        (score_bw_snap_a),
+    .bw_snap_b_o        (score_bw_snap_b),
+    .bw_done_i          ((ev_st_q == EV_WAIT_SCORE) ? bw_done_i : 1'b0),
+    .bw_ok_i            (bw_ok_i),
     .cost_o             (cont_cost)
   );
+
+  assign bw_start_o = (ev_st_q == EV_WAIT_SCORE) ? score_bw_start : s2pf_bw_start;
+  assign bw_snap_a_o = (ev_st_q == EV_WAIT_SCORE) ? score_bw_snap_a : s2pf_bw_snap_a;
+  assign bw_snap_b_o = (ev_st_q == EV_WAIT_SCORE) ? score_bw_snap_b : s2pf_bw_snap_b;
 
   always_comb begin
     ev_st_d    = ev_st_q;

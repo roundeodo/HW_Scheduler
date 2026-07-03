@@ -12,8 +12,7 @@
 // The old reference implementation instantiated all sim1 solo cases in
 // parallel.  This version only enters the sim1 FSM when rem_len_i==1 and
 // reuses one mk_snap datapath for the solo cases.  The split case is replayed
-// combinationally in its final state instead of storing two full eval_snap_t
-// registers.
+// combinationally in its final state instead of storing two snap records.
 
 import sched_pkg::*;
 
@@ -33,6 +32,11 @@ module sched_score_unit (
   input  logic [NTOK_W-1:0]     rem1_ntok_i,
   input  logic [T_W-1:0]        total_conc_i,
   input  logic [T_W-1:0]        max_conc_i,
+  output logic                  bw_start_o,
+  output eval_snap_t            bw_snap_a_o,
+  output eval_snap_t            bw_snap_b_o,
+  input  logic                  bw_done_i,
+  input  logic                  bw_ok_i,
   output logic [T_W-1:0]        cost_o
 );
 
@@ -96,10 +100,8 @@ module sched_score_unit (
   logic [T_W-1:0]    mk_task_start;
   logic [T_W-1:0]    mk_task_end;
   logic [T_W-1:0]    mk_dma1_end;
-  logic [T_W-1:0]    mk_s1_end;
   logic [T_W-1:0]    mk_s2_end;
   logic [T_W-1:0]    mk_dma3_end;
-  logic [T_W-1:0]    mk_s3_end;
   logic [T_W-1:0]    mk_s4_start;
   logic [BW_W-1:0]   mk_bw_s1;
   logic [BW_W-1:0]   mk_bw_s3;
@@ -112,16 +114,16 @@ module sched_score_unit (
 
   // split replay 使用两套组合 mk_snap 直接生成 A/B 两侧，不写 full snap FF。
   logic [T_W-1:0] split_a_task_start, split_a_task_end, split_a_dma1_end;
-  logic [T_W-1:0] split_a_s1_end, split_a_s2_end, split_a_dma3_end;
-  logic [T_W-1:0] split_a_s3_end, split_a_s4_start;
+  logic [T_W-1:0] split_a_s2_end, split_a_dma3_end;
+  logic [T_W-1:0] split_a_s4_start;
   logic [BW_W-1:0] split_a_bw_s1, split_a_bw_s3;
   logic [NTOK_W-1:0] split_a_unused_m_s2, split_a_unused_m_s4;
   logic split_a_unused_skip_s2, split_a_unused_skip_s4;
   logic [1:0] split_a_unused_dma_s1, split_a_unused_dma_s3;
 
   logic [T_W-1:0] split_b_task_start, split_b_task_end, split_b_dma1_end;
-  logic [T_W-1:0] split_b_s1_end, split_b_s2_end, split_b_dma3_end;
-  logic [T_W-1:0] split_b_s3_end, split_b_s4_start;
+  logic [T_W-1:0] split_b_s2_end, split_b_dma3_end;
+  logic [T_W-1:0] split_b_s4_start;
   logic [BW_W-1:0] split_b_bw_s1, split_b_bw_s3;
   logic [NTOK_W-1:0] split_b_unused_m_s2, split_b_unused_m_s4;
   logic split_b_unused_skip_s2, split_b_unused_skip_s4;
@@ -134,6 +136,7 @@ module sched_score_unit (
   eval_snap_t split_pf_b;
   logic       split_ok;
   logic       split_s2pf_start;
+  logic       split_s2pf_bw_start;
   logic       split_s2pf_done;
 
   sched_pick_shapes i_sim1_split_pick_shapes (
@@ -160,10 +163,8 @@ module sched_score_unit (
     .task_start_o  (mk_task_start),
     .task_end_o    (mk_task_end),
     .dma1_end_o    (mk_dma1_end),
-    .s1_end_o      (mk_s1_end),
     .s2_end_o      (mk_s2_end),
     .dma3_end_o    (mk_dma3_end),
-    .s3_end_o      (mk_s3_end),
     .s4_start_o    (mk_s4_start),
     .bw_s1_o       (mk_bw_s1),
     .bw_s3_o       (mk_bw_s3),
@@ -185,10 +186,8 @@ module sched_score_unit (
     .task_start_o  (split_a_task_start),
     .task_end_o    (split_a_task_end),
     .dma1_end_o    (split_a_dma1_end),
-    .s1_end_o      (split_a_s1_end),
     .s2_end_o      (split_a_s2_end),
     .dma3_end_o    (split_a_dma3_end),
-    .s3_end_o      (split_a_s3_end),
     .s4_start_o    (split_a_s4_start),
     .bw_s1_o       (split_a_bw_s1),
     .bw_s3_o       (split_a_bw_s3),
@@ -210,10 +209,8 @@ module sched_score_unit (
     .task_start_o  (split_b_task_start),
     .task_end_o    (split_b_task_end),
     .dma1_end_o    (split_b_dma1_end),
-    .s1_end_o      (split_b_s1_end),
     .s2_end_o      (split_b_s2_end),
     .dma3_end_o    (split_b_dma3_end),
-    .s3_end_o      (split_b_s3_end),
     .s4_start_o    (split_b_s4_start),
     .bw_s1_o       (split_b_bw_s1),
     .bw_s3_o       (split_b_bw_s3),
@@ -231,18 +228,24 @@ module sched_score_unit (
     .start_i              (split_s2pf_start),
     .busy_o               (),
     .done_o               (split_s2pf_done),
-    .enable_i             (1'b1),
-    .single_latest_only_i (1'b0),
+    .policy_i             (S2PF_SPLIT_LITE),
     .side_a_active_i      (split_a_snap.valid),
     .side_b_active_i      (split_b_snap.valid),
     .shape_s3_a_i         (split_s3a),
     .shape_s3_b_i         (split_s3b),
     .snap_a_i             (split_a_snap),
     .snap_b_i             (split_b_snap),
+    .bw_start_o           (split_s2pf_bw_start),
+    .bw_snap_a_o          (bw_snap_a_o),
+    .bw_snap_b_o          (bw_snap_b_o),
+    .bw_done_i            (bw_done_i),
+    .bw_ok_i              (bw_ok_i),
     .ok_o                 (split_ok),
     .snap_a_o             (split_pf_a),
     .snap_b_o             (split_pf_b)
   );
+
+  assign bw_start_o = split_s2pf_bw_start;
 
   function automatic logic [T_W-1:0] min_t(
     input logic [T_W-1:0] a,
@@ -256,6 +259,26 @@ module sched_score_unit (
     input logic [T_W-1:0] b
   );
     max_t = (a > b) ? a : b;
+  endfunction
+
+  function automatic logic [T_W-1:0] csa3_sum_t(
+    input logic [T_W-1:0] a,
+    input logic [T_W-1:0] b,
+    input logic [T_W-1:0] c
+  );
+    logic [T_W-1:0] sum_bits;
+    logic [T_W-1:0] carry_bits;
+    logic [T_W:0]   final_sum;
+    begin
+      // Carry-save form for a+b+c.  The intermediate bt0+bt1 value is not
+      // used anywhere, so do not force two serial carry-propagate adders.
+      // Synthesis can map the xor/majority layer as a CSA compressor and use
+      // only one final CPA for the visible result.
+      sum_bits   = a ^ b ^ c;
+      carry_bits = (a & b) | (a & c) | (b & c);
+      final_sum  = {1'b0, sum_bits} + {carry_bits, 1'b0};
+      csa3_sum_t = final_sum[T_W-1:0];
+    end
   endfunction
 
   function automatic logic [T_W-1:0] fast_cost(
@@ -272,6 +295,8 @@ module sched_score_unit (
     logic [T_W-1:0] pc;
     logic [T_W-1:0] ser;
     logic [T_W-1:0] serc;
+    logic [T_W-1:0] bt0;
+    logic [T_W-1:0] bt1;
     logic [T_W-1:0] half_sum;
     logic [T_W-1:0] extra;
     begin
@@ -284,8 +309,10 @@ module sched_score_unit (
       end else if (rem_len == NR_W'(2)) begin
         bc0  = best_conc_t(rem0_ntok);
         bc1  = best_conc_t(rem1_ntok);
+        bt0  = best_task_t(rem0_ntok);
+        bt1  = best_task_t(rem1_ntok);
         pc   = tl_i + max_t(bc0, bc1);
-        ser  = te_i + best_task_t(rem0_ntok) + best_task_t(rem1_ntok);
+        ser  = csa3_sum_t(te_i, bt0, bt1);
         serc = max_t(ser, tl_i);
         fast_cost = min_t(pc, serc);
       end else begin
@@ -333,10 +360,8 @@ module sched_score_unit (
     split_a_snap.task_start = split_a_task_start;
     split_a_snap.task_end   = split_a_task_end;
     split_a_snap.dma1_end   = split_a_dma1_end;
-    split_a_snap.s1_end     = split_a_s1_end;
     split_a_snap.s2_end     = split_a_s2_end;
     split_a_snap.dma3_end   = split_a_dma3_end;
-    split_a_snap.s3_end     = split_a_s3_end;
     split_a_snap.s4_start   = split_a_s4_start;
     split_a_snap.bw_s1      = split_a_bw_s1;
     split_a_snap.bw_s3      = split_a_bw_s3;
@@ -348,10 +373,8 @@ module sched_score_unit (
     split_b_snap.task_start = split_b_task_start;
     split_b_snap.task_end   = split_b_task_end;
     split_b_snap.dma1_end   = split_b_dma1_end;
-    split_b_snap.s1_end     = split_b_s1_end;
     split_b_snap.s2_end     = split_b_s2_end;
     split_b_snap.dma3_end   = split_b_dma3_end;
-    split_b_snap.s3_end     = split_b_s3_end;
     split_b_snap.s4_start   = split_b_s4_start;
     split_b_snap.bw_s1      = split_b_bw_s1;
     split_b_snap.bw_s3      = split_b_bw_s3;

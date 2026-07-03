@@ -31,6 +31,7 @@ package sched_pkg;
   localparam int unsigned NTOK_W    = 9;  // token 数宽度（≤511）
   localparam int unsigned CAND_ID_W = 6;  // 单轮候选 ID（覆盖 ≤64 个候选）
   localparam int unsigned SLOT_W    = 6;  // dynamic args slot_id ABI: ctrl[19:14], 0..63
+  localparam int unsigned PLANQ_DEPTH = 4; // wrapper-visible completed-round FIFO depth
 
   // ── 唯一容量配置点：只改 E_MAX，EID_W/NR_W/T_W 自动推导 ─────────────────
   localparam int unsigned EID_W     = $clog2(E_MAX + 2); // 0=NONE,1=GHOST,2..E_MAX+1=experts
@@ -188,20 +189,18 @@ package sched_pkg;
     logic [NTOK_W-1:0]     ntok;
   } head_ctx_t;
 
-  // ── Evaluator 内部精简 snap ─────────────────────────────────────────────
+  // ── Evaluator snap ─────────────────────────────────────────────────────
   //
-  // 该结构不是 C ABI 的 snap_t；它只保留 candidate evaluator / bw_ok /
-  // continuation_cost 必需的字段。未被当前候选改写的一侧可以直接传入
-  // base snap，因此 solo/not_both_idle 也能和 busy peer 做带宽检查。
+  // 这是 RTL 内部唯一 snap 协议，只保存后续硬件真正读取的字段。
+  // s1_end/s3_end 是 C 模型的中间时间点，不参与 BW、候选生成、score、
+  // ghost 或 commit 决策，因此不进入结构体，也不作为跨阶段状态传播。
   typedef struct packed {
     logic                 valid;
     logic [T_W-1:0]       task_start;
     logic [T_W-1:0]       task_end;
     logic [T_W-1:0]       dma1_end;
-    logic [T_W-1:0]       s1_end;
     logic [T_W-1:0]       s2_end;
     logic [T_W-1:0]       dma3_end;
-    logic [T_W-1:0]       s3_end;
     logic [T_W-1:0]       s4_start;
     logic [BW_W-1:0]      bw_s1;
     logic [BW_W-1:0]      bw_s3;
@@ -309,7 +308,7 @@ package sched_pkg;
   // ── Plan FIFO 的 lightweight lowering scalar ─────────────────────────────
   //
   // 这些字段都能由 task_desc_t 组合推导，不需要跨 round 保存 snap，也不需要
-  // 输出完整 dynamic args。RTL 在 PLAN_FIFO_DATA reserved bits 中带出它们，
+  // 输出完整 dynamic args。RTL 在 PLAN_ENTRY_DATA payload 中带出它们，
   // 让 CVA6 fast lowering 少做 shape/tail/dma binding 相关的小计算。
   typedef struct packed {
     logic                 skip_s2;
@@ -319,6 +318,24 @@ package sched_pkg;
     logic [NTOK_W-1:0]    m_s2_exec;
     logic [NTOK_W-1:0]    m_s4_exec;
   } task_lower_scalar_t;                // 24 bits when NTOK_W=9
+
+  // ── MMIO plan entry word layout ─────────────────────────────────────────
+  //
+  // PLAN_ENTRY_DATAx 是 64-bit fast-lowering payload。RTL 在 plan FIFO enqueue
+  // 时完成打包，wrapper read path 只做 indexed mux，避免读路径重复推导 patch。
+  localparam int unsigned PLAN_EID_LSB          = 0;
+  localparam int unsigned PLAN_TOKEN_START_LSB  = PLAN_EID_LSB + EID_RAW_W;
+  localparam int unsigned PLAN_NTOK_LSB         = PLAN_TOKEN_START_LSB + NTOK_W;
+  localparam int unsigned PLAN_HAS_S2PF_LSB     = PLAN_NTOK_LSB + NTOK_W;
+  localparam int unsigned PLAN_CTRL_LSB         = PLAN_HAS_S2PF_LSB + 1;
+  localparam int unsigned PLAN_CTRL_W           = 13;
+  localparam int unsigned PLAN_M_S2_LSB         = PLAN_CTRL_LSB + PLAN_CTRL_W;
+  localparam int unsigned PLAN_M_S4_LSB         = PLAN_M_S2_LSB + NTOK_W;
+  localparam int unsigned PLAN_INLINE_PATCH_LSB = PLAN_M_S4_LSB + NTOK_W;
+
+  localparam int unsigned INLINE_PATCH_VALID_LSB      = 0;
+  localparam int unsigned INLINE_PATCH_NO_COPY_LSB    = 1;
+  localparam int unsigned INLINE_PATCH_LOCAL_SLOT_LSB = 2;
 
   function automatic logic [NTOK_W-1:0] shape_c_mtiles(input logic [NTOK_W-1:0] ntok);
     logic [NTOK_W:0] tmp;
@@ -371,6 +388,72 @@ package sched_pkg;
     end
   endfunction
 
+  function automatic logic [PLAN_CTRL_W-1:0] pack_plan_ctrl_word(
+    input task_desc_t t,
+    input slot_id_t   local_slot
+  );
+    logic [PLAN_CTRL_W-1:0] ctrl;
+    begin
+      ctrl = '0;
+      ctrl[0]    = t.skip_s1;
+      ctrl[1]    = t.skip_s3;
+      ctrl[3:2]  = t.s1;
+      ctrl[5:4]  = t.s3;
+      ctrl[6]    = t.cluster;
+      ctrl[12:7] = local_slot;
+      pack_plan_ctrl_word = ctrl;
+    end
+  endfunction
+
+  function automatic logic [7:0] pack_inline_patch(
+    input logic     valid,
+    input logic     no_copy,
+    input slot_id_t local_slot
+  );
+    logic [7:0] word;
+    begin
+      word = '0;
+      word[INLINE_PATCH_VALID_LSB] = valid;
+      word[INLINE_PATCH_NO_COPY_LSB] = no_copy;
+      word[INLINE_PATCH_LOCAL_SLOT_LSB +: SLOT_W] = local_slot;
+      pack_inline_patch = word;
+    end
+  endfunction
+
+  function automatic logic [63:0] pack_plan_entry_word(
+    input task_desc_t t,
+    input slot_id_t   local_slot,
+    input logic [7:0] inline_patch
+  );
+    logic [63:0] word;
+    task_lower_scalar_t lower;
+    begin
+      word = '0;
+      lower = lower_scalar_from_task(t);
+      word[PLAN_EID_LSB +: EID_RAW_W]          = t.eid;
+      word[PLAN_TOKEN_START_LSB +: NTOK_W]     = t.tok_start;
+      word[PLAN_NTOK_LSB +: NTOK_W]            = t.ntok;
+      word[PLAN_HAS_S2PF_LSB]                  = t.has_s2pf;
+      word[PLAN_CTRL_LSB +: PLAN_CTRL_W]       = pack_plan_ctrl_word(t, local_slot);
+      word[PLAN_M_S2_LSB +: NTOK_W]            = lower.m_s2_exec;
+      word[PLAN_M_S4_LSB +: NTOK_W]            = lower.m_s4_exec;
+      word[PLAN_INLINE_PATCH_LSB +: 8]         = inline_patch;
+      pack_plan_entry_word = word;
+    end
+  endfunction
+
+  // ── Lite S2PF policy ────────────────────────────────────────────────────
+  //
+  // S2PF 搜索不再保留完整 try_s2pf_pair() 的 25-way 通用枚举。候选生成时
+  // 直接指定当前候选所属的硬件模板集合，降低 start mux、BW request fanout
+  // 和无效中间结果。
+  typedef enum logic [1:0] {
+    S2PF_OFF           = 2'd0, // 不尝试 S2PF，只检查原始 BW
+    S2PF_PAIR_LITE     = 2'd1, // PAIR: none + both@task_start/dma1_end/latest
+    S2PF_SPLIT_LITE    = 2'd2, // SPLIT: none + both@task_start/dma1_end + b_only@latest
+    S2PF_SINGLE_LATEST = 2'd3  // SINGLE/not_both: none + active side latest
+  } s2pf_policy_t;
+
   // ── candidate_generator → candidate_eval_lane 的规范化候选 ─────────────
   //
   // side A/B 在 evaluator 内对应物理 C2/C3 snap。SOLO 放到 C3 时，
@@ -381,8 +464,7 @@ package sched_pkg;
     logic [CAND_ID_W-1:0]  candidate_id;
     logic [1:0]            plan_type;
     logic                  cluster_a;
-    logic                  enable_s2pf;
-    logic                  single_latest_s2pf;
+    s2pf_policy_t          s2pf_policy;
     logic                  force_shape_a;
     logic                  force_shape_b;
     logic [1:0]            forced_s1a;

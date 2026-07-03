@@ -9,7 +9,7 @@
 // Covered candidate families:
 //   nr == 1      : 2 clusters x 9 solo shapes, split half cuts,
 //                  optional early-start on idle cluster
-//   both_idle    : PAIR(top0, topK), PAIR(topK, topJ), SPLIT(top0)
+//   both_idle    : compressed PAIR/SPLIT set tuned for hardware timing
 //   not both idle: top0 to idle cluster at idle_t / busy DMA endpoints
 
 import sched_pkg::*;
@@ -56,11 +56,11 @@ module sched_candidate_generator (
   typedef enum logic [1:0] {
     MODE_NONE     = 2'd0,  // active_count==0，不应出现（FSM 直接跳 ST_DONE）
     MODE_SINGLE   = 2'd1,  // nr==1：solo×18 + split×2 + early-start×3
-    MODE_BOTH     = 2'd2,  // both_idle：PAIR×12 + SPLIT×8
+    MODE_BOTH     = 2'd2,  // both_idle：3 fixed PAIR + 2 SPLIT cuts
     MODE_NOT_BOTH = 2'd3   // not_both_idle：top0 放 idle cluster，最多3个起始时刻
   } mode_t;
 
-  typedef enum logic [1:0] {ST_IDLE, ST_EMIT, ST_DONE} state_t;
+  typedef enum logic [1:0] {ST_IDLE, ST_SEARCH, ST_EMIT, ST_DONE} state_t;
 
   // ── 内部信号声明 ──────────────────────────────────────────────────────────
   state_t st_q, st_d;
@@ -76,13 +76,8 @@ module sched_candidate_generator (
   eval_snap_t     busy_snap;
   logic [T_W-1:0] tpts [3];
   logic [1:0]     ntpts;
-  typedef struct packed {
-    logic            valid;
-    logic [T_W-1:0]  lo;
-    logic [T_W-1:0]  hi;
-    logic [BW_W-1:0] bw;
-  } seg_t;
-  seg_t busy_seg [5];
+  logic [T_W-1:0] release_t [4];
+  logic [3:0]     release_valid;
 
   // ── 时刻基准信号（纯组合，跟随输入实时更新）──────────────────────────────
   // tnow：当前最早可用时刻（两 cluster task_end 的最大值），作为 both_idle 的基准起始时间
@@ -102,28 +97,25 @@ module sched_candidate_generator (
   assign busy_snap  = idle_is_c3 ? c2_snap_i : c3_snap_i;
 
   // ── early-start 候选起始时刻（MODE_SINGLE idx20..22 和 MODE_NOT_BOTH 共用）──
-  // C 代码不是直接使用 dma1_end/s2pf_end/dma3_end，而是先调用
-  // snap_segs(busy) 得到 merged piecewise BW segments，再取 bsegs[].hi。
-  // 这里内联同等 segment 构造，保证 S1/S2PF overlap 时的 tpts 与 C 对齐。
+  //
+  // 硬件策略：只收集忙侧 cluster 上会释放 DMA 带宽的少数 endpoint：
+  //   idle_t、S1 DMA end、S2PF end、S3 DMA end、S4PF window end
+  // 然后取前两个晚于 idle_t 的非重复 endpoint，形成最多 3 个起点。
+  // 不再重建 C snap_segs() 的完整 piecewise timeline；那会引入多段比较、
+  // overlap merge 和较大 fanout，而后续 bw_ok 仍会检查最终候选是否合法。
   always_comb begin
-    int unsigned seg_pos;
     int unsigned tpt_pos;
     logic has1;
     logic has4;
     logic has3;
     logic has5;
-    logic seg_ok;
     logic dup;
-    logic [T_W-1:0] ovl_lo;
-    logic [T_W-1:0] ovl_hi;
-    logic [BW_W:0] merged;
 
-    for (int i = 0; i < 5; i++) begin
-      busy_seg[i] = '0;
+    for (int i = 0; i < 4; i++) begin
+      release_t[i] = '0;
     end
+    release_valid = '0;
 
-    seg_pos = 0;
-    seg_ok  = 1'b1;
     has1 = busy_snap.valid &&
            (busy_snap.bw_s1 != BW_0) &&
            (busy_snap.dma1_end > busy_snap.task_start);
@@ -137,102 +129,30 @@ module sched_candidate_generator (
     has5 = busy_snap.valid &&
            busy_snap.s4pf_valid;
 
-    if (has1 && has4 &&
-        (busy_snap.task_start < busy_snap.s2pf_end) &&
-        (busy_snap.s2pf_start < busy_snap.dma1_end)) begin
-      ovl_lo = (busy_snap.task_start > busy_snap.s2pf_start) ?
-               busy_snap.task_start : busy_snap.s2pf_start;
-      ovl_hi = (busy_snap.dma1_end < busy_snap.s2pf_end) ?
-               busy_snap.dma1_end : busy_snap.s2pf_end;
-      merged = {1'b0, busy_snap.bw_s1} + {1'b0, busy_snap.s2pf_bw};
-      if (merged > {1'b0, BW_128}) begin
-        seg_ok = 1'b0;
-      end
-
-      if (seg_ok) begin
-        if (busy_snap.task_start < busy_snap.s2pf_start) begin
-          busy_seg[seg_pos].valid = 1'b1;
-          busy_seg[seg_pos].lo    = busy_snap.task_start;
-          busy_seg[seg_pos].hi    = busy_snap.s2pf_start;
-          busy_seg[seg_pos].bw    = busy_snap.bw_s1;
-          seg_pos++;
-        end else if (busy_snap.s2pf_start < busy_snap.task_start) begin
-          busy_seg[seg_pos].valid = 1'b1;
-          busy_seg[seg_pos].lo    = busy_snap.s2pf_start;
-          busy_seg[seg_pos].hi    = busy_snap.task_start;
-          busy_seg[seg_pos].bw    = busy_snap.s2pf_bw;
-          seg_pos++;
-        end
-
-        if (ovl_hi > ovl_lo) begin
-          busy_seg[seg_pos].valid = 1'b1;
-          busy_seg[seg_pos].lo    = ovl_lo;
-          busy_seg[seg_pos].hi    = ovl_hi;
-          busy_seg[seg_pos].bw    = merged[BW_W-1:0];
-          seg_pos++;
-        end
-
-        if (busy_snap.dma1_end > busy_snap.s2pf_end) begin
-          busy_seg[seg_pos].valid = 1'b1;
-          busy_seg[seg_pos].lo    = busy_snap.s2pf_end;
-          busy_seg[seg_pos].hi    = busy_snap.dma1_end;
-          busy_seg[seg_pos].bw    = busy_snap.bw_s1;
-          seg_pos++;
-        end else if (busy_snap.s2pf_end > busy_snap.dma1_end) begin
-          busy_seg[seg_pos].valid = 1'b1;
-          busy_seg[seg_pos].lo    = busy_snap.dma1_end;
-          busy_seg[seg_pos].hi    = busy_snap.s2pf_end;
-          busy_seg[seg_pos].bw    = busy_snap.s2pf_bw;
-          seg_pos++;
-        end
-      end
-    end else begin
-      if (has1) begin
-        busy_seg[seg_pos].valid = 1'b1;
-        busy_seg[seg_pos].lo    = busy_snap.task_start;
-        busy_seg[seg_pos].hi    = busy_snap.dma1_end;
-        busy_seg[seg_pos].bw    = busy_snap.bw_s1;
-        seg_pos++;
-      end
-      if (has4) begin
-        busy_seg[seg_pos].valid = 1'b1;
-        busy_seg[seg_pos].lo    = busy_snap.s2pf_start;
-        busy_seg[seg_pos].hi    = busy_snap.s2pf_end;
-        busy_seg[seg_pos].bw    = busy_snap.s2pf_bw;
-        seg_pos++;
-      end
-    end
-
-    if (seg_ok && has3) begin
-      busy_seg[seg_pos].valid = 1'b1;
-      busy_seg[seg_pos].lo    = busy_snap.s2_end;
-      busy_seg[seg_pos].hi    = busy_snap.dma3_end;
-      busy_seg[seg_pos].bw    = busy_snap.bw_s3;
-      seg_pos++;
-    end
-
-    if (seg_ok && has5) begin
-      busy_seg[seg_pos].valid = 1'b1;
-      busy_seg[seg_pos].lo    = busy_snap.s4pf_start;
-      busy_seg[seg_pos].hi    = busy_snap.s4pf_start + GHOST_WINDOW_TICKS;
-      busy_seg[seg_pos].bw    = BW_64;
-    end
+    release_valid[0] = has1;
+    release_t[0]     = busy_snap.dma1_end;
+    release_valid[1] = has4;
+    release_t[1]     = busy_snap.s2pf_end;
+    release_valid[2] = has3;
+    release_t[2]     = busy_snap.dma3_end;
+    release_valid[3] = has5;
+    release_t[3]     = busy_snap.s4pf_start + GHOST_WINDOW_TICKS;
 
     tpts[0] = idle_t;
     tpts[1] = '0;
     tpts[2] = '0;
     tpt_pos = 1;
 
-    for (int i = 0; i < 5; i++) begin
-      if (busy_seg[i].valid && (busy_seg[i].hi > idle_t) && (tpt_pos < 3)) begin
+    for (int i = 0; i < 4; i++) begin
+      if (release_valid[i] && (release_t[i] > idle_t) && (tpt_pos < 3)) begin
         dup = 1'b0;
         for (int j = 0; j < 3; j++) begin
-          if ((j < int'(tpt_pos)) && (tpts[j] == busy_seg[i].hi)) begin
+          if ((j < int'(tpt_pos)) && (tpts[j] == release_t[i])) begin
             dup = 1'b1;
           end
         end
         if (!dup) begin
-          tpts[tpt_pos] = busy_seg[i].hi;
+          tpts[tpt_pos] = release_t[i];
           tpt_pos++;
         end
       end
@@ -321,32 +241,51 @@ module sched_candidate_generator (
                       !dup;
   endfunction
 
+  // both_idle 使用压缩后的 split 集合：
+  //   id 3: half_ceil = ceil(ntok/2)
+  //   id 4: front_m2  = cut=2
+  // 这里不复用 8-cut split_cut_valid()，避免把已删除的 cut 也放进 duplicate
+  // 检查链。front_m2 只有在 ntok>=5 时才不同于 half_ceil 且合法。
+  function automatic logic [NTOK_W-1:0] both_split_cut_for_id(
+    input logic [NTOK_W-1:0]      ntok,
+    input logic [CAND_ID_W-1:0]   id
+  );
+    both_split_cut_for_id = (id == CAND_ID_W'(3)) ?
+                            ((ntok + NTOK_W'(1)) >> 1) :
+                            NTOK_W'(2);
+  endfunction
+
+  function automatic logic both_split_cut_valid(
+    input logic [NTOK_W-1:0]      ntok,
+    input logic [CAND_ID_W-1:0]   id
+  );
+    if (id == CAND_ID_W'(3)) begin
+      both_split_cut_valid = (ntok >= NTOK_W'(2));
+    end else begin
+      both_split_cut_valid = (ntok >= NTOK_W'(5));
+    end
+  endfunction
+
   function automatic logic [CAND_ID_W-1:0] mode_last_idx(input mode_t mode);
     unique case (mode)
       MODE_SINGLE:   mode_last_idx = CAND_ID_W'(22);
-      MODE_BOTH:     mode_last_idx = CAND_ID_W'(19);
+      MODE_BOTH:     mode_last_idx = CAND_ID_W'(4);
       MODE_NOT_BOTH: mode_last_idx = CAND_ID_W'(2);
       default:       mode_last_idx = '0;
     endcase
   endfunction
 
   // candidate_id_possible：只判断“这个 candidate ID 在本轮有没有可能有效”。
-  // 它不会改变 candidate_id 编码，因此 best/replay 的稳定 tie-break 仍然与原 C/RTL
-  // 顺序一致；只是 FSM 会跳过必然无效的 ID，避免 eval lane 白跑。
+  // MODE_BOTH 已经改成压缩 candidate 编码；best/replay 使用这个压缩 ID 做稳定
+  // tie-break。FSM 仍然顺序跳过无效 ID，避免展开多路 find 逻辑。
   function automatic logic candidate_id_possible(
     input mode_t                 mode,
     input logic [CAND_ID_W-1:0]  id
   );
-    logic [1:0] k;
-    logic [1:0] slot_a;
-    logic [1:0] slot_b;
     logic [2:0] split_slot;
     logic [NTOK_W-1:0] cut;
     begin
       candidate_id_possible = 1'b0;
-      k = '0;
-      slot_a = '0;
-      slot_b = '0;
       split_slot = '0;
       cut = '0;
 
@@ -366,33 +305,27 @@ module sched_candidate_generator (
         end
 
         MODE_BOTH: begin
-          if (id < CAND_ID_W'(6)) begin
-            k = 2'(id[2:1]) + 2'd1;
-            candidate_id_possible = (active_count_i >= NR_W'(2)) &&
-                                    head_i[0].valid && head_i[k].valid;
-          end else if (id < CAND_ID_W'(12)) begin
-            unique case (id[2:1])
-              2'd3: begin
-                slot_a = id[0] ? 2'd2 : 2'd1;
-                slot_b = id[0] ? 2'd1 : 2'd2;
-              end
-              2'd0: begin
-                slot_a = id[0] ? 2'd3 : 2'd1;
-                slot_b = id[0] ? 2'd1 : 2'd3;
-              end
-              default: begin
-                slot_a = id[0] ? 2'd3 : 2'd2;
-                slot_b = id[0] ? 2'd2 : 2'd3;
-              end
-            endcase
-            candidate_id_possible = (active_count_i > NR_W'(2)) &&
-                                    head_i[slot_a].valid && head_i[slot_b].valid;
-          end else if (id <= CAND_ID_W'(19)) begin
-            split_slot = 3'(id - CAND_ID_W'(12));
-            cut = split_cut_for_slot(head_i[0].ntok, split_slot);
-            candidate_id_possible = head_i[0].valid &&
-                                    split_cut_valid(head_i[0].ntok, split_slot, cut);
-          end
+          unique case (id)
+            CAND_ID_W'(0): begin
+              candidate_id_possible = (active_count_i >= NR_W'(2)) &&
+                                      head_i[0].valid && head_i[1].valid;
+            end
+            CAND_ID_W'(1): begin
+              candidate_id_possible = (active_count_i >= NR_W'(3)) &&
+                                      head_i[1].valid && head_i[2].valid;
+            end
+            CAND_ID_W'(2): begin
+              candidate_id_possible = (active_count_i >= NR_W'(4)) &&
+                                      head_i[2].valid && head_i[3].valid;
+            end
+            CAND_ID_W'(3), CAND_ID_W'(4): begin
+              cut = both_split_cut_for_id(head_i[0].ntok, id);
+              candidate_id_possible = head_i[0].valid &&
+                                      (cut > '0) && (cut < head_i[0].ntok) &&
+                                      both_split_cut_valid(head_i[0].ntok, id);
+            end
+            default: candidate_id_possible = 1'b0;
+          endcase
         end
 
         MODE_NOT_BOTH: begin
@@ -404,34 +337,12 @@ module sched_candidate_generator (
     end
   endfunction
 
-  task automatic find_candidate_from(
-    input  mode_t                 mode,
-    input  logic [CAND_ID_W-1:0]  start_id,
-    output logic                  found,
-    output logic [CAND_ID_W-1:0]  found_id
-  );
-    logic [CAND_ID_W-1:0] probe;
-    logic [CAND_ID_W-1:0] limit;
-    begin
-      found = 1'b0;
-      found_id = start_id;
-      limit = mode_last_idx(mode);
-      for (int i = 0; i < 24; i++) begin
-        probe = start_id + CAND_ID_W'(i);
-        if (!found && (probe <= limit) && candidate_id_possible(mode, probe)) begin
-          found = 1'b1;
-          found_id = probe;
-        end
-      end
-    end
-  endtask
-
   // ── 轮次 FSM 与全模式候选编码 ────────────────────────────────────────────────
   // 覆盖 MODE_SINGLE / MODE_BOTH / MODE_NOT_BOTH 三种模式，与上方 tpts/cand_* 无直属模式绑定。
 
   // 每种模式的最后一个候选 ID（到达后下一拍转 ST_DONE）
   //   MODE_SINGLE   : 0..22 → 23候选 (18 solo + 2 split + 3 early-start)
-  //   MODE_BOTH     : 0..19 → 20候选 (6 PAIR(top0,K) + 6 PAIR(K,J) + 8 SPLIT)
+  //   MODE_BOTH     : 0..4  → 5候选 (3 fixed PAIR + half_ceil/front_m2 SPLIT)
   //   MODE_NOT_BOTH : 0..2  → 最多3候选 (ntpts 个有效起始时刻)
   always_comb begin
     last_idx = mode_last_idx(mode_q);
@@ -445,10 +356,9 @@ module sched_candidate_generator (
     unique case (st_q)
       ST_IDLE: begin
         // start_i 高时：根据 active_count / both_idle 决定本轮枚举模式。
-        // idx_d 不是固定清零，而是跳到本轮第一个可能有效的 candidate ID。
+        // idx 从 0 开始，后续由 ST_SEARCH 顺序跳过无效 candidate。
+        // 这里刻意不用 24 路组合 find，避免 head_i/active_count_i 被大扇出展开。
         if (start_i) begin
-          logic found;
-          logic [CAND_ID_W-1:0] found_id;
           mode_t next_mode;
 
           if (active_count_i == NR_W'(0)) begin
@@ -465,29 +375,30 @@ module sched_candidate_generator (
           if (next_mode == MODE_NONE) begin
             st_d = ST_DONE;
           end else begin
-            find_candidate_from(next_mode, '0, found, found_id);
-            if (found) begin
-              idx_d = found_id;
-              st_d  = ST_EMIT;
-            end else begin
-              st_d = ST_DONE;
-            end
+            idx_d = '0;
+            st_d  = ST_SEARCH;
           end
+        end
+      end
+
+      ST_SEARCH: begin
+        // 每拍只检查一个 candidate ID。这样 head_i 只进入一个
+        // candidate_id_possible() 实例，而不是同时展开 20+ 个实例。
+        if (idx_q > last_idx) begin
+          st_d = ST_DONE;
+        end else if (candidate_id_possible(mode_q, idx_q)) begin
+          st_d = ST_EMIT;
+        end else begin
+          idx_d = idx_q + CAND_ID_W'(1);
         end
       end
 
       ST_EMIT: begin
         // advance_i 由外层 eval_lane 驱动，每评估完一个候选拉高一拍。
-        // 这里直接跳过后续必然无效的 candidate ID，减少 eval lane 空跑。
+        // 这里进入 ST_SEARCH 顺序跳过后续无效 ID，用时间换 fanout/组合深度。
         if (advance_i) begin
-          logic found;
-          logic [CAND_ID_W-1:0] found_id;
-          find_candidate_from(mode_q, idx_q + CAND_ID_W'(1), found, found_id);
-          if (found) begin
-            idx_d = found_id;
-          end else begin
-            st_d = ST_DONE;
-          end
+          idx_d = idx_q + CAND_ID_W'(1);
+          st_d  = ST_SEARCH;
         end
       end
 
@@ -623,8 +534,7 @@ module sched_candidate_generator (
     cand_o = '0;
     cand_o.valid               = replay_i || (st_q == ST_EMIT);
     cand_o.candidate_id        = idx_eff;
-    cand_o.enable_s2pf         = 1'b1;
-    cand_o.single_latest_s2pf  = 1'b0;
+    cand_o.s2pf_policy         = S2PF_PAIR_LITE;
     cand_o.shape_t0            = tnow;
 
     unique case (mode_q)
@@ -650,7 +560,7 @@ module sched_candidate_generator (
         if (idx_eff < CAND_ID_W'(18)) begin
           cand_o.plan_type     = PLAN_SOLO;
           cand_o.cluster_a     = solo_to_c3;
-          cand_o.enable_s2pf   = 1'b0;
+          cand_o.s2pf_policy   = S2PF_OFF;
           cand_o.cost_only_tie = 1'b1;
           cand_o.remove_slot_mask = mask_one_slot(2'd0);
 
@@ -676,7 +586,7 @@ module sched_candidate_generator (
         end else if (idx_eff < CAND_ID_W'(20)) begin
             cand_o.plan_type     = PLAN_SPLIT;
             cand_o.cluster_a     = 1'b0;
-            cand_o.enable_s2pf   = 1'b1;
+            cand_o.s2pf_policy   = S2PF_SPLIT_LITE;
             cand_o.cost_only_tie = 1'b1;
             cand_o.side_a_valid  = split_cut_valid(head_i[0].ntok, single_split_slot, cut);
             cand_o.side_b_valid  = cand_o.side_a_valid;
@@ -693,7 +603,7 @@ module sched_candidate_generator (
                                   (early_slot < ntpts);
           cand_o.plan_type      = PLAN_SOLO;
           cand_o.cluster_a      = idle_is_c3;
-          cand_o.enable_s2pf    = 1'b0;
+          cand_o.s2pf_policy    = S2PF_OFF;
           cand_o.cost_only_tie  = 1'b1;
           cand_o.remove_slot_mask = mask_one_slot(2'd0);
           cand_o.shape_t0       = tpts[early_slot];
@@ -719,70 +629,56 @@ module sched_candidate_generator (
       end
 
       // ── MODE_BOTH：both_idle ─────────────────────────────────────────────────
-      // 对应 C moe_plan() 中 both_idle 分支。两 cluster 同时从 tnow 启动。
-      // idx 0..5 : PAIR(top0, topK) K=1..3，两方向（A→C2+B→C3 或 B→C2+A→C3）
-      //            bit[0] 决定方向，bit[2:1] 决定 K
-      // idx 6..11: PAIR(topK, topJ) K<J ∈ {1,2,3}，共 C(3,2)×2=6 种
-      //            bit[0] 决定方向，bit[2:1] 编码 K/J 对
-      // idx 12..19: SPLIT(top0)，8种 cut，valid 由 split_cut_valid() 过滤
+      // hardware-lite both_idle 分支。两 cluster 同时从 tnow 启动。
+      // idx 0: PAIR(top0 -> C2, top1 -> C3)
+      // idx 1: PAIR(top1 -> C2, top2 -> C3)
+      // idx 2: PAIR(top2 -> C2, top3 -> C3)
+      // idx 3: SPLIT(top0), half_ceil
+      // idx 4: SPLIT(top0), front_m2 (cut=2)
       MODE_BOTH: begin
         head_ctx_t ha;
         head_ctx_t hb;
         logic [1:0] slot_a;
         logic [1:0] slot_b;
-        logic [2:0] split_slot;
+        logic       pair_enough;
         logic [NTOK_W-1:0] cut;
 
         ha = '0;
         hb = '0;
         slot_a = '0;
         slot_b = '0;
-        split_slot = '0;
+        pair_enough = 1'b0;
         cut = '0;
         cand_o.plan_type = PLAN_PAIR;
         cand_o.cluster_a = 1'b0;  // A 侧固定 C2，B 侧固定 C3
         cand_o.start_a   = tnow;
         cand_o.start_b   = tnow;
 
-        if (idx_eff < CAND_ID_W'(6)) begin
-          // PAIR(top0, topK)：k = idx[2:1]+1 ∈ {1,2,3}；idx[0] 决定放置方向
-          logic [1:0] k;
-          k = 2'(idx_eff[2:1]) + 2'd1;
-          if (idx_eff[0] == 1'b0) begin
-            ha = head_i[0];  // top0 → C2
-            hb = head_i[k];  // topK → C3
-            slot_a = 2'd0;
-            slot_b = k;
-          end else begin
-            ha = head_i[k];  // topK → C2
-            hb = head_i[0];  // top0 → C3
-            slot_a = k;
-            slot_b = 2'd0;
-          end
-        end else if (idx_eff < CAND_ID_W'(12)) begin
-          // PAIR(topK, topJ)：idx[2:1] 编码三种 K/J 对，idx[0] 决定方向
-          // idx=6..7: (top1,top2)；idx=8..9: (top1,top3)；idx=10..11: (top2,top3)
-          unique case (idx_eff[2:1])
-            2'd3: begin
-              slot_a = idx_eff[0] ? 2'd2 : 2'd1;
-              slot_b = idx_eff[0] ? 2'd1 : 2'd2;
+        if (idx_eff <= CAND_ID_W'(2)) begin
+          unique case (idx_eff)
+            CAND_ID_W'(0): begin
+              slot_a = 2'd0;
+              slot_b = 2'd1;
+              pair_enough = (active_count_i >= NR_W'(2));
             end
-            2'd0: begin
-              slot_a = idx_eff[0] ? 2'd3 : 2'd1;
-              slot_b = idx_eff[0] ? 2'd1 : 2'd3;
+            CAND_ID_W'(1): begin
+              slot_a = 2'd1;
+              slot_b = 2'd2;
+              pair_enough = (active_count_i >= NR_W'(3));
             end
             default: begin
-              slot_a = idx_eff[0] ? 2'd3 : 2'd2;
-              slot_b = idx_eff[0] ? 2'd2 : 2'd3;
+              slot_a = 2'd2;
+              slot_b = 2'd3;
+              pair_enough = (active_count_i >= NR_W'(4));
             end
           endcase
           ha = head_i[slot_a];
           hb = head_i[slot_b];
         end else begin
-          split_slot = 3'(idx_eff - CAND_ID_W'(12));
-          cut = split_cut_for_slot(head_i[0].ntok, split_slot);
+          cut = both_split_cut_for_id(head_i[0].ntok, idx_eff);
           cand_o.plan_type    = PLAN_SPLIT;
-          cand_o.side_a_valid = split_cut_valid(head_i[0].ntok, split_slot, cut);
+          cand_o.s2pf_policy  = S2PF_SPLIT_LITE;
+          cand_o.side_a_valid = both_split_cut_valid(head_i[0].ntok, idx_eff);
           cand_o.side_b_valid = cand_o.side_a_valid;
           cand_o.eid_a        = head_i[0].eid;
           cand_o.eid_b        = head_i[0].eid;
@@ -792,14 +688,8 @@ module sched_candidate_generator (
           cand_o.remove_slot_mask = mask_one_slot(2'd0);
         end
 
-        if (idx_eff < CAND_ID_W'(12)) begin
-          if (idx_eff < CAND_ID_W'(6)) begin
-            cand_o.valid = cand_o.valid && ha.valid && hb.valid &&
-                           (active_count_i >= NR_W'(2));
-          end else begin
-            cand_o.valid = cand_o.valid && ha.valid && hb.valid &&
-                           (active_count_i > NR_W'(2));
-          end
+        if (idx_eff <= CAND_ID_W'(2)) begin
+          cand_o.valid = cand_o.valid && ha.valid && hb.valid && pair_enough;
           cand_o.side_a_valid = cand_o.valid;
           cand_o.side_b_valid = cand_o.valid;
           cand_o.eid_a        = ha.eid;
@@ -814,14 +704,14 @@ module sched_candidate_generator (
       // 对应 C moe_plan() 中 not_both_idle 分支。
       // 将 top0 放到 idle cluster，依次尝试 tpts[0..ntpts-1] 这几个起始时刻。
       // 固定 ShapeC（force_shape=1, forced_s1/s3=SHAPE_C）使 bw_req=128，
-      // 启用 single_latest_s2pf（只尝试最晚一个合法的 S2PF 起点）。
+      // S2PF 使用 SINGLE_LATEST policy：只尝试最晚一个合法起点。
       MODE_NOT_BOTH: begin
         // idx >= ntpts 的候选标为无效（tpts 可能只有1或2个有效时刻）
         cand_o.valid              = cand_o.valid && head_i[0].valid &&
                                     (idx_eff < CAND_ID_W'(ntpts));
         cand_o.plan_type          = PLAN_SOLO;
         cand_o.cluster_a          = idle_is_c3;  // 把 top0 放到 idle 的那个 cluster
-        cand_o.single_latest_s2pf = 1'b1;  // not_both_idle 分支只试 latest S2PF
+        cand_o.s2pf_policy        = S2PF_SINGLE_LATEST;
         cand_o.cost_only_tie      = 1'b1;
         cand_o.score_makespan_only = 1'b1;
         cand_o.remove_slot_mask   = mask_one_slot(2'd0);

@@ -23,8 +23,7 @@ module tb_eval_lane;
   logic               cand_valid_i;
   logic [1:0]         plan_type_i;
   logic               cluster_a_i;
-  logic               enable_s2pf_i;
-  logic               single_latest_s2pf_i;
+  s2pf_policy_t       s2pf_policy_i;
   logic               force_shape_a_i;
   logic               force_shape_b_i;
   logic [1:0]         forced_s1a_i;
@@ -76,6 +75,11 @@ module tb_eval_lane;
   logic [NTOK_W-1:0] m_s2_a_o, m_s4_a_o, m_s2_b_o, m_s4_b_o;
   logic              skip_s2_a_o, skip_s4_a_o, skip_s2_b_o, skip_s4_b_o;
   logic [1:0]        dma_s1_a_o, dma_s3_a_o, dma_s1_b_o, dma_s3_b_o;
+  logic              bw_start;
+  eval_snap_t        bw_snap_a;
+  eval_snap_t        bw_snap_b;
+  logic              bw_done;
+  logic              bw_ok;
 
   // ── DUT instantiation ─────────────────────────────────────────────────────
   sched_candidate_eval_lane dut (
@@ -87,8 +91,7 @@ module tb_eval_lane;
     .cand_valid_i          (cand_valid_i),
     .plan_type_i           (plan_type_i),
     .cluster_a_i           (cluster_a_i),
-    .enable_s2pf_i         (enable_s2pf_i),
-    .single_latest_s2pf_i  (single_latest_s2pf_i),
+    .s2pf_policy_i         (s2pf_policy_i),
     .force_shape_a_i       (force_shape_a_i),
     .force_shape_b_i       (force_shape_b_i),
     .forced_s1a_i          (forced_s1a_i),
@@ -120,6 +123,11 @@ module tb_eval_lane;
     .rem1_ntok_i           (rem1_ntok_i),
     .total_conc_after_i    (total_conc_after_i),
     .max_conc_after_i      (max_conc_after_i),
+    .bw_start_o            (bw_start),
+    .bw_snap_a_o           (bw_snap_a),
+    .bw_snap_b_o           (bw_snap_b),
+    .bw_done_i             (bw_done),
+    .bw_ok_i               (bw_ok),
     .eval_valid_o          (eval_valid_o),
     .bw_ok_o               (bw_ok_o),
     .makespan_o            (makespan_o),
@@ -155,6 +163,17 @@ module tb_eval_lane;
     .dma_s3_b_o            (dma_s3_b_o)
   );
 
+  sched_bw_ok_seq i_eval_lane_bw (
+    .clk_i    (clk_i),
+    .rst_ni   (rst_ni),
+    .start_i  (bw_start),
+    .busy_o   (),
+    .done_o   (bw_done),
+    .snap_a_i (bw_snap_a),
+    .snap_b_i (bw_snap_b),
+    .ok_o     (bw_ok)
+  );
+
   // ── Simulation-time constants ─────────────────────────────────────────────
   localparam string VEC_FILE = "eval_vectors.txt";
   localparam int    SETTLE_NS = 1;  // combinational settle time
@@ -185,10 +204,8 @@ module tb_eval_lane;
     base_snap_a_i.task_start = T_W'(f_task_start);
     base_snap_a_i.task_end   = T_W'(f_task_end);
     base_snap_a_i.dma1_end   = T_W'(f_dma1_end);
-    base_snap_a_i.s1_end     = T_W'(f_s1_end);
     base_snap_a_i.s2_end     = T_W'(f_s2_end);
     base_snap_a_i.dma3_end   = T_W'(f_dma3_end);
-    base_snap_a_i.s3_end     = T_W'(f_s3_end);
     base_snap_a_i.s4_start   = T_W'(f_s4_start);
     base_snap_a_i.bw_s1      = BW_W'(f_bw_s1);
     base_snap_a_i.bw_s3      = BW_W'(f_bw_s3);
@@ -219,10 +236,8 @@ module tb_eval_lane;
     base_snap_b_i.task_start = T_W'(f_task_start);
     base_snap_b_i.task_end   = T_W'(f_task_end);
     base_snap_b_i.dma1_end   = T_W'(f_dma1_end);
-    base_snap_b_i.s1_end     = T_W'(f_s1_end);
     base_snap_b_i.s2_end     = T_W'(f_s2_end);
     base_snap_b_i.dma3_end   = T_W'(f_dma3_end);
-    base_snap_b_i.s3_end     = T_W'(f_s3_end);
     base_snap_b_i.s4_start   = T_W'(f_s4_start);
     base_snap_b_i.bw_s1      = BW_W'(f_bw_s1);
     base_snap_b_i.bw_s3      = BW_W'(f_bw_s3);
@@ -246,7 +261,7 @@ module tb_eval_lane;
     // Per-field integer temporaries for $fscanf
     // Control [0..10]
     int f_plan_type, f_cluster_a;
-    int f_enable_s2pf, f_single_latest;
+    int f_s2pf_policy, f_s2pf_reserved;
     int f_force_a, f_force_b;
     int f_fs1a, f_fs3a, f_fs1b, f_fs3b;
     int f_cost_only_tie;
@@ -312,7 +327,7 @@ module tb_eval_lane;
         // [0..10] control
         "%d %d %d %d %d %d %d %d %d %d %d",
         f_plan_type, f_cluster_a,
-        f_enable_s2pf, f_single_latest,
+        f_s2pf_policy, f_s2pf_reserved,
         f_force_a, f_force_b,
         f_fs1a, f_fs3a, f_fs1b, f_fs3b,
         f_cost_only_tie);
@@ -371,8 +386,7 @@ module tb_eval_lane;
       // ── Drive DUT inputs ──────────────────────────────────────────────
       plan_type_i          = 2'(f_plan_type);
       cluster_a_i          = f_cluster_a[0];
-      enable_s2pf_i        = f_enable_s2pf[0];
-      single_latest_s2pf_i = f_single_latest[0];
+      s2pf_policy_i        = s2pf_policy_t'(f_s2pf_policy[1:0]);
       force_shape_a_i      = f_force_a[0];
       force_shape_b_i      = f_force_b[0];
       forced_s1a_i         = 2'(f_fs1a);
@@ -432,8 +446,8 @@ module tb_eval_lane;
 `define CHK(sig, exp, name) \
   if (int'(sig) !== exp) begin \
     if (!fail_this) \
-      $display("[FAIL] tid=%0d  ntok_a=%0d ntok_b=%0d sw(%0d,%0d,%0d,%0d) enable_s2pf=%0d", \
-               tid, f_ntok_a, f_ntok_b, f_sw_a, f_dn_a, f_sw_b, f_dn_b, f_enable_s2pf); \
+      $display("[FAIL] tid=%0d  ntok_a=%0d ntok_b=%0d sw(%0d,%0d,%0d,%0d) s2pf_policy=%0d", \
+               tid, f_ntok_a, f_ntok_b, f_sw_a, f_dn_a, f_sw_b, f_dn_b, f_s2pf_policy); \
     $display("       %-20s  got=%0d  exp=%0d", name, int'(sig), exp); \
     fail_this = 1; \
   end

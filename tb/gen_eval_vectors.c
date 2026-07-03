@@ -8,8 +8,8 @@
  * Field layout (0-indexed):
  *  [0]        plan_type       (0=PAIR, 1=SPLIT, 2=SOLO)
  *  [1]        cluster_a
- *  [2]        enable_s2pf
- *  [3]        single_latest_s2pf
+ *  [2]        s2pf_policy (0=off, 1=pair_lite, 2=split_lite, 3=single_latest)
+ *  [3]        reserved
  *  [4]        force_shape_a
  *  [5]        force_shape_b
  *  [6]        forced_s1a
@@ -74,6 +74,15 @@
 #define SHAPE_A 0
 #define SHAPE_B 1
 #define SHAPE_C 2
+
+#define PLAN_PAIR  0
+#define PLAN_SPLIT 1
+#define PLAN_SOLO  2
+
+#define S2PF_OFF           0
+#define S2PF_PAIR_LITE     1
+#define S2PF_SPLIT_LITE    2
+#define S2PF_SINGLE_LATEST 3
 
 static const uint32_t KTS1[3]  = {8, 4, 2};   /* S1 GEMM duration */
 static const uint32_t KTS3[3]  = {4, 2, 1};   /* S3 GEMM duration */
@@ -284,40 +293,20 @@ static snap_t apply_s2pf(snap_t sn, int shape_s3, uint32_t pf_start) {
     return sn;
 }
 
-/* Build ca[] / ca_valid[] list (4 candidate pf_start positions for one side).
- * Returns 1 if can_a == 1 (prerequisite for having any candidates). */
-static int build_s2pf_candidates(const snap_t *sn, int shape_s3,
-                                  uint32_t ca[4], int ca_v[4]) {
-    for (int i = 0; i < 4; i++) { ca[i] = 0; ca_v[i] = 0; }
-    /* Gate: can_apply_s2pf at task_start is the prerequisite */
-    if (!can_apply_s2pf(sn, shape_s3, sn->task_start)) return 0;
-
+static int s2pf_dma1_start_valid(const snap_t *sn, int shape_s3) {
     uint32_t hi = sn->s2_end - KTD3[shape_s3];
-
-    ca[0] = sn->task_start; ca_v[0] = 1;
-
-    if (sn->dma1_end >= sn->task_start &&
-        sn->dma1_end <= hi &&
-        sn->dma1_end != sn->task_start) {
-        ca[1] = sn->dma1_end; ca_v[1] = 1;
-    }
-    if (sn->s1_end >= sn->task_start &&
-        sn->s1_end <= hi &&
-        sn->s1_end != sn->dma1_end) {
-        ca[2] = sn->s1_end; ca_v[2] = 1;
-    }
-    if (hi != sn->task_start) {
-        ca[3] = hi; ca_v[3] = 1;
-    }
-    return 1;
+    return can_apply_s2pf(sn, shape_s3, sn->task_start) &&
+           (sn->dma1_end >= sn->task_start) &&
+           (sn->dma1_end <= hi) &&
+           (sn->dma1_end != sn->task_start);
 }
 
-/* try_s2pf_pair — mirrors the RTL's 25-combo scan with exact priority order.
- * Priority: more prefetches > fewer; ties by sum of pf_start (lower wins);
- * equal sum → first encountered in combo-index order wins. */
+/* try_s2pf_pair — mirrors sched_s2pf_pair.sv lite policy.
+ * The old 25-way A/B independent cross-product is intentionally not modeled.
+ */
 static void try_s2pf_pair(const snap_t *raw_a, int s3a,
                            const snap_t *raw_b, int s3b,
-                           int enable, int single_latest,
+                           int policy,
                            int side_a_active, int side_b_active,
                            snap_t *out_a, snap_t *out_b, int *ok_out) {
     *out_a  = *raw_a;
@@ -336,92 +325,72 @@ static void try_s2pf_pair(const snap_t *raw_a, int s3a,
         }
     }
 
-    if (enable && side_a_active && side_b_active) {
-        /* Full search: A-only, B-only, A+B */
-        uint32_t ca[4], cb[4];
-        int ca_v[4], cb_v[4];
-        int can_a = build_s2pf_candidates(raw_a, s3a, ca, ca_v);
-        int can_b = build_s2pf_candidates(raw_b, s3b, cb, cb_v);
-        (void)can_a; (void)can_b; /* checked via ca_v/cb_v */
+    int can_a = side_a_active &&
+                can_apply_s2pf(raw_a, s3a, raw_a->task_start);
+    int can_b = side_b_active &&
+                can_apply_s2pf(raw_b, s3b, raw_b->task_start);
+    uint32_t hi_a = can_a ? (raw_a->s2_end - KTD3[s3a]) : 0u;
+    uint32_t hi_b = can_b ? (raw_b->s2_end - KTD3[s3b]) : 0u;
 
-        /* Combos 1..4: A only */
-        for (int ia = 0; ia < 4; ia++) {
-            if (!ca_v[ia]) continue;
-            snap_t ta = apply_s2pf(*raw_a, s3a, ca[ia]);
-            if (bw_ok(&ta, raw_b)) {
-                uint64_t ss = (uint64_t)ca[ia];
-                if (!*ok_out || 1 > best_class ||
-                    (1 == best_class && ss < best_sum)) {
-                    *ok_out = 1;
-                    *out_a = ta; *out_b = *raw_b;
-                    best_class = 1; best_sum = ss;
-                }
-            }
+#define TAKE_BOTH(psa_, psb_) do {                                      \
+        snap_t ta = apply_s2pf(*raw_a, s3a, (psa_));                    \
+        snap_t tb = apply_s2pf(*raw_b, s3b, (psb_));                    \
+        if (ta.s2pf_valid && tb.s2pf_valid && bw_ok(&ta, &tb)) {        \
+            uint64_t ss = (uint64_t)(psa_) + (uint64_t)(psb_);          \
+            if (!*ok_out || 2 > best_class ||                           \
+                (2 == best_class && ss < best_sum)) {                   \
+                *ok_out = 1; *out_a = ta; *out_b = tb;                  \
+                best_class = 2; best_sum = ss;                          \
+            }                                                           \
+        }                                                               \
+    } while (0)
+
+#define TAKE_A_ONLY(psa_) do {                                          \
+        snap_t ta = apply_s2pf(*raw_a, s3a, (psa_));                    \
+        if (ta.s2pf_valid && bw_ok(&ta, raw_b)) {                       \
+            uint64_t ss = (uint64_t)(psa_);                             \
+            if (!*ok_out || 1 > best_class ||                           \
+                (1 == best_class && ss < best_sum)) {                   \
+                *ok_out = 1; *out_a = ta; *out_b = *raw_b;              \
+                best_class = 1; best_sum = ss;                          \
+            }                                                           \
+        }                                                               \
+    } while (0)
+
+#define TAKE_B_ONLY(psb_) do {                                          \
+        snap_t tb = apply_s2pf(*raw_b, s3b, (psb_));                    \
+        if (tb.s2pf_valid && bw_ok(raw_a, &tb)) {                       \
+            uint64_t ss = (uint64_t)(psb_);                             \
+            if (!*ok_out || 1 > best_class ||                           \
+                (1 == best_class && ss < best_sum)) {                   \
+                *ok_out = 1; *out_a = *raw_a; *out_b = tb;              \
+                best_class = 1; best_sum = ss;                          \
+            }                                                           \
+        }                                                               \
+    } while (0)
+
+    if (policy == S2PF_PAIR_LITE) {
+        if (can_a && can_b) TAKE_BOTH(raw_a->task_start, raw_b->task_start);
+        if (s2pf_dma1_start_valid(raw_a, s3a) &&
+            s2pf_dma1_start_valid(raw_b, s3b)) {
+            TAKE_BOTH(raw_a->dma1_end, raw_b->dma1_end);
         }
-        /* Combos 5..8: B only */
-        for (int ib = 0; ib < 4; ib++) {
-            if (!cb_v[ib]) continue;
-            snap_t tb = apply_s2pf(*raw_b, s3b, cb[ib]);
-            if (bw_ok(raw_a, &tb)) {
-                uint64_t ss = (uint64_t)cb[ib];
-                if (!*ok_out || 1 > best_class ||
-                    (1 == best_class && ss < best_sum)) {
-                    *ok_out = 1;
-                    *out_a = *raw_a; *out_b = tb;
-                    best_class = 1; best_sum = ss;
-                }
-            }
+        if (can_a && can_b) TAKE_BOTH(hi_a, hi_b);
+    } else if (policy == S2PF_SPLIT_LITE) {
+        if (can_a && can_b) TAKE_BOTH(raw_a->task_start, raw_b->task_start);
+        if (s2pf_dma1_start_valid(raw_a, s3a) &&
+            s2pf_dma1_start_valid(raw_b, s3b)) {
+            TAKE_BOTH(raw_a->dma1_end, raw_b->dma1_end);
         }
-        /* Combos 9..24: A+B (outer ia, inner ib — combo index = 9+ia*4+ib) */
-        for (int ia = 0; ia < 4; ia++) {
-            if (!ca_v[ia]) continue;
-            snap_t ta = apply_s2pf(*raw_a, s3a, ca[ia]);
-            for (int ib = 0; ib < 4; ib++) {
-                if (!cb_v[ib]) continue;
-                snap_t tb = apply_s2pf(*raw_b, s3b, cb[ib]);
-                if (bw_ok(&ta, &tb)) {
-                    uint64_t ss = (uint64_t)ca[ia] + (uint64_t)cb[ib];
-                    if (!*ok_out || 2 > best_class ||
-                        (2 == best_class && ss < best_sum)) {
-                        *ok_out = 1;
-                        *out_a = ta; *out_b = tb;
-                        best_class = 2; best_sum = ss;
-                    }
-                }
-            }
-        }
-    } else if (enable && single_latest && side_a_active) {
-        /* Combo 1 only: latest A (single_latest_only mode) */
-        if (can_apply_s2pf(raw_a, s3a, raw_a->task_start)) {
-            uint32_t hi_a = raw_a->s2_end - KTD3[s3a];
-            snap_t ta = apply_s2pf(*raw_a, s3a, hi_a);
-            if (bw_ok(&ta, raw_b)) {
-                uint64_t ss = hi_a;
-                if (!*ok_out || 1 > best_class ||
-                    (1 == best_class && ss < best_sum)) {
-                    *ok_out = 1;
-                    *out_a = ta; *out_b = *raw_b;
-                    best_class = 1; best_sum = ss;
-                }
-            }
-        }
-    } else if (enable && single_latest && side_b_active) {
-        /* Combo 5 only: latest B (single_latest_only mode) */
-        if (can_apply_s2pf(raw_b, s3b, raw_b->task_start)) {
-            uint32_t hi_b = raw_b->s2_end - KTD3[s3b];
-            snap_t tb = apply_s2pf(*raw_b, s3b, hi_b);
-            if (bw_ok(raw_a, &tb)) {
-                uint64_t ss = hi_b;
-                if (!*ok_out || 1 > best_class ||
-                    (1 == best_class && ss < best_sum)) {
-                    *ok_out = 1;
-                    *out_a = *raw_a; *out_b = tb;
-                    best_class = 1; best_sum = ss;
-                }
-            }
-        }
+        if (can_b) TAKE_B_ONLY(hi_b);
+    } else if (policy == S2PF_SINGLE_LATEST) {
+        if (side_a_active && !side_b_active && can_a) TAKE_A_ONLY(hi_a);
+        else if (side_b_active && !side_a_active && can_b) TAKE_B_ONLY(hi_b);
     }
-    /* else: no additional combos; only combo 0 was tried */
+
+#undef TAKE_B_ONLY
+#undef TAKE_A_ONLY
+#undef TAKE_BOTH
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -482,7 +451,7 @@ static uint32_t score_unit(const snap_t *pa, const snap_t *pb,
             snap_t rb = mk_snap(tl, s1b, s3b, sb_ntok, sw_c3, dn_c3);
             snap_t oa, ob; int split_ok;
             try_s2pf_pair(&ra, s3a, &rb, s3b,
-                          /*enable=*/1, /*single_latest=*/0,
+                          S2PF_SPLIT_LITE,
                           /*side_a=*/1, /*side_b=*/1,
                           &oa, &ob, &split_ok);
             if (split_ok) {
@@ -527,7 +496,7 @@ typedef struct {
 
 static eval_result_t eval_lane(
     /* control */
-    int cand_valid, int enable_s2pf, int single_latest,
+    int cand_valid, int s2pf_policy,
     int force_a, int forced_s1a, int forced_s3a,
     int force_b, int forced_s1b, int forced_s3b,
     /* task A */
@@ -569,7 +538,7 @@ static eval_result_t eval_lane(
     /* 3. try_s2pf_pair */
     snap_t out_a, out_b; int ok;
     try_s2pf_pair(&raw_a, r.s3a, &raw_b, r.s3b,
-                  enable_s2pf, single_latest,
+                  s2pf_policy,
                   side_a_valid, side_b_valid,
                   &out_a, &out_b, &ok);
 
@@ -611,7 +580,7 @@ static void print_snap_fields(const snap_t *s) {
 static void emit(int cand_id,
                  /* control */
                  int plan_type, int cluster_a,
-                 int enable_s2pf, int single_latest,
+                 int s2pf_try, int s2pf_single_side,
                  int force_a, int fs1a, int fs3a,
                  int force_b, int fs1b, int fs3b,
                  int cost_only_tie,
@@ -629,8 +598,19 @@ static void emit(int cand_id,
                  /* base snaps */
                  snap_t base_a, snap_t base_b) {
 
+    int s2pf_policy = S2PF_OFF;
+    if (s2pf_try) {
+        if (s2pf_single_side) {
+            s2pf_policy = S2PF_SINGLE_LATEST;
+        } else if (plan_type == PLAN_SPLIT) {
+            s2pf_policy = S2PF_SPLIT_LITE;
+        } else {
+            s2pf_policy = S2PF_PAIR_LITE;
+        }
+    }
+
     eval_result_t res = eval_lane(
-        /*cand_valid=*/1, enable_s2pf, single_latest,
+        /*cand_valid=*/1, s2pf_policy,
         force_a, fs1a, fs3a, force_b, fs1b, fs3b,
         side_a_valid, start_a, ntok_a, sw_a, dn_a,
         side_b_valid, start_b, ntok_b, sw_b, dn_b,
@@ -641,7 +621,7 @@ static void emit(int cand_id,
     /* Fields [0..31] */
     printf("%d %d %d %d %d %d %d %d %d %d %d",
            plan_type, cluster_a,
-           enable_s2pf, single_latest,
+           s2pf_policy, 0,
            force_a, force_b, fs1a, fs3a, fs1b, fs3b,
            cost_only_tie);
     printf(" %d %d %u %u %d %d %u %u %u %u",
@@ -687,7 +667,7 @@ int main(void) {
     int tid = 0;
 
     /* ─── Group 1: PAIR basic — pick_shapes and mk_snap timing ──────────── */
-    /* No cache hits, varying ntok; enable_s2pf=0, rem_len=0 */
+    /* No cache hits, varying ntok; S2PF policy=off, rem_len=0 */
     {
         static const uint32_t ntoks[] = {1, 2, 4, 8, 12, 16, 32, 64};
         for (int ia = 0; ia < 8; ia++) {
@@ -771,9 +751,9 @@ int main(void) {
              idle0, idle0);
     }
 
-    /* ─── Group 5: S2PF enabled — both sides can prefetch ───────────────── */
+    /* ─── Group 5: PAIR_LITE — both sides can prefetch ──────────────────── */
     {
-        /* Standard PAIR: ntok_a=ntok_b=8, ShapeB S1+S3, enable_s2pf=1 */
+        /* Standard PAIR: ntok_a=ntok_b=8, ShapeB S1+S3, S2PF pair-lite */
         uint32_t ntoks[] = {4, 8, 16, 32};
         for (int i = 0; i < 4; i++) {
             uint32_t n = ntoks[i];
@@ -785,7 +765,7 @@ int main(void) {
         }
     }
 
-    /* ─── Group 6: S2PF enabled — one side has skip_s3 (bw_s3=0 → no s2pf) */
+    /* ─── Group 6: PAIR_LITE — one side has skip_s3 (bw_s3=0 → no s2pf) ─── */
     {
         /* Side A has dn_a=1 → skip_s3 → bw_s3=0 → no s2pf on A */
         emit(tid++, 0,0,1,0, 0,0,0,0,0,0,0,
@@ -809,7 +789,7 @@ int main(void) {
              idle0, idle0);
     }
 
-    /* ─── Group 7: S2PF enabled — sw hit makes ShapeC, larger S2 window ── */
+    /* ─── Group 7: PAIR_LITE — sw hit makes ShapeC, larger S2 window ───── */
     {
         /* sw_a=1: ShapeC S1, skip_s1 → big S2 window; s2pf possible */
         emit(tid++, 0,0,1,0, 0,0,0,0,0,0,0,
@@ -833,19 +813,19 @@ int main(void) {
              idle0, idle0);
     }
 
-    /* ─── Group 8: single_latest_only mode (SOLO / not_both_idle) ────────── */
+    /* ─── Group 8: single-side latest mode (SOLO / not_both_idle) ────────── */
     {
         uint32_t ntoks[] = {4, 8, 16};
         for (int i = 0; i < 3; i++) {
             uint32_t n = ntoks[i];
-            /* A active, single_latest=1: only try latest A pf_start */
+            /* A active: only try latest A pf_start */
             emit(tid++, 2,1,1,1, 0,0,0,0,0,0,0,
                  1,0, 0,0, 0,PF_EID_NONE, n,0, 0,0,
                  0,0, 0,0, 0,
                  0,0,1,1, 0,0,
                  idle0, idle0);
 
-            /* B active, single_latest=1 */
+            /* B active: only try latest B pf_start */
             emit(tid++, 2,1,1,1, 0,0,0,0,0,0,0,
                  0,1, 0,0, PF_EID_NONE,0, 0,n, 0,0,
                  0,0, 0,0, 0,
@@ -939,7 +919,7 @@ int main(void) {
     /* ─── Group 13: S2PF cross-BW violation — forced overlap ─────────────── */
     {
         /* Force ShapeC+ShapeC; both sides: S1 DMA = 128+128=256 → bw_ok=0.
-         * Even with enable_s2pf=1, the no-pf baseline fails, and s2pf can't fix it. */
+         * Even with pair-lite S2PF, the no-pf baseline fails, and S2PF cannot fix it. */
         emit(tid++, 0,0,1,0, 1,SHAPE_C,SHAPE_C,1,SHAPE_C,SHAPE_C,0,
              1,1, 0,0, 0,1, 8,8, 0,0,
              0,0,0,0, 0,

@@ -25,28 +25,32 @@ module tb_scheduler_reg_wrapper;
   localparam logic [47:0] ADDR_CONFIG    = 48'h10;
   localparam logic [47:0] ADDR_ROUND_COMMIT = 48'h68;
   localparam logic [47:0] ADDR_PLAN_FIFO_STATUS = 48'h80;
-  localparam logic [47:0] ADDR_PLAN_FIFO_DATA0  = 48'h90;
-  localparam logic [47:0] ADDR_PLAN_FIFO_DATA1  = 48'h98;
-  localparam logic [47:0] ADDR_PLAN_FIFO_PATCH  = 48'ha0;
-  localparam logic [47:0] ADDR_HEAD_PAIR0       = 48'ha8;
-  localparam logic [47:0] ADDR_HEAD_PAIR1       = 48'hb0;
-  localparam logic [47:0] ADDR_HEAD_PUSH_PAIR   = 48'hb8;
-  localparam logic [47:0] ADDR_RESERVE_PAIR0    = 48'hc0;
-  localparam logic [47:0] ADDR_RESERVE_PAIR1    = 48'hc8;
+  localparam logic [47:0] ADDR_HEAD_QUAD       = 48'ha8;
+  localparam logic [47:0] ADDR_RESERVE_QUAD    = 48'hb0;
+  localparam logic [47:0] ADDR_HEAD_PUSH_QUAD  = 48'hb8;
+  localparam logic [47:0] ADDR_PLAN_ENTRY_BASE = 48'h100;
+  localparam logic [47:0] ADDR_PLAN_ENTRY_STRIDE = 48'h20;
+  localparam logic [47:0] ADDR_PLAN_ENTRY_DATA0_OFF = 48'h00;
+  localparam logic [47:0] ADDR_PLAN_ENTRY_DATA1_OFF = 48'h08;
 
-  localparam int unsigned TASK_BITS = $bits(task_desc_t);
-  localparam int unsigned PLAN_LOCAL_SLOT_LSB = TASK_BITS + 1;
-  localparam int unsigned PLAN_SKIP_S2_LSB    = PLAN_LOCAL_SLOT_LSB + SLOT_W;
-  localparam int unsigned PLAN_SKIP_S4_LSB    = PLAN_SKIP_S2_LSB + 1;
-  localparam int unsigned PLAN_DMA_S1_LSB     = PLAN_SKIP_S4_LSB + 1;
-  localparam int unsigned PLAN_DMA_S3_LSB     = PLAN_DMA_S1_LSB + 2;
-  localparam int unsigned PLAN_M_S2_LSB       = PLAN_DMA_S3_LSB + 2;
-  localparam int unsigned PLAN_M_S4_LSB       = PLAN_M_S2_LSB + NTOK_W;
-  localparam int unsigned S4PF_PATCH_VALID_LSB      = 0;
-  localparam int unsigned S4PF_PATCH_NO_COPY_LSB    = 1;
-  localparam int unsigned S4PF_PATCH_CLUSTER_LSB    = 2;
-  localparam int unsigned S4PF_PATCH_LOCAL_SLOT_LSB = 3;
-  localparam int unsigned S4PF_PATCH_TARGET_EID_LSB = S4PF_PATCH_LOCAL_SLOT_LSB + SLOT_W;
+  localparam int unsigned PLAN_EID_LSB         = 0;
+  localparam int unsigned PLAN_TOKEN_START_LSB = PLAN_EID_LSB + EID_RAW_W;
+  localparam int unsigned PLAN_NTOK_LSB        = PLAN_TOKEN_START_LSB + NTOK_W;
+  localparam int unsigned PLAN_HAS_S2PF_LSB    = PLAN_NTOK_LSB + NTOK_W;
+  localparam int unsigned PLAN_CTRL_LSB        = PLAN_HAS_S2PF_LSB + 1;
+  localparam int unsigned PLAN_CTRL_W          = 13;
+  localparam int unsigned PLAN_M_S2_LSB        = PLAN_CTRL_LSB + PLAN_CTRL_W;
+  localparam int unsigned PLAN_M_S4_LSB        = PLAN_M_S2_LSB + NTOK_W;
+  localparam int unsigned PLAN_INLINE_PATCH_LSB = PLAN_M_S4_LSB + NTOK_W;
+  localparam int unsigned TASK_CTRL_SKIP_S1_LSB    = 0;
+  localparam int unsigned TASK_CTRL_SKIP_S3_LSB    = 1;
+  localparam int unsigned TASK_CTRL_SHAPE_S1_LSB   = 2;
+  localparam int unsigned TASK_CTRL_SHAPE_S3_LSB   = 4;
+  localparam int unsigned TASK_CTRL_CLUSTER_LSB    = 6;
+  localparam int unsigned TASK_CTRL_LOCAL_SLOT_LSB = 7;
+  localparam int unsigned INLINE_PATCH_VALID_LSB      = 0;
+  localparam int unsigned INLINE_PATCH_NO_COPY_LSB    = 1;
+  localparam int unsigned INLINE_PATCH_LOCAL_SLOT_LSB = 2;
 
   typedef struct packed {
     logic       valid;
@@ -136,8 +140,14 @@ module tb_scheduler_reg_wrapper;
     end
   endfunction
 
-  function automatic logic [63:0] pack_head_pair(input rem_head_t low, input rem_head_t high);
-    pack_head_pair = {32'b0, pack_head16(high), pack_head16(low)};
+  function automatic logic [63:0] pack_head_quad(
+    input rem_head_t h0,
+    input rem_head_t h1,
+    input rem_head_t h2,
+    input rem_head_t h3
+  );
+    pack_head_quad = {pack_head16(h3), pack_head16(h2),
+                      pack_head16(h1), pack_head16(h0)};
   endfunction
 
   function automatic logic [63:0] pack_config_word(
@@ -158,12 +168,12 @@ module tb_scheduler_reg_wrapper;
   endfunction
 
   function automatic logic [63:0] pack_round_commit(
-    input bit plan_pop
+    input int unsigned pop_count
   );
     logic [63:0] word;
     begin
       word = '0;
-      word[0]   = plan_pop;
+      word[2:0] = pop_count[2:0];
       pack_round_commit = word;
     end
   endfunction
@@ -184,29 +194,58 @@ module tb_scheduler_reg_wrapper;
   endfunction
 
   function automatic task_desc_t unpack_task(input logic [63:0] word);
-    unpack_task = task_desc_t'(word[TASK_BITS-1:0]);
-  endfunction
-
-  function automatic logic unpack_allow_s4pf(input logic [63:0] word);
-    unpack_allow_s4pf = word[TASK_BITS];
+    task_desc_t t;
+    logic [PLAN_CTRL_W-1:0] ctrl;
+    begin
+      ctrl = word[PLAN_CTRL_LSB +: PLAN_CTRL_W];
+      t = '0;
+      t.eid       = word[PLAN_EID_LSB +: EID_RAW_W];
+      t.tok_start = word[PLAN_TOKEN_START_LSB +: NTOK_W];
+      t.ntok      = word[PLAN_NTOK_LSB +: NTOK_W];
+      t.has_s2pf  = word[PLAN_HAS_S2PF_LSB];
+      t.skip_s1   = ctrl[TASK_CTRL_SKIP_S1_LSB];
+      t.skip_s3   = ctrl[TASK_CTRL_SKIP_S3_LSB];
+      t.s1        = ctrl[TASK_CTRL_SHAPE_S1_LSB +: 2];
+      t.s3        = ctrl[TASK_CTRL_SHAPE_S3_LSB +: 2];
+      t.cluster   = ctrl[TASK_CTRL_CLUSTER_LSB];
+      unpack_task = t;
+    end
   endfunction
 
   function automatic slot_id_t unpack_local_slot(input logic [63:0] word);
-    unpack_local_slot = slot_id_t'(word[PLAN_LOCAL_SLOT_LSB +: SLOT_W]);
+    logic [PLAN_CTRL_W-1:0] ctrl;
+    begin
+      ctrl = word[PLAN_CTRL_LSB +: PLAN_CTRL_W];
+      unpack_local_slot = slot_id_t'(ctrl[TASK_CTRL_LOCAL_SLOT_LSB +: SLOT_W]);
+    end
   endfunction
 
   function automatic task_lower_scalar_t unpack_lower_scalar(input logic [63:0] word);
     task_lower_scalar_t s;
+    task_desc_t t;
     begin
       s = '0;
-      s.skip_s2          = word[PLAN_SKIP_S2_LSB];
-      s.skip_s4          = word[PLAN_SKIP_S4_LSB];
-      s.dma_s1_for_shape = word[PLAN_DMA_S1_LSB +: 2];
-      s.dma_s3_for_shape = word[PLAN_DMA_S3_LSB +: 2];
+      t = unpack_task(word);
       s.m_s2_exec        = word[PLAN_M_S2_LSB +: NTOK_W];
       s.m_s4_exec        = word[PLAN_M_S4_LSB +: NTOK_W];
+      s.skip_s2          = (s.m_s2_exec == '0);
+      s.skip_s4          = (s.m_s4_exec == '0);
+      s.dma_s1_for_shape = s1_dma_for_shape(t.s1);
+      s.dma_s3_for_shape = s3_dma_for_shape(t.s3);
       unpack_lower_scalar = s;
     end
+  endfunction
+
+  function automatic logic [47:0] plan_entry_data0_addr(input int unsigned entry_idx);
+    plan_entry_data0_addr = ADDR_PLAN_ENTRY_BASE +
+                            ADDR_PLAN_ENTRY_STRIDE * entry_idx +
+                            ADDR_PLAN_ENTRY_DATA0_OFF;
+  endfunction
+
+  function automatic logic [47:0] plan_entry_data1_addr(input int unsigned entry_idx);
+    plan_entry_data1_addr = ADDR_PLAN_ENTRY_BASE +
+                            ADDR_PLAN_ENTRY_STRIDE * entry_idx +
+                            ADDR_PLAN_ENTRY_DATA1_OFF;
   endfunction
 
   task automatic reg_write(input logic [47:0] addr, input logic [63:0] data);
@@ -277,8 +316,7 @@ module tb_scheduler_reg_wrapper;
       end
 
       reg_write(ADDR_CONFIG, pack_config_word(cache_c2, cache_c3, active_cnt, total_conc));
-      reg_write(ADDR_HEAD_PAIR0, pack_head_pair(heads[0], heads[1]));
-      reg_write(ADDR_HEAD_PAIR1, pack_head_pair(heads[2], heads[3]));
+      reg_write(ADDR_HEAD_QUAD, pack_head_quad(heads[0], heads[1], heads[2], heads[3]));
     end
   endtask
 
@@ -406,15 +444,14 @@ module tb_scheduler_reg_wrapper;
     end
   endtask
 
-  task automatic compare_task(
-    input int tid,
-    input int round_idx,
-    input int plan_idx,
-	    input task_desc_t got,
-	    input logic got_allow,
-	    input slot_id_t got_slot,
-	    input task_lower_scalar_t got_scalar,
-	    input slot_id_t exp_slot,
+	  task automatic compare_task(
+	    input int tid,
+	    input int round_idx,
+	    input int plan_idx,
+		    input task_desc_t got,
+		    input slot_id_t got_slot,
+		    input task_lower_scalar_t got_scalar,
+		    input slot_id_t exp_slot,
 	    input plan_entry_t exp
 	  );
 	    task_lower_scalar_t exp_scalar;
@@ -429,13 +466,12 @@ module tb_scheduler_reg_wrapper;
           got.eid !== exp.desc.eid ||
           got.ntok !== exp.desc.ntok ||
           got.tok_start !== exp.desc.tok_start ||
-          got.s1 !== exp.desc.s1 ||
-          got.s3 !== exp.desc.s3 ||
-	          got.skip_s1 !== exp.desc.skip_s1 ||
-	          got.skip_s3 !== exp.desc.skip_s3 ||
-	          got.has_s2pf !== exp.desc.has_s2pf ||
-	          got_allow !== exp.allow_s4pf ||
-	          got_slot !== exp_slot ||
+	          got.s1 !== exp.desc.s1 ||
+	          got.s3 !== exp.desc.s3 ||
+		          got.skip_s1 !== exp.desc.skip_s1 ||
+		          got.skip_s3 !== exp.desc.skip_s3 ||
+		          got.has_s2pf !== exp.desc.has_s2pf ||
+		          got_slot !== exp_slot ||
 	          got_scalar.skip_s2 !== exp_scalar.skip_s2 ||
 	          got_scalar.skip_s4 !== exp_scalar.skip_s4 ||
 	          got_scalar.dma_s1_for_shape !== exp_scalar.dma_s1_for_shape ||
@@ -443,15 +479,15 @@ module tb_scheduler_reg_wrapper;
 	          got_scalar.m_s2_exec !== exp_scalar.m_s2_exec ||
 	          got_scalar.m_s4_exec !== exp_scalar.m_s4_exec) begin
 	        $display("[FAIL] tid=%0d round=%0d plan=%0d mismatch", tid, round_idx, plan_idx);
-	        $display("       got: cluster=%0d slot=%0d eid=%0d tok_start=%0d ntok=%0d s1=%0d s3=%0d skip_s1=%0d skip_s3=%0d has_s2pf=%0d allow_s4pf=%0d skip_s2=%0d skip_s4=%0d dma_s1=%0d dma_s3=%0d m_s2=%0d m_s4=%0d",
-	                 got.cluster, got_slot, got.eid, got.tok_start, got.ntok, got.s1, got.s3,
-	                 got.skip_s1, got.skip_s3, got.has_s2pf, got_allow,
-	                 got_scalar.skip_s2, got_scalar.skip_s4,
-	                 got_scalar.dma_s1_for_shape, got_scalar.dma_s3_for_shape,
-	                 got_scalar.m_s2_exec, got_scalar.m_s4_exec);
-	        $display("       exp: cluster=%0d slot=%0d eid=%0d tok_start=%0d ntok=%0d s1=%0d s3=%0d skip_s1=%0d skip_s3=%0d has_s2pf=%0d allow_s4pf=%0d skip_s2=%0d skip_s4=%0d dma_s1=%0d dma_s3=%0d m_s2=%0d m_s4=%0d",
-	                 exp.desc.cluster, exp_slot, exp.desc.eid, exp.desc.tok_start, exp.desc.ntok,
-	                 exp.desc.s1, exp.desc.s3, exp.desc.skip_s1,
+		        $display("       got: cluster=%0d slot=%0d eid=%0d tok_start=%0d ntok=%0d s1=%0d s3=%0d skip_s1=%0d skip_s3=%0d has_s2pf=%0d skip_s2=%0d skip_s4=%0d dma_s1=%0d dma_s3=%0d m_s2=%0d m_s4=%0d",
+		                 got.cluster, got_slot, got.eid, got.tok_start, got.ntok, got.s1, got.s3,
+		                 got.skip_s1, got.skip_s3, got.has_s2pf,
+		                 got_scalar.skip_s2, got_scalar.skip_s4,
+		                 got_scalar.dma_s1_for_shape, got_scalar.dma_s3_for_shape,
+		                 got_scalar.m_s2_exec, got_scalar.m_s4_exec);
+		        $display("       exp: cluster=%0d slot=%0d eid=%0d tok_start=%0d ntok=%0d s1=%0d s3=%0d skip_s1=%0d skip_s3=%0d has_s2pf=%0d allow_s4pf=%0d skip_s2=%0d skip_s4=%0d dma_s1=%0d dma_s3=%0d m_s2=%0d m_s4=%0d",
+		                 exp.desc.cluster, exp_slot, exp.desc.eid, exp.desc.tok_start, exp.desc.ntok,
+		                 exp.desc.s1, exp.desc.s3, exp.desc.skip_s1,
 	                 exp.desc.skip_s3, exp.desc.has_s2pf, exp.allow_s4pf,
 	                 exp_scalar.skip_s2, exp_scalar.skip_s4,
 	                 exp_scalar.dma_s1_for_shape, exp_scalar.dma_s3_for_shape,
@@ -459,53 +495,80 @@ module tb_scheduler_reg_wrapper;
 	        total_fail++;
 	      end
 	    end
-  endtask
+	  endtask
 
-  task automatic compare_s4pf_patch(
-    input int tid,
-    input int round_idx,
-    input int slot_idx,
-    input logic [31:0] got_record,
-    input task_desc_t got_task,
-    input logic got_allow,
-    input slot_id_t got_slot,
-    input int cache_c2,
-    input int cache_c3
+	  task automatic compare_final_ctrl(
+	    input int tid,
+	    input int round_idx,
+	    input int plan_idx,
+	    input logic [63:0] word,
+	    input task_desc_t exp_task,
+	    input slot_id_t exp_slot
+		  );
+			    logic [PLAN_CTRL_W-1:0] ctrl;
+			    begin
+			      ctrl = word[PLAN_CTRL_LSB +: PLAN_CTRL_W];
+
+		      if (ctrl[TASK_CTRL_SKIP_S1_LSB] !== exp_task.skip_s1 ||
+		          ctrl[TASK_CTRL_SKIP_S3_LSB] !== exp_task.skip_s3 ||
+		          ctrl[TASK_CTRL_SHAPE_S1_LSB +: 2] !== exp_task.s1 ||
+		          ctrl[TASK_CTRL_SHAPE_S3_LSB +: 2] !== exp_task.s3 ||
+		          ctrl[TASK_CTRL_CLUSTER_LSB] !== exp_task.cluster ||
+		          ctrl[TASK_CTRL_LOCAL_SLOT_LSB +: SLOT_W] !== exp_slot) begin
+		        $display("[FAIL] tid=%0d round=%0d plan=%0d compact ctrl mismatch ctrl=0x%04h",
+		                 tid, round_idx, plan_idx, ctrl);
+		        $display("       exp skip_s1=%0d skip_s3=%0d s1=%0d s3=%0d cluster=%0d slot=%0d",
+		                 exp_task.skip_s1, exp_task.skip_s3,
+		                 exp_task.s1, exp_task.s3,
+		                 exp_task.cluster, exp_slot);
+		        total_fail++;
+		      end
+	    end
+	  endtask
+
+		  task automatic compare_inline_patch(
+	    input int tid,
+	    input int round_idx,
+	    input int slot_idx,
+	    input logic [7:0] got_record,
+	    input task_desc_t got_task,
+	    input logic exp_allow,
+	    input slot_id_t got_slot,
+	    input int cache_c2,
+	    input int cache_c3
   );
-    int ci;
-    logic cache_hit;
-    logic exp_no_copy;
-    logic [31:0] exp_record;
-    begin
+	    int ci;
+	    logic cache_hit;
+	    logic exp_no_copy;
+	    logic [7:0] exp_record;
+	    begin
       ci = int'(got_task.cluster);
       cache_hit = (ci == 0) ?
                   ((cache_c2 >= 0) && (cache_c2 == int'(got_task.eid))) :
                   ((cache_c3 >= 0) && (cache_c3 == int'(got_task.eid)));
       exp_no_copy = sw_s4pf_pending_skip_s1[ci] && cache_hit;
 
-      exp_record = '0;
-      if (sw_s4pf_pending_valid[ci]) begin
-        exp_record[S4PF_PATCH_VALID_LSB] = 1'b1;
-        exp_record[S4PF_PATCH_NO_COPY_LSB] = exp_no_copy;
-        exp_record[S4PF_PATCH_CLUSTER_LSB] = got_task.cluster;
-        exp_record[S4PF_PATCH_LOCAL_SLOT_LSB +: SLOT_W] =
-            sw_s4pf_pending_slot[ci];
-        exp_record[S4PF_PATCH_TARGET_EID_LSB +: EID_RAW_W] = got_task.eid;
-        sw_s4pf_pending_valid[ci] = 1'b0;
-        sw_s4pf_pending_skip_s1[ci] = 1'b0;
-        sw_s4pf_pending_slot[ci] = '0;
-      end
+	      exp_record = '0;
+	      if (sw_s4pf_pending_valid[ci]) begin
+	        exp_record[INLINE_PATCH_VALID_LSB] = 1'b1;
+	        exp_record[INLINE_PATCH_NO_COPY_LSB] = exp_no_copy;
+	        exp_record[INLINE_PATCH_LOCAL_SLOT_LSB +: SLOT_W] =
+	            sw_s4pf_pending_slot[ci];
+	        sw_s4pf_pending_valid[ci] = 1'b0;
+	        sw_s4pf_pending_skip_s1[ci] = 1'b0;
+	        sw_s4pf_pending_slot[ci] = '0;
+	      end
 
-      if (got_record !== exp_record) begin
-        $display("[FAIL] tid=%0d round=%0d slot=%0d S4PF patch mismatch got=0x%08h exp=0x%08h",
-                 tid, round_idx, slot_idx, got_record, exp_record);
-        total_fail++;
-      end
+	      if (got_record !== exp_record) begin
+	        $display("[FAIL] tid=%0d round=%0d slot=%0d inline S4PF patch mismatch got=0x%02h exp=0x%02h",
+	                 tid, round_idx, slot_idx, got_record, exp_record);
+	        total_fail++;
+	      end
 
-      if (got_allow) begin
-        sw_s4pf_pending_valid[ci] = 1'b1;
-        sw_s4pf_pending_skip_s1[ci] = got_task.skip_s1;
-        sw_s4pf_pending_slot[ci] = got_slot;
+	      if (exp_allow) begin
+	        sw_s4pf_pending_valid[ci] = 1'b1;
+	        sw_s4pf_pending_skip_s1[ci] = got_task.skip_s1;
+	        sw_s4pf_pending_slot[ci] = got_slot;
       end
     end
   endtask
@@ -538,19 +601,17 @@ module tb_scheduler_reg_wrapper;
     int cycles;
     int active_before;
     int fail_before;
-    logic [63:0] status_word;
-    logic [63:0] fifo_status_word;
-    logic [63:0] plan_word [2];
-    logic [63:0] patch_word;
-	    logic [1:0] remove_count;
+	    logic [63:0] status_word;
+	    logic [63:0] fifo_status_word;
+	    logic [63:0] plan_word [2];
+		    logic [1:0] remove_count;
 	    logic [1:0] plan_count;
 	    logic [1:0] plan_slot_valid;
 	    logic [1:0] exp_slot_valid;
 	    logic refill_req;
-	    int refill_count;
-	    task_desc_t got_task;
-    logic got_allow;
-    logic [EID_RAW_W-1:0] consumed_eids [1:0];
+		    int refill_count;
+		    task_desc_t got_task;
+	    logic [EID_RAW_W-1:0] consumed_eids [1:0];
     int consumed_count;
     int removed_count_seen;
     int active_remaining;
@@ -561,7 +622,7 @@ module tb_scheduler_reg_wrapper;
 	    int c2_slot_exp;
 	    int c3_slot_exp;
 	    rem_head_t push_head;
-	    rem_head_t push_heads [1:0];
+      rem_head_t push_heads [3:0];
 	    slot_id_t got_slot;
 	    task_lower_scalar_t got_scalar;
 	    slot_id_t exp_local_slot;
@@ -591,10 +652,11 @@ module tb_scheduler_reg_wrapper;
 	      end
 
 	      reg_write(ADDR_CONFIG, pack_config_word(cache_c2, cache_c3, active_remaining, total_conc));
-	      reg_write(ADDR_HEAD_PAIR0, pack_head_pair(sw_head[0], sw_head[1]));
-	      reg_write(ADDR_HEAD_PAIR1, pack_head_pair(sw_head[2], sw_head[3]));
-	      reg_write(ADDR_RESERVE_PAIR0, pack_head_pair(sw_reserve[0], sw_reserve[1]));
-	      reg_write(ADDR_RESERVE_PAIR1, pack_head_pair(sw_reserve[2], sw_reserve[3]));
+	      reg_write(ADDR_HEAD_QUAD,
+	                pack_head_quad(sw_head[0], sw_head[1], sw_head[2], sw_head[3]));
+	      reg_write(ADDR_RESERVE_QUAD,
+	                pack_head_quad(sw_reserve[0], sw_reserve[1],
+	                               sw_reserve[2], sw_reserve[3]));
 	      reg_write(ADDR_CTRL, 64'h3);
 
       round_idx = 0;
@@ -636,14 +698,16 @@ module tb_scheduler_reg_wrapper;
 		            while ((refill_sent_count < refill_count) && (next_rem_pos < n_experts)) begin
 		              push_head = make_head_from_rem(next_rem_pos);
 		              append_sw_reserve(push_head);
-		              push_heads[refill_sent_count & 1] = push_head;
-		              next_rem_pos++;
-		              refill_sent_count++;
-		              if ((refill_sent_count & 1) == 0) begin
-		                reg_write(ADDR_HEAD_PUSH_PAIR, pack_head_pair(push_heads[0], push_heads[1]));
-		                push_heads = '{default: '0};
-		              end
-		            end
+			              push_heads[refill_sent_count[1:0]] = push_head;
+			              next_rem_pos++;
+			              refill_sent_count++;
+			              if ((refill_sent_count & 3) == 0) begin
+			                reg_write(ADDR_HEAD_PUSH_QUAD,
+			                          pack_head_quad(push_heads[0], push_heads[1],
+			                                         push_heads[2], push_heads[3]));
+			                push_heads = '{default: '0};
+			              end
+			            end
 		            if (refill_sent_count == 0) begin
 		              $display("[FAIL] tid=%0d round=%0d refill requested but rem stream exhausted active=%0d head_next=%0d reserve=%0d refill_count=%0d",
 		                       tid, round_idx, active_remaining, next_rem_pos,
@@ -651,9 +715,11 @@ module tb_scheduler_reg_wrapper;
 		              total_fail++;
 		              return;
 		            end
-		            if ((refill_sent_count & 1) != 0) begin
-		              reg_write(ADDR_HEAD_PUSH_PAIR, pack_head_pair(push_heads[0], push_heads[1]));
-		            end
+			            if ((refill_sent_count & 3) != 0) begin
+			              reg_write(ADDR_HEAD_PUSH_QUAD,
+			                        pack_head_quad(push_heads[0], push_heads[1],
+			                                       push_heads[2], push_heads[3]));
+			            end
 	            continue;
 	          end
 	          if (status_word[5] === 1'b1) begin
@@ -662,130 +728,149 @@ module tb_scheduler_reg_wrapper;
 	          fail_msg("no plan/refill/done event", tid, round_idx);
 	        end
 
-	        reg_read(ADDR_PLAN_FIFO_STATUS, fifo_status_word);
-	        remove_count = fifo_status_word[13:12];
-	        plan_count = fifo_status_word[9:8];
-	        plan_slot_valid = fifo_status_word[17:16];
+		        reg_read(ADDR_PLAN_FIFO_STATUS, fifo_status_word);
+		        if (fifo_status_word[0] !== 1'b0) begin
+		          fail_msg("PLAN_FIFO_STATUS.empty asserted despite plan_valid", tid, round_idx);
+		        end
 
-        if (fifo_status_word[0] !== 1'b0) begin
-          fail_msg("PLAN_FIFO_STATUS.empty asserted despite plan_valid", tid, round_idx);
-        end
-	        if ((plan_count == 2'd0) || (plan_count > 2'd2)) begin
-	          fail_msg("illegal plan_count", tid, round_idx);
-        end
+		        begin
+		          int drain_entries;
+		          drain_entries = int'(status_word[39:36]);
+		          if ((drain_entries <= 0) || (drain_entries > PLANQ_DEPTH)) begin
+		            $display("[FAIL] tid=%0d round=%0d illegal FIFO count=%0d status=0x%016h",
+		                     tid, round_idx, drain_entries, status_word);
+		            total_fail++;
+		            drain_entries = 1;
+		          end
 
-        exp_slot_valid = (plan_count == 2'd2) ? 2'b11 :
-                         (plan_count == 2'd1) ? 2'b01 : 2'b00;
-        if (plan_slot_valid !== exp_slot_valid) begin
-          $display("[FAIL] tid=%0d round=%0d slot_valid got=%b exp=%b",
-                   tid, round_idx, plan_slot_valid, exp_slot_valid);
-          total_fail++;
-        end
+		          for (int entry = 0; entry < drain_entries; entry++) begin
+		            plan_count = status_word[40 + entry * 2 +: 2];
+		            if ((plan_count == 2'd0) || (plan_count > 2'd2)) begin
+		              fail_msg("illegal plan_count", tid, round_idx);
+		            end
 
-        consumed_eids = '{default: '0};
-        consumed_count = 0;
-        if (plan_seen + int'(plan_count) > golden_n) begin
-          $display("[FAIL] tid=%0d round=%0d produced too many plan entries seen=%0d count=%0d golden=%0d",
-                   tid, round_idx, plan_seen, plan_count, golden_n);
-          total_fail++;
-        end else begin
-          reg_read(ADDR_PLAN_FIFO_PATCH, patch_word);
-          reg_read(ADDR_PLAN_FIFO_DATA0, plan_word[0]);
-          if (plan_count == 2'd2) begin
-            reg_read(ADDR_PLAN_FIFO_DATA1, plan_word[1]);
-          end
-          for (int s = 0; s < 2; s++) begin
-            if (s < int'(plan_count)) begin
-		              got_task = unpack_task(plan_word[s]);
-		              got_allow = unpack_allow_s4pf(plan_word[s]);
-		              got_slot = unpack_local_slot(plan_word[s]);
-		              got_scalar = unpack_lower_scalar(plan_word[s]);
-	              if (got_task.cluster) begin
-	                if (c3_slot_exp >= (1 << SLOT_W)) begin
-	                  $display("[FAIL] tid=%0d round=%0d C3 local_slot overflow exp=%0d",
-	                           tid, round_idx, c3_slot_exp);
-	                  total_fail++;
-	                end
-	                exp_local_slot = slot_id_t'(c3_slot_exp);
-	                c3_slot_exp++;
-	              end else begin
-	                if (c2_slot_exp >= (1 << SLOT_W)) begin
-	                  $display("[FAIL] tid=%0d round=%0d C2 local_slot overflow exp=%0d",
-	                           tid, round_idx, c2_slot_exp);
-	                  total_fail++;
-	                end
-	                exp_local_slot = slot_id_t'(c2_slot_exp);
-	                c2_slot_exp++;
-	              end
-		              compare_task(tid, round_idx, plan_seen + s, got_task, got_allow,
-		                           got_slot, got_scalar, exp_local_slot,
-		                           golden_plan[plan_seen + s]);
-                  compare_s4pf_patch(tid, round_idx, s,
-                                     patch_word[s * 32 +: 32],
-                                     got_task, got_allow, got_slot,
-                                     cache_c2, cache_c3);
-              note_consumed_eid(got_task.eid, consumed_eids, consumed_count,
-                                tid, round_idx);
-            end
-          end
-        end
+		            if (entry == 0) begin
+		              remove_count = fifo_status_word[13:12];
+		              plan_slot_valid = fifo_status_word[17:16];
+		              exp_slot_valid = (plan_count == 2'd2) ? 2'b11 :
+		                               (plan_count == 2'd1) ? 2'b01 : 2'b00;
+		              if (plan_slot_valid !== exp_slot_valid) begin
+		                $display("[FAIL] tid=%0d round=%0d slot_valid got=%b exp=%b",
+		                         tid, round_idx, plan_slot_valid, exp_slot_valid);
+		                total_fail++;
+		              end
+		            end
 
-        if ((remove_count == 2'd0) || (remove_count > 2'd2) ||
-            (int'(remove_count) > active_remaining)) begin
-          fail_msg("illegal remove_count", tid, round_idx);
-        end else if (consumed_count != int'(remove_count)) begin
-          $display("[FAIL] tid=%0d round=%0d remove_count/plan-eid mismatch remove=%0d unique_eid=%0d",
-                   tid, round_idx, remove_count, consumed_count);
-          total_fail++;
-        end else begin
-          removed_conc = 0;
-          removed_count_seen = 0;
-          for (int s = 0; s < 4; s++) begin
-            if (sw_head[s].valid &&
-                consumed_eid_match(sw_head[s].eid, consumed_eids, consumed_count)) begin
-              removed_count_seen++;
-              removed_conc += int'(best_conc_t(sw_head[s].ntok));
-              remove_one(int'(sw_head[s].rem_index), tid, round_idx);
-            end
-          end
-          if (removed_count_seen != int'(remove_count)) begin
-            $display("[FAIL] tid=%0d round=%0d removed head count mismatch got=%0d exp=%0d",
-                     tid, round_idx, removed_count_seen, remove_count);
-            total_fail++;
-          end
-          for (int e = 0; e < int'(remove_count); e++) begin
-            bit found;
-            found = 1'b0;
-            for (int s = 0; s < 4; s++) begin
-              if (!sw_head[s].valid) begin
-                continue;
-              end
-              if (sw_head[s].eid == consumed_eids[e]) begin
-                found = 1'b1;
-              end
-            end
-            if (!found) begin
-              $display("[FAIL] tid=%0d round=%0d consumed eid=%0d not in top window",
-                       tid, round_idx, consumed_eids[e]);
-              total_fail++;
-            end
-          end
-          active_remaining -= int'(remove_count);
-          total_conc -= removed_conc;
-        end
+		            consumed_eids = '{default: '0};
+		            consumed_count = 0;
+		            if (plan_seen + int'(plan_count) > golden_n) begin
+		              $display("[FAIL] tid=%0d round=%0d produced too many plan entries seen=%0d count=%0d golden=%0d",
+		                       tid, round_idx, plan_seen, plan_count, golden_n);
+		              total_fail++;
+		            end else begin
+		              reg_read(plan_entry_data0_addr(entry), plan_word[0]);
+		              if (plan_count == 2'd2) begin
+		                reg_read(plan_entry_data1_addr(entry), plan_word[1]);
+		              end
 
-        plan_seen += int'(plan_count);
-        round_idx++;
-        total_rounds++;
+			              for (int s = 0; s < 2; s++) begin
+			                if (s < int'(plan_count)) begin
+			                  got_task = unpack_task(plan_word[s]);
+			                  got_slot = unpack_local_slot(plan_word[s]);
+		                  got_scalar = unpack_lower_scalar(plan_word[s]);
+		                  if (got_task.cluster) begin
+		                    if (c3_slot_exp >= (1 << SLOT_W)) begin
+		                      $display("[FAIL] tid=%0d round=%0d C3 local_slot overflow exp=%0d",
+		                               tid, round_idx, c3_slot_exp);
+		                      total_fail++;
+		                    end
+		                    exp_local_slot = slot_id_t'(c3_slot_exp);
+		                    c3_slot_exp++;
+		                  end else begin
+		                    if (c2_slot_exp >= (1 << SLOT_W)) begin
+		                      $display("[FAIL] tid=%0d round=%0d C2 local_slot overflow exp=%0d",
+		                               tid, round_idx, c2_slot_exp);
+		                      total_fail++;
+		                    end
+		                    exp_local_slot = slot_id_t'(c2_slot_exp);
+		                    c2_slot_exp++;
+		                  end
+			                  compare_task(tid, round_idx, plan_seen + s, got_task,
+			                               got_slot, got_scalar, exp_local_slot,
+			                               golden_plan[plan_seen + s]);
+		                  compare_final_ctrl(tid, round_idx, plan_seen + s, plan_word[s],
+		                                     golden_plan[plan_seen + s].desc,
+		                                     exp_local_slot);
+			                  compare_inline_patch(tid, round_idx, s,
+			                                     plan_word[s][PLAN_INLINE_PATCH_LSB +: 8],
+			                                     got_task, golden_plan[plan_seen + s].allow_s4pf, got_slot,
+			                                     cache_c2, cache_c3);
+		                  note_consumed_eid(got_task.eid, consumed_eids, consumed_count,
+		                                    tid, round_idx);
+		                end
+		              end
+		            end
 
-	        compact_sw_head(consumed_eids, consumed_count);
-	        refill_sw_head_from_reserve(active_remaining);
+		            if (entry != 0) begin
+		              remove_count = consumed_count[1:0];
+		            end
+		            if ((remove_count == 2'd0) || (remove_count > 2'd2) ||
+		                (int'(remove_count) > active_remaining)) begin
+		              fail_msg("illegal remove_count", tid, round_idx);
+		            end else if (consumed_count != int'(remove_count)) begin
+		              $display("[FAIL] tid=%0d round=%0d remove_count/plan-eid mismatch remove=%0d unique_eid=%0d",
+		                       tid, round_idx, remove_count, consumed_count);
+		              total_fail++;
+		            end else begin
+		              removed_conc = 0;
+		              removed_count_seen = 0;
+		              for (int s = 0; s < 4; s++) begin
+		                if (sw_head[s].valid &&
+		                    consumed_eid_match(sw_head[s].eid, consumed_eids, consumed_count)) begin
+		                  removed_count_seen++;
+		                  removed_conc += int'(best_conc_t(sw_head[s].ntok));
+		                  remove_one(int'(sw_head[s].rem_index), tid, round_idx);
+		                end
+		              end
+		              if (removed_count_seen != int'(remove_count)) begin
+		                $display("[FAIL] tid=%0d round=%0d removed head count mismatch got=%0d exp=%0d",
+		                         tid, round_idx, removed_count_seen, remove_count);
+		                total_fail++;
+		              end
+		              for (int e = 0; e < int'(remove_count); e++) begin
+		                bit found;
+		                found = 1'b0;
+		                for (int s = 0; s < 4; s++) begin
+		                  if (!sw_head[s].valid) begin
+		                    continue;
+		                  end
+		                  if (sw_head[s].eid == consumed_eids[e]) begin
+		                    found = 1'b1;
+		                  end
+		                end
+		                if (!found) begin
+		                  $display("[FAIL] tid=%0d round=%0d consumed eid=%0d not in top window",
+		                           tid, round_idx, consumed_eids[e]);
+		                  total_fail++;
+		                end
+		              end
+		              active_remaining -= int'(remove_count);
+		              total_conc -= removed_conc;
+		            end
 
-	        // In 10K mode ROUND_COMMIT is only used as a FIFO pop.  Top-window
-	        // compact/refill/restart are internal auto-run operations.
-	        reg_write(ADDR_ROUND_COMMIT,
-	                  pack_round_commit(1'b1));
-	      end
+		            plan_seen += int'(plan_count);
+		            round_idx++;
+		            total_rounds++;
+		            compact_sw_head(consumed_eids, consumed_count);
+		            refill_sw_head_from_reserve(active_remaining);
+		          end
+
+		          // Pop all entries that were drained through the indexed read ports.
+		          // Top-window compact/refill/restart are internal auto-run operations.
+		          reg_write(ADDR_ROUND_COMMIT,
+		                    pack_round_commit(drain_entries));
+		        end
+		      end
 
       if (plan_seen != golden_n) begin
         $display("[FAIL] tid=%0d final plan count got=%0d exp=%0d",
