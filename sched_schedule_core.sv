@@ -138,6 +138,35 @@ module sched_schedule_core (
     end
   endfunction
 
+  function automatic cand_gen_snap_t make_cand_gen_snap(input eval_snap_t s);
+    cand_gen_snap_t v;
+    begin
+      v = '0;
+      v.task_end = s.task_end;
+      v.pf_eid   = s.pf_eid;
+      v.pf_end   = s.pf_end;
+      v.pf_full  = s.pf_full;
+
+      v.release_valid[0] = s.valid && (s.bw_s1 != BW_0) &&
+                           (s.dma1_end > s.task_start);
+      v.release_t[0]     = s.dma1_end;
+
+      v.release_valid[1] = s.valid && s.s2pf_valid &&
+                           (s.s2pf_bw != BW_0) &&
+                           (s.s2pf_end > s.s2pf_start);
+      v.release_t[1]     = s.s2pf_end;
+
+      v.release_valid[2] = s.valid && (s.bw_s3 != BW_0) &&
+                           (s.dma3_end > s.s2_end);
+      v.release_t[2]     = s.dma3_end;
+
+      v.release_valid[3] = s.valid && s.s4pf_valid;
+      v.release_t[3]     = s.s4pf_start + GHOST_WINDOW_TICKS;
+
+      make_cand_gen_snap = v;
+    end
+  endfunction
+
   // ── Ghost injection ───────────────────────────────────────────────────
   eval_snap_t c2_ghost_try;
   eval_snap_t c3_ghost_try;
@@ -230,6 +259,11 @@ module sched_schedule_core (
   logic       gen_done;
   cand_desc_t cand;
   logic       cand_valid;
+  cand_gen_snap_t c2_gen_snap;
+  cand_gen_snap_t c3_gen_snap;
+
+  assign c2_gen_snap = make_cand_gen_snap(c2_snap_q);
+  assign c3_gen_snap = make_cand_gen_snap(c3_snap_q);
 
   logic best_valid;
   logic [CAND_ID_W-1:0] best_id;
@@ -245,8 +279,8 @@ module sched_schedule_core (
     .replay_candidate_id_i (best_id),
     .busy_o                (gen_busy),
     .done_o                (gen_done),
-    .c2_snap_i             (c2_snap_q),
-    .c3_snap_i             (c3_snap_q),
+    .c2_snap_i             (c2_gen_snap),
+    .c3_snap_i             (c3_gen_snap),
     .head_i                (round_head_q),
     .active_count_i        (round_active_count_q),
     .total_conc_i          (round_total_conc_q),

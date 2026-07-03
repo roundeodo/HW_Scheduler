@@ -216,6 +216,24 @@ package sched_pkg;
     logic                 pf_full;
   } eval_snap_t;
 
+  // ── Candidate-generator view of a snap ─────────────────────────────────
+  //
+  // candidate_generator 不需要完整 eval_snap_t。它只关心：
+  //   - task_end：判断 both_idle / idle cluster / candidate start time；
+  //   - pf_*：为候选标注 swiglu/down cache hit；
+  //   - release_valid/t：not-both-idle early-start 候选的少数 DMA release 点。
+  //
+  // 把这个 view 单独传入，可以避免完整 eval_snap_t 的 DMA/S4 等字段跨模块边界
+  // 扇出到 candidate generation 逻辑。
+  typedef struct packed {
+    logic [T_W-1:0]    task_end;
+    logic [EID_W-1:0]  pf_eid;
+    logic [T_W-1:0]    pf_end;
+    logic              pf_full;
+    logic [3:0]        release_valid;
+    logic [3:0][T_W-1:0] release_t;
+  } cand_gen_snap_t;
+
   function automatic logic [EID_W-1:0] encode_eid(input logic [EID_RAW_W-1:0] eid);
     encode_eid = PF_EID_BASE + EID_W'(eid);
   endfunction

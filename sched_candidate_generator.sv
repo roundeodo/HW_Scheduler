@@ -31,12 +31,12 @@ module sched_candidate_generator (
   output logic                 done_o,
 
   // ── 当前调度状态（只读，每轮候选评估期间不变）────────────────────────────
-  // c2/c3_snap_i：两个 cluster 的当前时间/cache 状态（commit 后由 schedule_core 更新）
+  // c2/c3_snap_i：两个 cluster 的候选生成 view，只包含 task_end/cache/release endpoint
   // head_i[4]：CVA6/software 从 L3 rem list 中准备的 top4 缓存，对应 C rem[] 的前四项
   // active_count_i：当前仍 active 的 expert 数（用于选分支和估算 rem_len_after）
   // total_conc_i：所有 active expert 的 best_conc 之和（greedy_h 用）
-  input  eval_snap_t           c2_snap_i,
-  input  eval_snap_t           c3_snap_i,
+  input  cand_gen_snap_t       c2_snap_i,
+  input  cand_gen_snap_t       c3_snap_i,
   input  head_ctx_t [3:0]      head_i,
   input  logic [NR_W-1:0]      active_count_i,
   input  logic [T_W-1:0]       total_conc_i,
@@ -73,7 +73,7 @@ module sched_candidate_generator (
   logic           both_idle;
   logic           idle_is_c3;
   logic [T_W-1:0] idle_t;
-  eval_snap_t     busy_snap;
+  cand_gen_snap_t busy_snap;
   logic [T_W-1:0] tpts [3];
   logic [1:0]     ntpts;
   logic [T_W-1:0] release_t [4];
@@ -98,45 +98,21 @@ module sched_candidate_generator (
 
   // ── early-start 候选起始时刻（MODE_SINGLE idx20..22 和 MODE_NOT_BOTH 共用）──
   //
-  // 硬件策略：只收集忙侧 cluster 上会释放 DMA 带宽的少数 endpoint：
-  //   idle_t、S1 DMA end、S2PF end、S3 DMA end、S4PF window end
-  // 然后取前两个晚于 idle_t 的非重复 endpoint，形成最多 3 个起点。
-  // 不再重建 C snap_segs() 的完整 piecewise timeline；那会引入多段比较、
-  // overlap merge 和较大 fanout，而后续 bw_ok 仍会检查最终候选是否合法。
+  // release endpoint 已由 schedule_core 从完整 eval_snap_t 预先压缩成
+  // cand_gen_snap_t.release_valid/t。这里只负责从忙侧 cluster 的 release list
+  // 里选出前两个晚于 idle_t 的非重复 endpoint，避免完整 snap 字段跨模块扇出。
   always_comb begin
     int unsigned tpt_pos;
-    logic has1;
-    logic has4;
-    logic has3;
-    logic has5;
     logic dup;
 
     for (int i = 0; i < 4; i++) begin
       release_t[i] = '0;
     end
     release_valid = '0;
-
-    has1 = busy_snap.valid &&
-           (busy_snap.bw_s1 != BW_0) &&
-           (busy_snap.dma1_end > busy_snap.task_start);
-    has4 = busy_snap.valid &&
-           busy_snap.s2pf_valid &&
-           (busy_snap.s2pf_bw != BW_0) &&
-           (busy_snap.s2pf_end > busy_snap.s2pf_start);
-    has3 = busy_snap.valid &&
-           (busy_snap.bw_s3 != BW_0) &&
-           (busy_snap.dma3_end > busy_snap.s2_end);
-    has5 = busy_snap.valid &&
-           busy_snap.s4pf_valid;
-
-    release_valid[0] = has1;
-    release_t[0]     = busy_snap.dma1_end;
-    release_valid[1] = has4;
-    release_t[1]     = busy_snap.s2pf_end;
-    release_valid[2] = has3;
-    release_t[2]     = busy_snap.dma3_end;
-    release_valid[3] = has5;
-    release_t[3]     = busy_snap.s4pf_start + GHOST_WINDOW_TICKS;
+    release_valid = busy_snap.release_valid;
+    for (int i = 0; i < 4; i++) begin
+      release_t[i] = busy_snap.release_t[i];
+    end
 
     tpts[0] = idle_t;
     tpts[1] = '0;
@@ -162,30 +138,14 @@ module sched_candidate_generator (
   end
 
   // ── 辅助函数（综合时展开为查找表/比较树）────────────────────────────────
-  // split_cut_for_slot：枚举 SPLIT 候选的 8 种切割点
-  //   slot 0/1：ceil/floor 对半切（最自然的两刀）
-  //   slot 2/3：固定切 8 / ntok-8
-  //   slot 4/5：固定切 4 / ntok-4
-  //   slot 6/7：固定切 2 / ntok-2
-  // 对应 C 中 try_split() 枚举的 cut 序列
-  function automatic logic [NTOK_W-1:0] split_cut_for_slot(
+  // MODE_SINGLE 只保留两个 split：ceil(ntok/2) 与 floor(ntok/2)。
+  // 删除通用 cut 枚举后，这里不再需要动态 slot case mux 和重复 cut 比较链。
+  function automatic logic [NTOK_W-1:0] single_split_cut(
     input logic [NTOK_W-1:0] ntok,
-    input logic [2:0]        slot
+    input logic              id_is_floor
   );
-    logic [NTOK_W-1:0] h1;
-    logic [NTOK_W-1:0] h2;
-    h1 = (ntok + NTOK_W'(1)) >> 1;  // ceil(ntok/2)
-    h2 = ntok >> 1;                  // floor(ntok/2)
-    unique case (slot)
-      3'd0: split_cut_for_slot = h1;
-      3'd1: split_cut_for_slot = h2;
-      3'd2: split_cut_for_slot = NTOK_W'(8);
-      3'd3: split_cut_for_slot = ntok - NTOK_W'(8);
-      3'd4: split_cut_for_slot = NTOK_W'(4);
-      3'd5: split_cut_for_slot = ntok - NTOK_W'(4);
-      3'd6: split_cut_for_slot = NTOK_W'(2);
-      default: split_cut_for_slot = ntok - NTOK_W'(2);
-    endcase
+    single_split_cut = id_is_floor ? (ntok >> 1) :
+                                     ((ntok + NTOK_W'(1)) >> 1);
   endfunction
 
   // solo shape 枚举：S1 和 S3 各3种 shape（A/B/C），组合成 9 种配置
@@ -207,45 +167,33 @@ module sched_candidate_generator (
     endcase
   endfunction
 
-  // split_cut_valid：判断第 slot 号切割点 cut 是否有效且不重复。
-  //
-  // 作用：当 ntok 较小时，split_cut_for_slot 的多个公式会塌陷到相同的值
-  //   （如 ntok=4 时 slot2=min(8,4)=4=ntok 越界，或 slot0/slot2 重合），
-  //   本函数将退化和重复的切割点过滤掉，避免对同一候选重复评估。
-  //
-  // 有效判定（全部满足才返回 1）：
-  //   1. ntok >= 2：至少有2个 token，才可拆分
-  //   2. 0 < cut < ntok：切割点在合法范围内（不切空、不越界）
-  //   3. !dup：此 cut 值未被编号更小的 slot（0..slot-1）产生过
-  //
-  // dup 检测：循环展开为 slot 级联比较链（for 常量上界 = 8，综合时全展开）。
-  //   每次调用 split_cut_for_slot(ntok, i) 得到前驱 slot 的 cut，若相等置 dup。
-  function automatic logic split_cut_valid(
+  // MODE_SINGLE split 有效性：
+  //   - ceil 候选：只要求 0 < ceil < ntok
+  //   - floor 候选：还要求 floor != ceil，避免偶数 ntok 重复评估同一 cut
+  function automatic logic single_split_valid(
     input logic [NTOK_W-1:0] ntok,
-    input logic [2:0]        slot,
-    input logic [NTOK_W-1:0] cut
+    input logic              id_is_floor
   );
-    logic [NTOK_W-1:0] prev;
-    logic dup;
-    dup = 1'b0;
-    // 遍历 slot 之前的所有切割点，检查是否有重复（for 展开为 8 级比较链）
-    for (int i = 0; i < 8; i++) begin
-      if (i < int'(slot)) begin
-        prev = split_cut_for_slot(ntok, 3'(i));
-        if (prev == cut) dup = 1'b1;
+    logic [NTOK_W-1:0] c0;
+    logic [NTOK_W-1:0] c1;
+    begin
+      c0 = (ntok + NTOK_W'(1)) >> 1;
+      c1 = ntok >> 1;
+
+      if (!id_is_floor) begin
+        single_split_valid = (ntok >= NTOK_W'(2)) && (c0 > '0) && (c0 < ntok);
+      end else begin
+        single_split_valid = (ntok >= NTOK_W'(2)) && (c1 > '0) &&
+                             (c1 < ntok) && (c1 != c0);
       end
     end
-    split_cut_valid = (ntok >= NTOK_W'(2)) &&
-                      (cut > '0) &&
-                      (cut < ntok) &&
-                      !dup;
   endfunction
 
   // both_idle 使用压缩后的 split 集合：
   //   id 3: half_ceil = ceil(ntok/2)
   //   id 4: front_m2  = cut=2
-  // 这里不复用 8-cut split_cut_valid()，避免把已删除的 cut 也放进 duplicate
-  // 检查链。front_m2 只有在 ntok>=5 时才不同于 half_ceil 且合法。
+  // 这里不复用通用 duplicate 检查链。front_m2 只有在 ntok>=5 时才
+  // 不同于 half_ceil 且合法。
   function automatic logic [NTOK_W-1:0] both_split_cut_for_id(
     input logic [NTOK_W-1:0]      ntok,
     input logic [CAND_ID_W-1:0]   id
@@ -282,11 +230,11 @@ module sched_candidate_generator (
     input mode_t                 mode,
     input logic [CAND_ID_W-1:0]  id
   );
-    logic [2:0] split_slot;
+    logic single_split_is_floor;
     logic [NTOK_W-1:0] cut;
     begin
       candidate_id_possible = 1'b0;
-      split_slot = '0;
+      single_split_is_floor = 1'b0;
       cut = '0;
 
       unique case (mode)
@@ -294,10 +242,10 @@ module sched_candidate_generator (
           if (id < CAND_ID_W'(18)) begin
             candidate_id_possible = head_i[0].valid;
           end else if (id < CAND_ID_W'(20)) begin
-            split_slot = 3'(id - CAND_ID_W'(18));
-            cut = split_cut_for_slot(head_i[0].ntok, split_slot);
+            single_split_is_floor = (id == CAND_ID_W'(19));
             candidate_id_possible = head_i[0].valid &&
-                                    split_cut_valid(head_i[0].ntok, split_slot, cut);
+                                    single_split_valid(head_i[0].ntok,
+                                                       single_split_is_floor);
           end else if (id <= CAND_ID_W'(22)) begin
             candidate_id_possible = head_i[0].valid && !both_idle &&
                                     (2'(id - CAND_ID_W'(20)) < ntpts);
@@ -547,15 +495,15 @@ module sched_candidate_generator (
       MODE_SINGLE: begin
         logic [3:0] solo_slot;
         logic       solo_to_c3;
-        logic [2:0] single_split_slot;
+        logic       single_split_is_floor;
         logic [1:0] early_slot;
         logic [NTOK_W-1:0] cut;
 
         solo_to_c3 = (idx_eff >= CAND_ID_W'(9)) && (idx_eff < CAND_ID_W'(18));
         solo_slot = solo_to_c3 ? 4'(idx_eff - CAND_ID_W'(9)) : 4'(idx_eff);
-        single_split_slot = 3'(idx_eff - CAND_ID_W'(18));
+        single_split_is_floor = (idx_eff == CAND_ID_W'(19));
         early_slot = 2'(idx_eff - CAND_ID_W'(20));
-        cut = split_cut_for_slot(head_i[0].ntok, single_split_slot);
+        cut = '0;
 
         if (idx_eff < CAND_ID_W'(18)) begin
           cand_o.plan_type     = PLAN_SOLO;
@@ -584,11 +532,13 @@ module sched_candidate_generator (
             cand_o.shape_t0      = c3_snap_i.task_end;
           end
         end else if (idx_eff < CAND_ID_W'(20)) begin
+            cut = single_split_cut(head_i[0].ntok, single_split_is_floor);
             cand_o.plan_type     = PLAN_SPLIT;
             cand_o.cluster_a     = 1'b0;
             cand_o.s2pf_policy   = S2PF_SPLIT_LITE;
             cand_o.cost_only_tie = 1'b1;
-            cand_o.side_a_valid  = split_cut_valid(head_i[0].ntok, single_split_slot, cut);
+            cand_o.side_a_valid  = single_split_valid(head_i[0].ntok,
+                                                      single_split_is_floor);
             cand_o.side_b_valid  = cand_o.side_a_valid;
             cand_o.start_a       = tnow;
             cand_o.start_b       = tnow;

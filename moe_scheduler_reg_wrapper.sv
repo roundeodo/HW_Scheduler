@@ -145,15 +145,17 @@ module moe_scheduler_reg_wrapper
   // total_conc_q: 这些 active expert 的 best_conc 总和，用于 continuation cost。
   logic [NR_W-1:0] active_count_q;
   logic [T_W-1:0]  total_conc_q;
+  logic [2:0]      head_count_q;
+  logic [2:0]      reserve_count_q;
+  logic [2:0]      push_count;
   // remove/compact/refill 的组合控制信号。
   // removed_conc 用于从 total_conc_q 中扣掉本轮被消耗 expert 的 best_conc。
-  // keep_mask/keep_target_idx 实现 4-entry prefix/rank compaction。
   logic [T_W+1:0]  removed_conc;
-  logic [3:0]      keep_mask;
-  logic [1:0]      keep_target_idx [3:0];
+  logic [T_W-1:0]  bc0;
+  logic [T_W-1:0]  bc1;
+  logic [T_W-1:0]  bc2;
+  logic [T_W-1:0]  bc3;
   logic [2:0]      keep_count;
-  logic [2:0]      head_valid_count;
-  logic [2:0]      reserve_count;
   logic [2:0]      reserve_pop_count;
   logic [2:0]      target_head_count;
   logic [2:0]      fill_need;
@@ -201,6 +203,10 @@ module moe_scheduler_reg_wrapper
     end
   endfunction
 
+  function automatic logic [2:0] popcount4(input logic [3:0] v);
+    popcount4 = {2'b0, v[0]} + {2'b0, v[1]} + {2'b0, v[2]} + {2'b0, v[3]};
+  endfunction
+
   // ────────────────────────────────────────────────────────────────────────
   // 7. MMIO write decode
   // ────────────────────────────────────────────────────────────────────────
@@ -236,23 +242,25 @@ module moe_scheduler_reg_wrapper
   assign push_head[1]       = unpack_head16(wr_data[31:16]);
   assign push_head[2]       = unpack_head16(wr_data[47:32]);
   assign push_head[3]       = unpack_head16(wr_data[63:48]);
+  assign push_count         = popcount4({push_head[3].valid, push_head[2].valid,
+                                         push_head[1].valid, push_head[0].valid});
+
+  assign bc0 = best_conc_t(head_q[0].ntok);
+  assign bc1 = best_conc_t(head_q[1].ntok);
+  assign bc2 = best_conc_t(head_q[2].ntok);
+  assign bc3 = best_conc_t(head_q[3].ntok);
 
   // ────────────────────────────────────────────────────────────────────────
   // 8. Top4 compact/refill control
   // ────────────────────────────────────────────────────────────────────────
-  // Prefix/rank compact for the 4-entry top window plus reserve refill.
-  //
-  // keep_mask[i]=1 means HEADi survives into the next round.  target_idx is
-  // the exclusive prefix sum of keep_mask.  Consumed entries have keep_mask=0,
-  // so they do not get a new position.  Auto-run applies compact first and then
-  // pops reserve[0..] into the top window tail.
+  // Lite policy only removes {top0}, {top0,top1}, {top1,top2}, or {top2,top3}.
+  // Use fixed-case compaction instead of generic prefix/rank + variable index
+  // writes.  This maps to small muxes on the normal path and reduces fanout.
   always_comb begin
     compact_head = '{default: '0};
     commit_head_next = head_q;
     removed_conc = '0;
     keep_count = '0;
-    head_valid_count = '0;
-    reserve_count = '0;
     reserve_pop_count = '0;
     active_after_remove = active_count_q;
     target_head_count = '0;
@@ -262,35 +270,43 @@ module moe_scheduler_reg_wrapper
     head_complete_current = 1'b0;
     head_complete_after_remove = 1'b0;
 
-    // 统计当前 head/reserve 有效项，同时生成 keep_mask。
-    // remove_slot_mask 来自 schedule_core 的 winner commit，表示本轮消耗了哪些 top4 slot。
-    for (int i = 0; i < 4; i++) begin
-      if (head_q[i].valid) begin
-        head_valid_count = head_valid_count + 3'd1;
+    unique case (remove_slot_mask)
+      4'b0000: begin
+        compact_head = head_q;
+        keep_count   = head_count_q;
+        removed_conc = '0;
       end
-      if (reserve_q[i].valid) begin
-        reserve_count = reserve_count + 3'd1;
+      4'b0001: begin
+        compact_head[0] = head_q[1];
+        compact_head[1] = head_q[2];
+        compact_head[2] = head_q[3];
+        keep_count      = head_count_q - 3'd1;
+        removed_conc    = {2'b0, bc0};
       end
-      keep_mask[i] = head_q[i].valid && !remove_slot_mask[i];
-      if (head_q[i].valid && remove_slot_mask[i]) begin
-        removed_conc = removed_conc + {2'b0, best_conc_t(head_q[i].ntok)};
+      4'b0011: begin
+        compact_head[0] = head_q[2];
+        compact_head[1] = head_q[3];
+        keep_count      = head_count_q - 3'd2;
+        removed_conc    = {2'b0, bc0} + {2'b0, bc1};
       end
-    end
-
-    // 4-entry exclusive prefix sum:
-    //   keep_mask=1011 时，slot0->0, slot1->1, slot3->2，slot2 被移除。
-    // 这样可以保持剩余 expert 的原始排序，不需要比较 ntok。
-    keep_target_idx[0] = 2'd0;
-    keep_target_idx[1] = {1'b0, keep_mask[0]};
-    keep_target_idx[2] = {1'b0, keep_mask[0]} + {1'b0, keep_mask[1]};
-    keep_target_idx[3] = {1'b0, keep_mask[0]} + {1'b0, keep_mask[1]} +
-                         {1'b0, keep_mask[2]};
-    for (int i = 0; i < 4; i++) begin
-      if (keep_mask[i]) begin
-        compact_head[keep_target_idx[i]] = head_q[i];
-        keep_count = keep_count + 3'd1;
+      4'b0110: begin
+        compact_head[0] = head_q[0];
+        compact_head[1] = head_q[3];
+        keep_count      = head_count_q - 3'd2;
+        removed_conc    = {2'b0, bc1} + {2'b0, bc2};
       end
-    end
+      4'b1100: begin
+        compact_head[0] = head_q[0];
+        compact_head[1] = head_q[1];
+        keep_count      = head_count_q - 3'd2;
+        removed_conc    = {2'b0, bc2} + {2'b0, bc3};
+      end
+      default: begin
+        compact_head = head_q;
+        keep_count   = head_count_q;
+        removed_conc = '0;
+      end
+    endcase
 
     // 没有 remove 时，下一轮 head 保持不变；有 remove 时，先使用 compact 结果。
     commit_head_next = remove_ready_pulse ? compact_head : head_q;
@@ -304,7 +320,7 @@ module moe_scheduler_reg_wrapper
       fill_need = (target_head_count > keep_count) ?
                   (target_head_count - keep_count) : 3'd0;
       // reserve_pop_count 表示这次从 reserve 队头搬几个 expert 到 compact 后的 head 尾部。
-      reserve_pop_count = (fill_need > reserve_count) ? reserve_count : fill_need;
+      reserve_pop_count = (fill_need > reserve_count_q) ? reserve_count_q : fill_need;
       for (int p = 0; p < 4; p++) begin
         if (p < int'(reserve_pop_count)) begin
           commit_head_next[keep_count + p[2:0]] = reserve_q[p];
@@ -317,18 +333,18 @@ module moe_scheduler_reg_wrapper
 
     // head_complete_* 用于 auto-run 判断：如果当前/commit 后 head 已经够下一轮使用，
     // wrapper 可以不等 CVA6 再写 HEAD_PUSH，直接自动启动 schedule_core。
-    head_complete_current = (head_valid_count >= target_head_count);
+    head_complete_current = (head_count_q >= target_head_count);
     head_complete_after_remove =
         (remove_ready_pulse ? ((keep_count + reserve_pop_count) >= target_head_count) :
                               head_complete_current);
 
     // refill_req 告诉 CVA6：RTL 内部 head+reserve 已经装不满后续 active expert，
     // 需要从 L3 sorted expert stream 再 push 1..4 个到 reserve。
-    if (active_count_q > NR_W'(head_valid_count + reserve_count)) begin
+    if (active_count_q > NR_W'(head_count_q + reserve_count_q)) begin
       logic [2:0] free_slots;
       logic [NR_W-1:0] remaining_unloaded;
-      free_slots = 3'd4 - reserve_count;
-      remaining_unloaded = active_count_q - NR_W'(head_valid_count + reserve_count);
+      free_slots = 3'd4 - reserve_count_q;
+      remaining_unloaded = active_count_q - NR_W'(head_count_q + reserve_count_q);
       if (free_slots != 3'd0) begin
         refill_req = 1'b1;
         refill_count = (remaining_unloaded > NR_W'(free_slots)) ?
@@ -370,6 +386,8 @@ module moe_scheduler_reg_wrapper
 	      reserve_q      <= '{default: '0};
 	      active_count_q <= '0;
 	      total_conc_q   <= '0;
+	      head_count_q   <= '0;
+	      reserve_count_q <= '0;
 	      done_seen_q    <= 1'b0;
 	      auto_run_q     <= 1'b0;
 	    end else begin
@@ -387,24 +405,29 @@ module moe_scheduler_reg_wrapper
             for (int h = 0; h < 4; h++) begin
               head_q[h] <= unpack_head16(wr_data[h * 16 +: 16]);
             end
+            head_count_q <= popcount4({wr_data[63], wr_data[47],
+                                       wr_data[31], wr_data[15]});
           end
           REG_HEAD_PUSH_QUAD: begin
             // 后续 refill。新 expert 追加到 reserve 的第一个空位之后。
-            // 当前实现通过组合 reserve_count 找追加位置。
 		            int wr_pos;
-		            wr_pos = int'(reserve_count);
+		            wr_pos = int'(reserve_count_q);
 		            for (int p = 0; p < 4; p++) begin
 		              if (push_head[p].valid && (wr_pos < 4)) begin
 		                reserve_q[wr_pos] <= push_head[p];
 		                wr_pos++;
 		              end
 		            end
+		            reserve_count_q <= (reserve_count_q + push_count > 3'd4) ?
+		                               3'd4 : reserve_count_q + push_count;
           end
           REG_RESERVE_QUAD: begin
             // 初始化 reserve[4]，通常 batch 开始时写入 top4 之后的后续 expert。
             for (int r = 0; r < 4; r++) begin
               reserve_q[r] <= unpack_head16(wr_data[r * 16 +: 16]);
             end
+            reserve_count_q <= popcount4({wr_data[63], wr_data[47],
+                                          wr_data[31], wr_data[15]});
           end
 	          default: ;
 	        endcase
@@ -417,8 +440,10 @@ module moe_scheduler_reg_wrapper
 	        //   3. total_conc 扣掉被消耗 expert 的 best_conc；
 	        //   4. reserve 队头左移 reserve_pop_count。
 	        head_q <= commit_head_next;
+	        head_count_q <= keep_count + reserve_pop_count;
 	        active_count_q <= active_count_q - NR_W'(remove_count);
 	        total_conc_q <= total_conc_q - T_W'(removed_conc);
+	        reserve_count_q <= reserve_count_q - reserve_pop_count;
 	        for (int r = 0; r < 4; r++) begin
 	          if ((r + int'(reserve_pop_count)) < 4) begin
 	            reserve_q[r] <= reserve_q[r + int'(reserve_pop_count)];
@@ -474,7 +499,7 @@ module moe_scheduler_reg_wrapper
 	        rd_data[17:16]  = plan_count[0];
 	        rd_data[25:24]  = plan_slot_valid[0];
 	        rd_data[31:28]  = refill_count;
-	        rd_data[35:32]  = {1'b0, reserve_count};
+	        rd_data[35:32]  = {1'b0, reserve_count_q};
 	        rd_data[39:36]  = plan_fifo_count;
 	        for (int q = 0; q < PLANQ_DEPTH; q++) begin
 	          rd_data[40 + q * 2 +: 2] = plan_count[q];
@@ -495,7 +520,7 @@ module moe_scheduler_reg_wrapper
 		        rd_data[9:8]    = plan_count[0];
 		        rd_data[13:12]  = plan_remove_count[0];
 		        rd_data[17:16]  = plan_slot_valid[0];
-		        rd_data[21:18]  = {1'b0, reserve_count};
+		        rd_data[21:18]  = {1'b0, reserve_count_q};
 		        rd_data[22]     = refill_req;
 		        rd_data[27:24]  = refill_count;
 		        rd_data[28]     = (active_count_q == NR_W'(0));
