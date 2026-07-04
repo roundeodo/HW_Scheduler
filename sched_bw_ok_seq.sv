@@ -13,6 +13,7 @@ import sched_pkg::*;
 module sched_bw_ok_seq (
   input  logic       clk_i,
   input  logic       rst_ni,
+  input  logic       clear_i,
   input  logic       start_i,
   output logic       busy_o,
   output logic       done_o,
@@ -269,6 +270,12 @@ module sched_bw_ok_seq (
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
+      busy_q   <= 1'b0;
+      done_q   <= 1'b0;
+      ok_q     <= 1'b0;
+      ptr_a_q  <= PTR_NONE;
+      ptr_b_q  <= PTR_NONE;
+    end else if (clear_i) begin
       busy_q   <= 1'b0;
       done_q   <= 1'b0;
       ok_q     <= 1'b0;

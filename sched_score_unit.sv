@@ -19,6 +19,7 @@ import sched_pkg::*;
 module sched_score_unit (
   input  logic                  clk_i,
   input  logic                  rst_ni,
+  input  logic                  clear_i,
 
   input  logic                  start_i,
   output logic                  busy_o,
@@ -419,6 +420,11 @@ module sched_score_unit (
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
+      st_q        <= ST_IDLE;
+      solo_idx_q  <= '0;
+      best_cost_q <= INF_T;
+      cost_q      <= '0;
+    end else if (clear_i) begin
       st_q        <= ST_IDLE;
       solo_idx_q  <= '0;
       best_cost_q <= INF_T;

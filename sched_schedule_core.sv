@@ -82,6 +82,7 @@ module sched_schedule_core (
 
   logic eval_inflight_q, eval_inflight_d;
   logic done_q, done_d;
+  early_start_ctx_t early_ctx_q, early_ctx_d;
 
   logic              remove_valid_q, remove_valid_d;
   logic [1:0]        remove_count_q, remove_count_d;
@@ -195,6 +196,7 @@ module sched_schedule_core (
   sched_bw_ok_seq i_eval_bw_ok (
     .clk_i    (clk_i),
     .rst_ni   (rst_ni),
+    .clear_i  (init_i),
     .start_i  (eval_bw_start),
     .busy_o   (),
     .done_o   (eval_bw_done),
@@ -206,6 +208,7 @@ module sched_schedule_core (
   sched_bw_ok_seq i_commit_bw_ok (
     .clk_i    (clk_i),
     .rst_ni   (rst_ni),
+    .clear_i  (init_i),
     .start_i  (commit_bw_start),
     .busy_o   (),
     .done_o   (commit_bw_done),
@@ -223,7 +226,7 @@ module sched_schedule_core (
   cand_token_t eval_token;
   cand_token_t best_token;
   logic       cand_valid;
-  early_start_ctx_t early_ctx;
+  early_start_ctx_t early_ctx_comb;
   time_t early_idle_t;
   snap_timeline_t early_busy_timeline;
 
@@ -231,7 +234,7 @@ module sched_schedule_core (
                         c3_timeline_q.task_end : c2_timeline_q.task_end;
   assign early_busy_timeline = (c3_timeline_q.task_end < c2_timeline_q.task_end) ?
                                c2_timeline_q : c3_timeline_q;
-  assign early_ctx = make_early_start_ctx(early_busy_timeline, early_idle_t);
+  assign early_ctx_comb = make_early_start_ctx(early_busy_timeline, early_idle_t);
 
   logic best_valid;
   logic [1:0] best_remove_count;
@@ -241,13 +244,14 @@ module sched_schedule_core (
   sched_candidate_generator i_candidate_generator (
     .clk_i                 (clk_i),
     .rst_ni                (rst_ni),
+    .clear_i               (init_i),
     .start_i               (gen_start),
     .advance_i             (gen_advance),
     .busy_o                (gen_busy),
     .done_o                (gen_done),
     .c2_task_end_i         (c2_timeline_q.task_end),
     .c3_task_end_i         (c3_timeline_q.task_end),
-    .early_i               (early_ctx),
+    .early_i               (early_ctx_q),
     .head_i                (head_i),
     .active_count_i        (active_count_i),
     .cand_o                (cand_token),
@@ -269,6 +273,7 @@ module sched_schedule_core (
   sched_candidate_eval_lane i_eval_lane (
     .clk_i                 (clk_i),
     .rst_ni                (rst_ni),
+    .clear_i               (init_i),
     .start_i               (eval_start),
     .busy_o                (eval_busy),
     .done_o                (eval_done),
@@ -276,7 +281,7 @@ module sched_schedule_core (
     .head_i                (head_i),
     .active_count_i        (active_count_i),
     .total_conc_i          (total_conc_i),
-    .early_i               (early_ctx),
+    .early_i               (early_ctx_q),
     .base_timeline_a_i     (c2_timeline_q),
     .base_timeline_b_i     (c3_timeline_q),
     .base_cache_a_i        (c2_cache_q),
@@ -301,7 +306,7 @@ module sched_schedule_core (
   sched_best_reduce i_best_reduce (
     .clk_i                (clk_i),
     .rst_ni               (rst_ni),
-    .clear_i              (best_clear),
+    .clear_i              (best_clear || init_i),
     .cand_valid_i         ((st_q == ST_EVAL) && eval_valid),
     .cand_token_i         (cand_token),
     .cand_score_i         (eval_score),
@@ -619,6 +624,7 @@ module sched_schedule_core (
     c2_slot_d            = c2_slot_q;
     c3_slot_d            = c3_slot_q;
     eval_inflight_d      = eval_inflight_q;
+    early_ctx_d          = early_ctx_q;
     done_d               = 1'b0;
     commit_active_d      = commit_active_q;
     commit_replay_d      = commit_replay_q;
@@ -675,6 +681,7 @@ module sched_schedule_core (
       c2_slot_d            = '0;
       c3_slot_d            = '0;
       eval_inflight_d      = 1'b0;
+      early_ctx_d          = '0;
       commit_active_d      = 1'b0;
       commit_replay_d      = 1'b0;
       allow_s4pf_a_d       = 1'b0;
@@ -703,9 +710,10 @@ module sched_schedule_core (
         end
 
         ST_ROUND_START: begin
-          // ST_ROUND_START is only a one-cycle protocol boundary after wrapper
-          // compact/refill.  The core directly consumes wrapper-owned head_i /
-          // active_count_i / total_conc_i; duplicating them here would waste FF.
+          // ST_ROUND_START is the round-level predecode boundary after wrapper
+          // compact/refill.  Only early_ctx is latched because it is derived
+          // from C2/C3 timeline and consumed by both generator and eval lane.
+          early_ctx_d = early_ctx_comb;
           if (active_count_i == NR_W'(0)) begin
             done_d = 1'b1;
             st_d   = ST_DONE_EMPTY;
@@ -870,6 +878,7 @@ module sched_schedule_core (
       c2_slot_q             <= '0;
       c3_slot_q             <= '0;
       eval_inflight_q       <= 1'b0;
+      early_ctx_q           <= '0;
       commit_active_q       <= 1'b0;
       commit_replay_q       <= 1'b0;
       allow_s4pf_a_q        <= 1'b0;
@@ -897,6 +906,7 @@ module sched_schedule_core (
       c2_slot_q             <= c2_slot_d;
       c3_slot_q             <= c3_slot_d;
       eval_inflight_q       <= eval_inflight_d;
+      early_ctx_q           <= early_ctx_d;
       commit_active_q       <= commit_active_d;
       commit_replay_q       <= commit_replay_d;
       allow_s4pf_a_q        <= allow_s4pf_a_d;

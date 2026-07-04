@@ -15,6 +15,7 @@ import sched_candidate_pkg::*;
 module sched_candidate_generator (
   input  logic                 clk_i,
   input  logic                 rst_ni,
+  input  logic                 clear_i,
 
   input  logic                 start_i,
   input  logic                 advance_i,
@@ -157,6 +158,10 @@ module sched_candidate_generator (
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
+      st_q <= ST_IDLE;
+      mode_q <= CAND_MODE_SINGLE;
+      idx_q <= '0;
+    end else if (clear_i) begin
       st_q <= ST_IDLE;
       mode_q <= CAND_MODE_SINGLE;
       idx_q <= '0;

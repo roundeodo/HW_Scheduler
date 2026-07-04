@@ -20,6 +20,7 @@ import sched_pkg::*;
 module sched_s2pf_pair (
   input  logic         clk_i,
   input  logic         rst_ni,
+  input  logic         clear_i,
   input  logic         start_i,
   output logic         busy_o,
   output logic         done_o,
@@ -433,6 +434,24 @@ module sched_s2pf_pair (
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
+      st_q             <= ST_IDLE;
+      scan_idx_q       <= '0;
+      policy_q         <= S2PF_OFF;
+      side_q           <= '0;
+      best_valid_q     <= 1'b0;
+      best_class_q     <= '0;
+      best_a_pf_q      <= 1'b0;
+      best_b_pf_q      <= 1'b0;
+      best_a_start_q   <= '0;
+      best_b_start_q   <= '0;
+      hi_q             <= '{default: '0};
+      best_s4_q        <= '{default: '0};
+      dur_is2_q        <= '0;
+      pf_bw_is128_q    <= '0;
+      can_q            <= '0;
+      dma_start_valid_q <= '0;
+      trial_count_q    <= '0;
+    end else if (clear_i) begin
       st_q             <= ST_IDLE;
       scan_idx_q       <= '0;
       policy_q         <= S2PF_OFF;
