@@ -3,12 +3,11 @@
 //
 // MoE Hardware Scheduler - sequential bw_ok checker
 //
-// sched_bw_ok is still the semantic primitive, but using it directly from
-// top-level scheduler state creates very long FPGA timing paths.  This module
-// keeps the same segment semantics, but scans one A-side segment against all
-// five B-side segments per cycle.  On start_i the module latches compact
-// segment records derived from snap_a_i/snap_b_i; snap records are
-// not copied and do not need to stay stable while busy_o is high.
+// This module keeps the BW segment semantics, but exploits the fact that each
+// side's fixed segment slots are time ordered and non-overlapping after local
+// S1/S2PF splitting.  It uses an interval sweep: each cycle compares the
+// current A/B segment pair, skips invalid slots, checks BW only when intervals
+// overlap, and advances the segment that ends first.
 
 import sched_pkg::*;
 
@@ -19,8 +18,8 @@ module sched_bw_ok_seq (
   output logic       busy_o,
   output logic       done_o,
 
-  input  eval_snap_t snap_a_i,
-  input  eval_snap_t snap_b_i,
+  input  snap_timeline_t snap_a_i,
+  input  snap_timeline_t snap_b_i,
   output logic       ok_o
 );
 
@@ -28,280 +27,216 @@ module sched_bw_ok_seq (
     logic            valid;
     logic [T_W-1:0]  lo;
     logic [T_W-1:0]  hi;
-    logic [BW_W-1:0] bw;
+    logic            is_128;
   } seg_t;
 
-  seg_t seg_a_comb [5];
-  seg_t seg_b_comb [5];
-  (* max_fanout = 16 *) seg_t seg_a_q [5];
-  (* max_fanout = 16 *) seg_t seg_b_q [5];
+  localparam int unsigned N_SEG = 4;
+
+  seg_t seg_a_comb [N_SEG];
+  seg_t seg_b_comb [N_SEG];
+  seg_t seg_a_q [N_SEG];
+  seg_t seg_b_q [N_SEG];
+  logic seg_a_any_comb;
+  logic seg_b_any_comb;
 
   logic ok_single_a;
   logic ok_single_b;
   logic ok_single_comb;
-  logic row_cross_ok;
-  logic ok_next;
+  logic have_cross_comb;
+  logic pair_bad;
   logic       busy_q;
   logic       done_q;
   logic       ok_q;
-  logic [2:0] row_q;
+  logic       adv_a;
+  logic       adv_b;
+  logic       sweep_done_next;
+  logic       cur_a_valid;
+  logic       cur_b_valid;
+  logic       a_last;
+  logic       b_last;
 
-  int unsigned idx_a;
-  int unsigned idx_b;
+  logic       both_valid;
 
-  logic has1_a, has4_a, has3_a, has5_a;
-  logic has1_b, has4_b, has3_b, has5_b;
-  logic [T_W-1:0] ovl_lo_a, ovl_hi_a;
-  logic [T_W-1:0] ovl_lo_b, ovl_hi_b;
-  logic [BW_W:0] merged_a;
-  logic [BW_W:0] merged_b;
+  function automatic seg_t pack_seg(
+    input logic            valid,
+    input logic [T_W-1:0]  lo,
+    input logic [T_W-1:0]  hi,
+    input logic            is_128
+  );
+    seg_t ret;
+    begin
+      ret.valid = valid;
+      ret.lo    = lo;
+      ret.hi    = hi;
+      ret.is_128 = is_128;
+      pack_seg = ret;
+    end
+  endfunction
 
-  logic [T_W-1:0] cross_lo;
-  logic [T_W-1:0] cross_hi;
-  logic [BW_W:0]  cross_bw;
+  task automatic build_side_segments(
+    input  snap_timeline_t sn,
+    output seg_t           seg_o [N_SEG],
+    output logic           any_o,
+    output logic           ok_single_o
+  );
+    logic has_s1;
+    logic has_s2pf;
+    logic has_s3;
+    logic has_s4pf;
+    logic s1_s2pf_overlap;
+    logic [T_W-1:0] ovl_hi;
+    logic s1_is_128;
+    logic s2pf_is_128;
+    logic s3_is_128;
+    begin
+      seg_o = '{default: '0};
+      ok_single_o = 1'b1;
+
+      // BW encoding is fixed to 00/01/10.  In this checker the exact 64 value
+      // is not needed: nonzero means an active DMA interval, bit[1] means
+      // 128 B/cc and therefore makes any cross-cluster overlap illegal.
+      s1_is_128   = sn.bw_s1[1];
+      s2pf_is_128 = sn.s2pf_bw[1];
+      s3_is_128   = sn.bw_s3[1];
+
+      // Producers already encode skipped DMA with BW_0 and valid S2PF with
+      // s2pf_valid.  Do not repeat interval-length guards here; this module
+      // only consumes the compact timeline contract.
+      has_s1   = sn.valid && (|sn.bw_s1);
+      has_s2pf = sn.valid && sn.s2pf_valid;
+      has_s3   = sn.valid && (|sn.bw_s3);
+      has_s4pf = sn.valid && sn.s4pf_valid;
+
+      // Current S2PF policy only creates pf_start >= task_start.  Therefore
+      // S1/S2PF can only be ordered as:
+      //   task_start <= s2pf_start < dma1_end  : local overlap
+      //   task_start <  dma1_end <= s2pf_start : no overlap, S1 then S2PF
+      // Branches for S2PF-before-S1 are unreachable and intentionally removed.
+      s1_s2pf_overlap = has_s1 && has_s2pf &&
+                         (sn.s2pf_start < sn.dma1_end);
+
+      if (s1_s2pf_overlap) begin
+        ovl_hi = (sn.dma1_end < sn.s2pf_end) ? sn.dma1_end : sn.s2pf_end;
+        // In the overlap region both S1 and S2PF are active and nonzero.
+        // With 0/64/128 encoding, legal overlap can only be 64+64=128.
+        // If either side is already 128, this single cluster is over limit.
+        if (s1_is_128 || s2pf_is_128) begin
+          ok_single_o = 1'b0;
+        end
+
+        seg_o[0] = pack_seg(sn.task_start < sn.s2pf_start,
+                            sn.task_start, sn.s2pf_start,
+                            s1_is_128);
+
+        seg_o[1] = pack_seg(1'b1, sn.s2pf_start, ovl_hi, 1'b1);
+
+        if (sn.s2pf_end <= sn.dma1_end) begin
+          seg_o[2] = pack_seg(sn.s2pf_end < sn.dma1_end,
+                              sn.s2pf_end, sn.dma1_end,
+                              s1_is_128);
+        end else begin
+          seg_o[2] = pack_seg(1'b1, sn.dma1_end, sn.s2pf_end,
+                              s2pf_is_128);
+        end
+      end else begin
+        if (has_s1 && has_s2pf) begin
+          seg_o[0] = pack_seg(1'b1, sn.task_start, sn.dma1_end,
+                              s1_is_128);
+          seg_o[2] = pack_seg(1'b1, sn.s2pf_start, sn.s2pf_end,
+                              s2pf_is_128);
+        end else if (has_s1) begin
+          seg_o[0] = pack_seg(1'b1, sn.task_start, sn.dma1_end,
+                              s1_is_128);
+        end else if (has_s2pf) begin
+          seg_o[0] = pack_seg(1'b1, sn.s2pf_start, sn.s2pf_end,
+                              s2pf_is_128);
+        end
+      end
+
+      // S2PF and S3 are mutually exclusive in the current RTL producer:
+      // apply_s2pf() sets bw_s3=0 when it sets s2pf_valid.  Therefore the
+      // "later work" slot can hold either S1/S2PF tail or S3 DMA.
+      if (!has_s2pf && has_s3) begin
+        seg_o[2] = pack_seg(1'b1, sn.s2_end, sn.dma3_end, s3_is_128);
+      end
+
+      seg_o[3] = pack_seg(has_s4pf, sn.s4pf_start,
+                           sn.s4pf_start + GHOST_WINDOW_TICKS, 1'b0);
+
+      any_o = has_s1 || has_s2pf || has_s3 || has_s4pf;
+    end
+  endtask
 
   always_comb begin
-    for (int i = 0; i < 5; i++) begin
-      seg_a_comb[i] = '0;
-      seg_b_comb[i] = '0;
-    end
-
-    idx_a       = 0;
-    idx_b       = 0;
-    ok_single_a = 1'b1;
-    ok_single_b = 1'b1;
-
-    has1_a = snap_a_i.valid &&
-             (snap_a_i.bw_s1 != BW_0) &&
-             (snap_a_i.dma1_end > snap_a_i.task_start);
-    has4_a = snap_a_i.valid &&
-             snap_a_i.s2pf_valid &&
-             (snap_a_i.s2pf_bw != BW_0) &&
-             (snap_a_i.s2pf_end > snap_a_i.s2pf_start);
-    has3_a = snap_a_i.valid &&
-             (snap_a_i.bw_s3 != BW_0) &&
-             (snap_a_i.dma3_end > snap_a_i.s2_end);
-    has5_a = snap_a_i.valid && snap_a_i.s4pf_valid;
-
-    if (has1_a && has4_a &&
-        (snap_a_i.task_start < snap_a_i.s2pf_end) &&
-        (snap_a_i.s2pf_start < snap_a_i.dma1_end)) begin
-      ovl_lo_a = (snap_a_i.task_start > snap_a_i.s2pf_start) ?
-                 snap_a_i.task_start : snap_a_i.s2pf_start;
-      ovl_hi_a = (snap_a_i.dma1_end < snap_a_i.s2pf_end) ?
-                 snap_a_i.dma1_end : snap_a_i.s2pf_end;
-      merged_a = {1'b0, snap_a_i.bw_s1} + {1'b0, snap_a_i.s2pf_bw};
-      if (merged_a > {1'b0, BW_128}) begin
-        ok_single_a = 1'b0;
-      end
-
-      if (snap_a_i.task_start < snap_a_i.s2pf_start) begin
-        seg_a_comb[idx_a].valid = 1'b1;
-        seg_a_comb[idx_a].lo    = snap_a_i.task_start;
-        seg_a_comb[idx_a].hi    = snap_a_i.s2pf_start;
-        seg_a_comb[idx_a].bw    = snap_a_i.bw_s1;
-        idx_a++;
-      end else if (snap_a_i.s2pf_start < snap_a_i.task_start) begin
-        seg_a_comb[idx_a].valid = 1'b1;
-        seg_a_comb[idx_a].lo    = snap_a_i.s2pf_start;
-        seg_a_comb[idx_a].hi    = snap_a_i.task_start;
-        seg_a_comb[idx_a].bw    = snap_a_i.s2pf_bw;
-        idx_a++;
-      end
-
-      if (ovl_hi_a > ovl_lo_a) begin
-        seg_a_comb[idx_a].valid = 1'b1;
-        seg_a_comb[idx_a].lo    = ovl_lo_a;
-        seg_a_comb[idx_a].hi    = ovl_hi_a;
-        seg_a_comb[idx_a].bw    = merged_a[BW_W-1:0];
-        idx_a++;
-      end
-
-      if (snap_a_i.dma1_end > snap_a_i.s2pf_end) begin
-          seg_a_comb[idx_a].valid = 1'b1;
-          seg_a_comb[idx_a].lo    = snap_a_i.s2pf_end;
-          seg_a_comb[idx_a].hi    = snap_a_i.dma1_end;
-          seg_a_comb[idx_a].bw    = snap_a_i.bw_s1;
-        idx_a++;
-      end else if (snap_a_i.s2pf_end > snap_a_i.dma1_end) begin
-          seg_a_comb[idx_a].valid = 1'b1;
-          seg_a_comb[idx_a].lo    = snap_a_i.dma1_end;
-          seg_a_comb[idx_a].hi    = snap_a_i.s2pf_end;
-          seg_a_comb[idx_a].bw    = snap_a_i.s2pf_bw;
-        idx_a++;
-      end
-    end else begin
-      if (has1_a) begin
-        seg_a_comb[idx_a].valid = 1'b1;
-        seg_a_comb[idx_a].lo    = snap_a_i.task_start;
-        seg_a_comb[idx_a].hi    = snap_a_i.dma1_end;
-        seg_a_comb[idx_a].bw    = snap_a_i.bw_s1;
-        idx_a++;
-      end
-      if (has4_a) begin
-        seg_a_comb[idx_a].valid = 1'b1;
-        seg_a_comb[idx_a].lo    = snap_a_i.s2pf_start;
-        seg_a_comb[idx_a].hi    = snap_a_i.s2pf_end;
-        seg_a_comb[idx_a].bw    = snap_a_i.s2pf_bw;
-        idx_a++;
-      end
-    end
-
-    if (has3_a) begin
-      seg_a_comb[idx_a].valid = 1'b1;
-      seg_a_comb[idx_a].lo    = snap_a_i.s2_end;
-      seg_a_comb[idx_a].hi    = snap_a_i.dma3_end;
-      seg_a_comb[idx_a].bw    = snap_a_i.bw_s3;
-      idx_a++;
-    end
-
-    if (has5_a) begin
-      seg_a_comb[idx_a].valid = 1'b1;
-      seg_a_comb[idx_a].lo    = snap_a_i.s4pf_start;
-      seg_a_comb[idx_a].hi    = snap_a_i.s4pf_start + GHOST_WINDOW_TICKS;
-      seg_a_comb[idx_a].bw    = BW_64;
-      idx_a++;
-    end
-
-    has1_b = snap_b_i.valid &&
-             (snap_b_i.bw_s1 != BW_0) &&
-             (snap_b_i.dma1_end > snap_b_i.task_start);
-    has4_b = snap_b_i.valid &&
-             snap_b_i.s2pf_valid &&
-             (snap_b_i.s2pf_bw != BW_0) &&
-             (snap_b_i.s2pf_end > snap_b_i.s2pf_start);
-    has3_b = snap_b_i.valid &&
-             (snap_b_i.bw_s3 != BW_0) &&
-             (snap_b_i.dma3_end > snap_b_i.s2_end);
-    has5_b = snap_b_i.valid && snap_b_i.s4pf_valid;
-
-    if (has1_b && has4_b &&
-        (snap_b_i.task_start < snap_b_i.s2pf_end) &&
-        (snap_b_i.s2pf_start < snap_b_i.dma1_end)) begin
-      ovl_lo_b = (snap_b_i.task_start > snap_b_i.s2pf_start) ?
-                 snap_b_i.task_start : snap_b_i.s2pf_start;
-      ovl_hi_b = (snap_b_i.dma1_end < snap_b_i.s2pf_end) ?
-                 snap_b_i.dma1_end : snap_b_i.s2pf_end;
-      merged_b = {1'b0, snap_b_i.bw_s1} + {1'b0, snap_b_i.s2pf_bw};
-      if (merged_b > {1'b0, BW_128}) begin
-        ok_single_b = 1'b0;
-      end
-
-      if (snap_b_i.task_start < snap_b_i.s2pf_start) begin
-        seg_b_comb[idx_b].valid = 1'b1;
-        seg_b_comb[idx_b].lo    = snap_b_i.task_start;
-        seg_b_comb[idx_b].hi    = snap_b_i.s2pf_start;
-        seg_b_comb[idx_b].bw    = snap_b_i.bw_s1;
-        idx_b++;
-      end else if (snap_b_i.s2pf_start < snap_b_i.task_start) begin
-        seg_b_comb[idx_b].valid = 1'b1;
-        seg_b_comb[idx_b].lo    = snap_b_i.s2pf_start;
-        seg_b_comb[idx_b].hi    = snap_b_i.task_start;
-        seg_b_comb[idx_b].bw    = snap_b_i.s2pf_bw;
-        idx_b++;
-      end
-
-      if (ovl_hi_b > ovl_lo_b) begin
-        seg_b_comb[idx_b].valid = 1'b1;
-        seg_b_comb[idx_b].lo    = ovl_lo_b;
-        seg_b_comb[idx_b].hi    = ovl_hi_b;
-        seg_b_comb[idx_b].bw    = merged_b[BW_W-1:0];
-        idx_b++;
-      end
-
-      if (snap_b_i.dma1_end > snap_b_i.s2pf_end) begin
-        seg_b_comb[idx_b].valid = 1'b1;
-        seg_b_comb[idx_b].lo    = snap_b_i.s2pf_end;
-        seg_b_comb[idx_b].hi    = snap_b_i.dma1_end;
-        seg_b_comb[idx_b].bw    = snap_b_i.bw_s1;
-        idx_b++;
-      end else if (snap_b_i.s2pf_end > snap_b_i.dma1_end) begin
-        seg_b_comb[idx_b].valid = 1'b1;
-        seg_b_comb[idx_b].lo    = snap_b_i.dma1_end;
-        seg_b_comb[idx_b].hi    = snap_b_i.s2pf_end;
-        seg_b_comb[idx_b].bw    = snap_b_i.s2pf_bw;
-        idx_b++;
-      end
-    end else begin
-      if (has1_b) begin
-        seg_b_comb[idx_b].valid = 1'b1;
-        seg_b_comb[idx_b].lo    = snap_b_i.task_start;
-        seg_b_comb[idx_b].hi    = snap_b_i.dma1_end;
-        seg_b_comb[idx_b].bw    = snap_b_i.bw_s1;
-        idx_b++;
-      end
-      if (has4_b) begin
-        seg_b_comb[idx_b].valid = 1'b1;
-        seg_b_comb[idx_b].lo    = snap_b_i.s2pf_start;
-        seg_b_comb[idx_b].hi    = snap_b_i.s2pf_end;
-        seg_b_comb[idx_b].bw    = snap_b_i.s2pf_bw;
-        idx_b++;
-      end
-    end
-
-    if (has3_b) begin
-      seg_b_comb[idx_b].valid = 1'b1;
-      seg_b_comb[idx_b].lo    = snap_b_i.s2_end;
-      seg_b_comb[idx_b].hi    = snap_b_i.dma3_end;
-      seg_b_comb[idx_b].bw    = snap_b_i.bw_s3;
-      idx_b++;
-    end
-
-    if (has5_b) begin
-      seg_b_comb[idx_b].valid = 1'b1;
-      seg_b_comb[idx_b].lo    = snap_b_i.s4pf_start;
-      seg_b_comb[idx_b].hi    = snap_b_i.s4pf_start + GHOST_WINDOW_TICKS;
-      seg_b_comb[idx_b].bw    = BW_64;
-      idx_b++;
-    end
+    build_side_segments(snap_a_i, seg_a_comb, seg_a_any_comb, ok_single_a);
+    build_side_segments(snap_b_i, seg_b_comb, seg_b_any_comb, ok_single_b);
   end
 
   assign ok_single_comb = ok_single_a && ok_single_b;
+  assign have_cross_comb = ok_single_comb && seg_a_any_comb && seg_b_any_comb;
 
-  always_comb begin
-    row_cross_ok = 1'b1;
-    for (int ib = 0; ib < 5; ib++) begin
-      cross_lo = (seg_a_q[row_q].lo > seg_b_q[ib].lo) ?
-                 seg_a_q[row_q].lo : seg_b_q[ib].lo;
-      cross_hi = (seg_a_q[row_q].hi < seg_b_q[ib].hi) ?
-                 seg_a_q[row_q].hi : seg_b_q[ib].hi;
-      cross_bw = {1'b0, seg_a_q[row_q].bw} + {1'b0, seg_b_q[ib].bw};
-      if (seg_a_q[row_q].valid && seg_b_q[ib].valid &&
-          (cross_lo < cross_hi) &&
-          (cross_bw > {1'b0, BW_128})) begin
-        row_cross_ok = 1'b0;
-      end
-    end
-  end
+  assign cur_a_valid = seg_a_q[0].valid;
+  assign cur_b_valid = seg_b_q[0].valid;
+  assign both_valid = cur_a_valid && cur_b_valid;
+  assign a_last = !(seg_a_q[1].valid || seg_a_q[2].valid || seg_a_q[3].valid);
+  assign b_last = !(seg_b_q[1].valid || seg_b_q[2].valid || seg_b_q[3].valid);
+  // Segment records store only the information needed by the global BW check:
+  // whether this interval consumes 128 B/cc.  64+64 is legal; any overlapping
+  // interval containing 128 B/cc is illegal.  No adder is required here.
+  assign pair_bad = both_valid &&
+                    (seg_a_q[0].is_128 || seg_b_q[0].is_128) &&
+                    (seg_a_q[0].hi > seg_b_q[0].lo) &&
+                    (seg_b_q[0].hi > seg_a_q[0].lo);
 
-  assign ok_next = ok_q && row_cross_ok;
+  // Ordered interval sweep:
+  //   - invalid side: advance that side
+  //   - both valid: advance the interval ending first, independent of overlap
+  // Equal end timestamps advance both sides.
+  assign adv_a = !cur_a_valid ||
+                 (both_valid && (seg_a_q[0].hi <= seg_b_q[0].hi));
+  assign adv_b = !cur_b_valid ||
+                 (both_valid && (seg_b_q[0].hi <= seg_a_q[0].hi));
+  assign sweep_done_next = (adv_a && a_last) || (adv_b && b_last);
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       busy_q   <= 1'b0;
       done_q   <= 1'b0;
       ok_q     <= 1'b0;
-      row_q    <= '0;
       seg_a_q  <= '{default: '0};
       seg_b_q  <= '{default: '0};
     end else begin
       done_q <= 1'b0;
 
       if (busy_q) begin
-        ok_q <= ok_next;
-        if (row_q == 3'd4) begin
+        ok_q <= ok_q && !pair_bad;
+        if (pair_bad || sweep_done_next) begin
           done_q <= 1'b1;
           busy_q <= 1'b0;
-          row_q  <= '0;
         end else begin
-          row_q <= row_q + 3'd1;
+          if (adv_a) begin
+            seg_a_q[0] <= seg_a_q[1];
+            seg_a_q[1] <= seg_a_q[2];
+            seg_a_q[2] <= seg_a_q[3];
+            seg_a_q[3] <= '0;
+          end
+          if (adv_b) begin
+            seg_b_q[0] <= seg_b_q[1];
+            seg_b_q[1] <= seg_b_q[2];
+            seg_b_q[2] <= seg_b_q[3];
+            seg_b_q[3] <= '0;
+          end
         end
       end else if (start_i) begin
-        seg_a_q <= seg_a_comb;
-        seg_b_q <= seg_b_comb;
-        ok_q   <= ok_single_comb;
-        row_q  <= '0;
-        busy_q <= 1'b1;
+        seg_a_q       <= seg_a_comb;
+        seg_b_q       <= seg_b_comb;
+        ok_q          <= ok_single_comb;
+        if (have_cross_comb) begin
+          busy_q <= 1'b1;
+        end else begin
+          done_q <= 1'b1;
+          busy_q <= 1'b0;
+        end
       end
     end
   end

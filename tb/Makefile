@@ -25,7 +25,7 @@ VSIM    := vsim
 # RTL source list (order: package first, then primitives, then top)
 RTL_SRCS := \
     $(RTL_DIR)/sched_pkg.sv          \
-    $(RTL_DIR)/sched_bw_ok.sv        \
+    $(RTL_DIR)/sched_candidate_pkg.sv \
     $(RTL_DIR)/sched_bw_ok_seq.sv    \
     $(RTL_DIR)/sched_mk_snap.sv      \
     $(RTL_DIR)/sched_pick_shapes.sv  \
@@ -48,7 +48,7 @@ SCHED_INC  := ../../HeMAiA/target/sw/host/apps/offload_bingo_hw/single_chip/work
 
 CORE_RTL_SRCS := \
     $(RTL_DIR)/sched_pkg.sv                  \
-    $(RTL_DIR)/sched_bw_ok.sv                \
+    $(RTL_DIR)/sched_candidate_pkg.sv        \
     $(RTL_DIR)/sched_bw_ok_seq.sv            \
     $(RTL_DIR)/sched_mk_snap.sv              \
     $(RTL_DIR)/sched_pick_shapes.sv          \
@@ -59,6 +59,7 @@ CORE_RTL_SRCS := \
     $(RTL_DIR)/sched_best_reduce.sv          \
     $(RTL_DIR)/sched_commit_unit.sv          \
     $(RTL_DIR)/sched_ghost_inject_unit.sv    \
+    $(RTL_DIR)/sched_plan_pack.sv            \
     $(RTL_DIR)/sched_schedule_core.sv
 
 SCHED_TB_SRCS := $(TB_DIR)/tb_schedule_core.sv

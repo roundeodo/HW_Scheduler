@@ -33,8 +33,10 @@ module tb_eval_lane;
   logic               cost_only_tie_i;
   logic               score_makespan_only_i;
 
-  eval_snap_t         base_snap_a_i;
-  eval_snap_t         base_snap_b_i;
+  snap_timeline_t     base_timeline_a_i;
+  snap_timeline_t     base_timeline_b_i;
+  snap_cache_t        base_cache_a_i;
+  snap_cache_t        base_cache_b_i;
 
   logic               side_a_valid_i;
   logic               side_b_valid_i;
@@ -65,8 +67,10 @@ module tb_eval_lane;
   logic [T_W-1:0] makespan_o;
   score_key_t     score_key_o;
   plan_desc_t     plan_desc_o;
-  eval_snap_t     snap_a_o;
-  eval_snap_t     snap_b_o;
+  snap_timeline_t snap_timeline_a_o;
+  snap_timeline_t snap_timeline_b_o;
+  snap_cache_t    snap_cache_a_o;
+  snap_cache_t    snap_cache_b_o;
   logic [1:0]     shape_s1a_o, shape_s3a_o, shape_s1b_o, shape_s3b_o;
   logic [T_W-1:0] task_end_a_o, task_end_b_o;
   logic [T_W-1:0] s2_end_a_o,   s2_end_b_o;
@@ -76,8 +80,8 @@ module tb_eval_lane;
   logic              skip_s2_a_o, skip_s4_a_o, skip_s2_b_o, skip_s4_b_o;
   logic [1:0]        dma_s1_a_o, dma_s3_a_o, dma_s1_b_o, dma_s3_b_o;
   logic              bw_start;
-  eval_snap_t        bw_snap_a;
-  eval_snap_t        bw_snap_b;
+  snap_timeline_t    bw_snap_a;
+  snap_timeline_t    bw_snap_b;
   logic              bw_done;
   logic              bw_ok;
 
@@ -100,8 +104,10 @@ module tb_eval_lane;
     .forced_s3b_i          (forced_s3b_i),
     .cost_only_tie_i       (cost_only_tie_i),
     .score_makespan_only_i (score_makespan_only_i),
-    .base_snap_a_i         (base_snap_a_i),
-    .base_snap_b_i         (base_snap_b_i),
+    .base_timeline_a_i     (base_timeline_a_i),
+    .base_timeline_b_i     (base_timeline_b_i),
+    .base_cache_a_i        (base_cache_a_i),
+    .base_cache_b_i        (base_cache_b_i),
     .side_a_valid_i        (side_a_valid_i),
     .side_b_valid_i        (side_b_valid_i),
     .start_a_i             (start_a_i),
@@ -133,8 +139,10 @@ module tb_eval_lane;
     .makespan_o            (makespan_o),
     .score_key_o           (score_key_o),
     .plan_desc_o           (plan_desc_o),
-    .snap_a_o              (snap_a_o),
-    .snap_b_o              (snap_b_o),
+    .snap_timeline_a_o     (snap_timeline_a_o),
+    .snap_timeline_b_o     (snap_timeline_b_o),
+    .snap_cache_a_o        (snap_cache_a_o),
+    .snap_cache_b_o        (snap_cache_b_o),
     .shape_s1a_o           (shape_s1a_o),
     .shape_s3a_o           (shape_s3a_o),
     .shape_s1b_o           (shape_s1b_o),
@@ -200,25 +208,25 @@ module tb_eval_lane;
     input int f_ntok,
     input int f_pf_eid, input int f_pf_end, input int f_pf_full
   );
-    base_snap_a_i.valid      = f_valid[0];
-    base_snap_a_i.task_start = T_W'(f_task_start);
-    base_snap_a_i.task_end   = T_W'(f_task_end);
-    base_snap_a_i.dma1_end   = T_W'(f_dma1_end);
-    base_snap_a_i.s2_end     = T_W'(f_s2_end);
-    base_snap_a_i.dma3_end   = T_W'(f_dma3_end);
-    base_snap_a_i.s4_start   = T_W'(f_s4_start);
-    base_snap_a_i.bw_s1      = BW_W'(f_bw_s1);
-    base_snap_a_i.bw_s3      = BW_W'(f_bw_s3);
-    base_snap_a_i.s2pf_valid = f_s2pf_valid[0];
-    base_snap_a_i.s2pf_start = T_W'(f_s2pf_start);
-    base_snap_a_i.s2pf_end   = T_W'(f_s2pf_end);
-    base_snap_a_i.s2pf_bw    = BW_W'(f_s2pf_bw);
-    base_snap_a_i.s4pf_valid = 1'b0;
-    base_snap_a_i.s4pf_start = '0;
-    base_snap_a_i.ntok       = NTOK_W'(f_ntok);
-    base_snap_a_i.pf_eid     = EID_W'(f_pf_eid);
-    base_snap_a_i.pf_end     = T_W'(f_pf_end);
-    base_snap_a_i.pf_full    = f_pf_full[0];
+    base_timeline_a_i.valid      = f_valid[0];
+    base_timeline_a_i.task_start = T_W'(f_task_start);
+    base_timeline_a_i.task_end   = T_W'(f_task_end);
+    base_timeline_a_i.dma1_end   = T_W'(f_dma1_end);
+    base_timeline_a_i.s2_end     = T_W'(f_s2_end);
+    base_timeline_a_i.dma3_end   = T_W'(f_dma3_end);
+    base_timeline_a_i.s4_start   = T_W'(f_s4_start);
+    base_timeline_a_i.bw_s1      = BW_W'(f_bw_s1);
+    base_timeline_a_i.bw_s3      = BW_W'(f_bw_s3);
+    base_timeline_a_i.s2pf_valid = f_s2pf_valid[0];
+    base_timeline_a_i.s2pf_start = T_W'(f_s2pf_start);
+    base_timeline_a_i.s2pf_end   = T_W'(f_s2pf_end);
+    base_timeline_a_i.s2pf_bw    = BW_W'(f_s2pf_bw);
+    base_timeline_a_i.s4pf_valid = 1'b0;
+    base_timeline_a_i.s4pf_start = '0;
+    base_timeline_a_i.ntok       = NTOK_W'(f_ntok);
+    base_cache_a_i.pf_eid     = pf_eid_t'(f_pf_eid);
+    base_cache_a_i.pf_end     = T_W'(f_pf_end);
+    base_cache_a_i.pf_full    = f_pf_full[0];
   endtask
 
   task automatic drive_base_snap_b(
@@ -232,25 +240,25 @@ module tb_eval_lane;
     input int f_ntok,
     input int f_pf_eid, input int f_pf_end, input int f_pf_full
   );
-    base_snap_b_i.valid      = f_valid[0];
-    base_snap_b_i.task_start = T_W'(f_task_start);
-    base_snap_b_i.task_end   = T_W'(f_task_end);
-    base_snap_b_i.dma1_end   = T_W'(f_dma1_end);
-    base_snap_b_i.s2_end     = T_W'(f_s2_end);
-    base_snap_b_i.dma3_end   = T_W'(f_dma3_end);
-    base_snap_b_i.s4_start   = T_W'(f_s4_start);
-    base_snap_b_i.bw_s1      = BW_W'(f_bw_s1);
-    base_snap_b_i.bw_s3      = BW_W'(f_bw_s3);
-    base_snap_b_i.s2pf_valid = f_s2pf_valid[0];
-    base_snap_b_i.s2pf_start = T_W'(f_s2pf_start);
-    base_snap_b_i.s2pf_end   = T_W'(f_s2pf_end);
-    base_snap_b_i.s2pf_bw    = BW_W'(f_s2pf_bw);
-    base_snap_b_i.s4pf_valid = 1'b0;
-    base_snap_b_i.s4pf_start = '0;
-    base_snap_b_i.ntok       = NTOK_W'(f_ntok);
-    base_snap_b_i.pf_eid     = EID_W'(f_pf_eid);
-    base_snap_b_i.pf_end     = T_W'(f_pf_end);
-    base_snap_b_i.pf_full    = f_pf_full[0];
+    base_timeline_b_i.valid      = f_valid[0];
+    base_timeline_b_i.task_start = T_W'(f_task_start);
+    base_timeline_b_i.task_end   = T_W'(f_task_end);
+    base_timeline_b_i.dma1_end   = T_W'(f_dma1_end);
+    base_timeline_b_i.s2_end     = T_W'(f_s2_end);
+    base_timeline_b_i.dma3_end   = T_W'(f_dma3_end);
+    base_timeline_b_i.s4_start   = T_W'(f_s4_start);
+    base_timeline_b_i.bw_s1      = BW_W'(f_bw_s1);
+    base_timeline_b_i.bw_s3      = BW_W'(f_bw_s3);
+    base_timeline_b_i.s2pf_valid = f_s2pf_valid[0];
+    base_timeline_b_i.s2pf_start = T_W'(f_s2pf_start);
+    base_timeline_b_i.s2pf_end   = T_W'(f_s2pf_end);
+    base_timeline_b_i.s2pf_bw    = BW_W'(f_s2pf_bw);
+    base_timeline_b_i.s4pf_valid = 1'b0;
+    base_timeline_b_i.s4pf_start = '0;
+    base_timeline_b_i.ntok       = NTOK_W'(f_ntok);
+    base_cache_b_i.pf_eid     = pf_eid_t'(f_pf_eid);
+    base_cache_b_i.pf_end     = T_W'(f_pf_end);
+    base_cache_b_i.pf_full    = f_pf_full[0];
   endtask
 
   // ── Main test loop ────────────────────────────────────────────────────────
@@ -468,14 +476,14 @@ module tb_eval_lane;
       `CHK(s2_end_b_o,      exp_s2_end_b,    "s2_end_b")
       `CHK(s4_start_b_o,    exp_s4_start_b,  "s4_start_b")
       // s2pf A
-      `CHK(snap_a_o.s2pf_valid, exp_s2pf_valid_a, "s2pf_valid_a")
+      `CHK(snap_timeline_a_o.s2pf_valid, exp_s2pf_valid_a, "s2pf_valid_a")
       if (exp_s2pf_valid_a) begin
-        `CHK(snap_a_o.s2pf_start, exp_s2pf_start_a, "s2pf_start_a")
+        `CHK(snap_timeline_a_o.s2pf_start, exp_s2pf_start_a, "s2pf_start_a")
       end
       // s2pf B
-      `CHK(snap_b_o.s2pf_valid, exp_s2pf_valid_b, "s2pf_valid_b")
+      `CHK(snap_timeline_b_o.s2pf_valid, exp_s2pf_valid_b, "s2pf_valid_b")
       if (exp_s2pf_valid_b) begin
-        `CHK(snap_b_o.s2pf_start, exp_s2pf_start_b, "s2pf_start_b")
+        `CHK(snap_timeline_b_o.s2pf_start, exp_s2pf_start_b, "s2pf_start_b")
       end
       // score_unit 只有在 candidate 通过 bw/S2PF 检查并拉高 eval_valid 时才会启动。
       // 对 invalid candidate, score_key_o.cost 不参与 best_reduce，不能作为有效输出检查。

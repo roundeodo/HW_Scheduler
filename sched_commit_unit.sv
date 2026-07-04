@@ -16,16 +16,20 @@ module sched_commit_unit (
   input  logic                    commit_i,
   input  logic                    best_valid_i,
   input  plan_desc_t              best_plan_i,
-  input  eval_snap_t              best_snap_a_i,       // physical C2
-  input  eval_snap_t              best_snap_b_i,       // physical C3
+  input  snap_timeline_t          best_timeline_a_i,   // physical C2
+  input  snap_timeline_t          best_timeline_b_i,   // physical C3
+  input  snap_cache_t             best_cache_a_i,
+  input  snap_cache_t             best_cache_b_i,
   input  logic [1:0]              best_remove_count_i,
   input  logic [3:0]              best_remove_slot_mask_i,
 
   output logic                    busy_o,
   output logic                    done_o,
   output logic                    commit_valid_o,
-  output eval_snap_t              next_c2_snap_o,
-  output eval_snap_t              next_c3_snap_o,
+  output snap_timeline_t          next_c2_timeline_o,
+  output snap_timeline_t          next_c3_timeline_o,
+  output snap_cache_t             next_c2_cache_o,
+  output snap_cache_t             next_c3_cache_o,
 
   output logic [1:0]              plan_valid_o,
   output task_desc_t [1:0]        task_desc_o,
@@ -36,8 +40,8 @@ module sched_commit_unit (
   output logic [3:0]              remove_slot_mask_o,
 
   output logic                    bw_start_o,
-  output eval_snap_t              bw_snap_a_o,
-  output eval_snap_t              bw_snap_b_o,
+  output snap_timeline_t          bw_snap_a_o,
+  output snap_timeline_t          bw_snap_b_o,
   input  logic                    bw_done_i,
   input  logic                    bw_ok_i
 );
@@ -59,34 +63,21 @@ module sched_commit_unit (
 
   logic       valid_q, valid_d;
   plan_desc_t plan_q, plan_d;
-  eval_snap_t snap_a_q, snap_a_d;
-  eval_snap_t snap_b_q, snap_b_d;
+  snap_timeline_t timeline_a_q, timeline_a_d;
+  snap_timeline_t timeline_b_q, timeline_b_d;
+  snap_cache_t cache_a_q, cache_a_d;
+  snap_cache_t cache_b_q, cache_b_d;
   logic [1:0] remove_count_q, remove_count_d;
   logic [3:0] remove_mask_q, remove_mask_d;
   logic       allow_a_q, allow_a_d;
   logic       allow_b_q, allow_b_d;
 
-  eval_snap_t s4pf_snap_a;
-  eval_snap_t s4pf_snap_b;
+  snap_timeline_t s4pf_timeline_a;
+  snap_timeline_t s4pf_timeline_b;
   logic       s4pf_candidate_a;
   logic       s4pf_candidate_b;
   logic       allow_s4pf_a;
   logic       allow_s4pf_b;
-
-  function automatic eval_snap_t with_s4pf(input eval_snap_t s);
-    eval_snap_t r;
-    begin
-      r = s;
-      if (s.valid &&
-          (s.pf_eid == PF_EID_NONE) &&
-          (s.dma1_end <= s.s4_start) &&
-          ((s.s4_start + GHOST_WINDOW_TICKS) <= s.task_end)) begin
-        r.s4pf_valid = 1'b1;
-        r.s4pf_start = s.s4_start;
-      end
-      with_s4pf = r;
-    end
-  endfunction
 
   function automatic task_desc_t make_task_from_a(input plan_desc_t p, input logic cluster);
     task_desc_t d;
@@ -118,17 +109,27 @@ module sched_commit_unit (
     make_task_from_b = d;
   endfunction
 
-  assign s4pf_candidate_a = snap_a_q.valid &&
-                            (snap_a_q.pf_eid == PF_EID_NONE) &&
-                            (snap_a_q.dma1_end <= snap_a_q.s4_start) &&
-                            ((snap_a_q.s4_start + GHOST_WINDOW_TICKS) <= snap_a_q.task_end);
-  assign s4pf_candidate_b = snap_b_q.valid &&
-                            (snap_b_q.pf_eid == PF_EID_NONE) &&
-                            (snap_b_q.dma1_end <= snap_b_q.s4_start) &&
-                            ((snap_b_q.s4_start + GHOST_WINDOW_TICKS) <= snap_b_q.task_end);
+  assign s4pf_candidate_a = timeline_a_q.valid &&
+                            (cache_a_q.pf_eid == PF_EID_NONE) &&
+                            (timeline_a_q.dma1_end <= timeline_a_q.s4_start) &&
+                            ((timeline_a_q.s4_start + GHOST_WINDOW_TICKS) <= timeline_a_q.task_end);
+  assign s4pf_candidate_b = timeline_b_q.valid &&
+                            (cache_b_q.pf_eid == PF_EID_NONE) &&
+                            (timeline_b_q.dma1_end <= timeline_b_q.s4_start) &&
+                            ((timeline_b_q.s4_start + GHOST_WINDOW_TICKS) <= timeline_b_q.task_end);
 
-  assign s4pf_snap_a = with_s4pf(snap_a_q);
-  assign s4pf_snap_b = with_s4pf(snap_b_q);
+  always_comb begin
+    s4pf_timeline_a = timeline_a_q;
+    s4pf_timeline_b = timeline_b_q;
+    if (s4pf_candidate_a) begin
+      s4pf_timeline_a.s4pf_valid = 1'b1;
+      s4pf_timeline_a.s4pf_start = timeline_a_q.s4_start;
+    end
+    if (s4pf_candidate_b) begin
+      s4pf_timeline_b.s4pf_valid = 1'b1;
+      s4pf_timeline_b.s4pf_start = timeline_b_q.s4_start;
+    end
+  end
 
   assign allow_s4pf_a = allow_a_q;
   assign allow_s4pf_b = allow_b_q;
@@ -137,23 +138,27 @@ module sched_commit_unit (
     st_d           = st_q;
     valid_d        = valid_q;
     plan_d         = plan_q;
-    snap_a_d       = snap_a_q;
-    snap_b_d       = snap_b_q;
+    timeline_a_d   = timeline_a_q;
+    timeline_b_d   = timeline_b_q;
+    cache_a_d      = cache_a_q;
+    cache_b_d      = cache_b_q;
     remove_count_d = remove_count_q;
     remove_mask_d  = remove_mask_q;
     allow_a_d      = allow_a_q;
     allow_b_d      = allow_b_q;
     bw_start_o     = 1'b0;
-    bw_snap_a_o    = s4pf_snap_a;
-    bw_snap_b_o    = snap_b_q;
+    bw_snap_a_o    = s4pf_timeline_a;
+    bw_snap_b_o    = timeline_b_q;
 
     unique case (st_q)
       ST_IDLE: begin
         if (commit_i) begin
           valid_d        = best_valid_i;
           plan_d         = best_plan_i;
-          snap_a_d       = best_snap_a_i;
-          snap_b_d       = best_snap_b_i;
+          timeline_a_d   = best_timeline_a_i;
+          timeline_b_d   = best_timeline_b_i;
+          cache_a_d      = best_cache_a_i;
+          cache_b_d      = best_cache_b_i;
           remove_count_d = best_remove_count_i;
           remove_mask_d  = best_remove_slot_mask_i;
           allow_a_d      = 1'b0;
@@ -165,8 +170,8 @@ module sched_commit_unit (
       ST_BW_A_START: begin
         if (s4pf_candidate_a) begin
           bw_start_o  = 1'b1;
-          bw_snap_a_o = s4pf_snap_a;
-          bw_snap_b_o = snap_b_q;
+          bw_snap_a_o = s4pf_timeline_a;
+          bw_snap_b_o = timeline_b_q;
           st_d        = ST_BW_A_WAIT;
         end else begin
           allow_a_d = 1'b0;
@@ -184,8 +189,8 @@ module sched_commit_unit (
       ST_BW_B_START: begin
         if (s4pf_candidate_b) begin
           bw_start_o  = 1'b1;
-          bw_snap_a_o = snap_a_q;
-          bw_snap_b_o = s4pf_snap_b;
+          bw_snap_a_o = timeline_a_q;
+          bw_snap_b_o = s4pf_timeline_b;
           st_d        = ST_BW_B_WAIT;
         end else begin
           allow_b_d = 1'b0;
@@ -213,8 +218,10 @@ module sched_commit_unit (
       st_q           <= ST_IDLE;
       valid_q        <= 1'b0;
       plan_q         <= '0;
-      snap_a_q       <= '0;
-      snap_b_q       <= '0;
+      timeline_a_q   <= '0;
+      timeline_b_q   <= '0;
+      cache_a_q      <= '0;
+      cache_b_q      <= '0;
       remove_count_q <= '0;
       remove_mask_q  <= '0;
       allow_a_q      <= 1'b0;
@@ -223,8 +230,10 @@ module sched_commit_unit (
       st_q           <= st_d;
       valid_q        <= valid_d;
       plan_q         <= plan_d;
-      snap_a_q       <= snap_a_d;
-      snap_b_q       <= snap_b_d;
+      timeline_a_q   <= timeline_a_d;
+      timeline_b_q   <= timeline_b_d;
+      cache_a_q      <= cache_a_d;
+      cache_b_q      <= cache_b_d;
       remove_count_q <= remove_count_d;
       remove_mask_q  <= remove_mask_d;
       allow_a_q      <= allow_a_d;
@@ -234,8 +243,10 @@ module sched_commit_unit (
 
   always_comb begin
     commit_valid_o    = (st_q == ST_DONE) && valid_q;
-    next_c2_snap_o    = snap_a_q;
-    next_c3_snap_o    = snap_b_q;
+    next_c2_timeline_o = timeline_a_q;
+    next_c3_timeline_o = timeline_b_q;
+    next_c2_cache_o    = cache_a_q;
+    next_c3_cache_o    = cache_b_q;
     plan_valid_o      = '0;
     task_desc_o       = '{default: '0};
     plan_allow_s4pf_o = '0;

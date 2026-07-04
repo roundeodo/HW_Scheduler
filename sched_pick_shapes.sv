@@ -6,7 +6,7 @@
 // 等价于 moe_scheduler.c::pick_shapes()，时间量已全部转换为 Tick 域
 //（1 Tick = 11264 cc），t0_i 和比较阈值均以 ticks 表示。
 //
-// S3 形状决策阈值：|S2a_end - S2b_end| ≥ kTd3[C] = 1 tick（= ShapeC S3 DMA 持续时长）
+// S3 形状决策阈值：|S2a_end - S2b_end| ≥ shape_td3[C] = 1 tick（= ShapeC S3 DMA 持续时长）
 // delta ≥ 1：两侧 S3 DMA 时间错开，不重叠，各用 ShapeC（128 B/cc）总峰值仍为 128 B/cc
 // delta = 0：两侧 S3 DMA 同时启动，带宽叠加为 256 B/cc，超限，改用 ShapeB（64+64=128 B/cc）
 
@@ -55,21 +55,21 @@ module sched_pick_shapes (
     // "t0 + offset" 加法再进入 abs-diff 比较路径。
     if (sw_a_i) begin
       // S1 跳过：S2 直接从 t0 开始，所有 ntok 进 S2。
-      s2a_off = best_s2_t(ntok_a_i);
+      s2a_off = best_s2_ticks(ntok_a_i);
     end else begin
-      tail_a = (ntok_a_i > mdim(s1a_o)) ? (ntok_a_i - mdim(s1a_o)) : '0;
-      s2a_off = kTs1(s1a_o) + best_s2_t(tail_a);
+      tail_a = (ntok_a_i > shape_mdim(s1a_o)) ? (ntok_a_i - shape_mdim(s1a_o)) : '0;
+      s2a_off = shape_ts1(s1a_o) + best_s2_ticks(tail_a);
     end
 
     if (sw_b_i) begin
-      s2b_off = best_s2_t(ntok_b_i);
+      s2b_off = best_s2_ticks(ntok_b_i);
     end else begin
-      tail_b = (ntok_b_i > mdim(s1b_o)) ? (ntok_b_i - mdim(s1b_o)) : '0;
-      s2b_off = kTs1(s1b_o) + best_s2_t(tail_b);
+      tail_b = (ntok_b_i > shape_mdim(s1b_o)) ? (ntok_b_i - shape_mdim(s1b_o)) : '0;
+      s2b_off = shape_ts1(s1b_o) + best_s2_ticks(tail_b);
     end
 
     // ── S3 形状选择 ────────────────────────────────────────────────────────
-    // 阈值 = kTd3[C] = 1 tick = ShapeC S3 DMA 持续时长。
+    // 阈值 = shape_td3[C] = 1 tick = ShapeC S3 DMA 持续时长。
     // delta >= 1：落后侧 S3 DMA 开始时，领先侧已结束，时间不重叠；
     //             两侧均用 ShapeC（128 B/cc），峰值带宽仍在 128 B/cc 上限内。
     // delta = 0 ：两侧 S3 DMA 同时启动，128+128=256 B/cc，超出上限；
@@ -82,7 +82,7 @@ module sched_pick_shapes (
       s3a_o = SHAPE_C;
       s3b_o = SHAPE_C;
     end else if (delta >= T_W'(1)) begin
-      // delta >= kTd3[C]：S3 DMA 时间错开，带宽不叠加
+      // delta >= shape_td3[C]：S3 DMA 时间错开，带宽不叠加
       s3a_o = SHAPE_C;
       s3b_o = SHAPE_C;
     end else begin

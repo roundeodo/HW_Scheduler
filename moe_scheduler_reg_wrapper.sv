@@ -245,10 +245,10 @@ module moe_scheduler_reg_wrapper
   assign push_count         = popcount4({push_head[3].valid, push_head[2].valid,
                                          push_head[1].valid, push_head[0].valid});
 
-  assign bc0 = best_conc_t(head_q[0].ntok);
-  assign bc1 = best_conc_t(head_q[1].ntok);
-  assign bc2 = best_conc_t(head_q[2].ntok);
-  assign bc3 = best_conc_t(head_q[3].ntok);
+  assign bc0 = best_conc_ticks(head_q[0].ntok);
+  assign bc1 = best_conc_ticks(head_q[1].ntok);
+  assign bc2 = best_conc_ticks(head_q[2].ntok);
+  assign bc3 = best_conc_ticks(head_q[3].ntok);
 
   // ────────────────────────────────────────────────────────────────────────
   // 8. Top4 compact/refill control

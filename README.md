@@ -12,14 +12,55 @@ moe_scheduler_reg_wrapper
       ├── sched_candidate_generator
       ├── sched_candidate_eval_lane
       │   ├── sched_pick_shapes
-      │   ├── sched_mk_snap x2
+      │   ├── sched_mk_snap              # shared by EV_MK_A/EV_MK_B
       │   ├── sched_s2pf_pair            # BW client
       │   └── sched_score_unit
       ├── sched_best_reduce
-      └── sched_commit_unit              # BW client
+      ├── sched_commit_unit              # BW client
+      └── sched_plan_pack x2             # compact PLAN_ENTRY_DATA packer
 ```
 
-`sched_pkg.sv` 是唯一的全局参数/类型包。当前默认 `E_MAX=64`，`PLANQ_DEPTH=4`。
+`sched_pkg.sv` 只保留全局参数、ABI bit layout、窄基础类型、shape/best 小 helper 和必要 plan/task 类型。candidate issue 类型放在 `sched_candidate_pkg.sv`，64-bit plan word 打包放在 `sched_plan_pack.sv`。当前默认 `E_MAX=64`，`PLANQ_DEPTH=4`。
+
+## Register Boundaries
+
+当前第一条显式 datapath 边界在 `sched_candidate_eval_lane` 入口：
+
+```text
+sched_candidate_generator
+  -> EV_LATCH: eval_req_q       # cropped candidate request, not full cand_issue_t
+  -> EV_PICK : shape_q          # forced/picked shape decision
+  -> EV_MK_A : raw_timeline_a_q + raw_cache_a_q
+  -> EV_MK_B : raw_timeline_b_q + raw_cache_b_q
+  -> EV_S2PF: sched_s2pf_pair
+  -> EV_SCORE: sched_score_unit
+  -> EV_DONE
+```
+
+`eval_req_q` 只保存评估当前 candidate 必需的 task、shape、cache-hit 和
+rem-after 摘要字段；不保存完整 `cand_issue_t`，也不保存 base timeline/cache。
+base timeline/cache 是 round-level 状态，由 `sched_schedule_core` 持有，在当前
+candidate 评估期间保持稳定。A/B 两侧复用同一套 `sched_mk_snap`，不再并行
+实例化两套 mk_snap 组合逻辑。`EV_MK_A/B` 的寄存器边界不保存完整
+snap 结构：S2PF/BW 只接收 `snap_timeline_t`，cache-hit 所需的
+`pf_eid/pf_end/pf_full` 单独保存在 `snap_cache_t`，只在进入 score/cache
+hit 逻辑时组合使用。
+
+`sched_s2pf_pair` 的模块边界也不再使用完整 snap，而是只传
+`snap_timeline_t`。它不接收、不保存、不透传 cache identity 字段；在
+`start_i` 时只锁存 S2PF trial 需要的小标量：
+
+```text
+policy/side
+can_a/b, hi_a/b, dma_start_valid_a/b
+best_s4_a/b
+duration_is2_a/b, pf_bw_is128_a/b
+trial_count
+```
+
+best trial 只保存 `pf_start` 标量，不保存 patched snap，也不保存 full selector
+后再反复取 start。调用者仍需要在 `busy_o` 期间保持 snap_a/b 输入稳定；
+当前两个实例分别由 `eval_req_q` 和 `sched_score_unit` 的状态机输入约束保证。
 
 ## Batch Init
 
@@ -47,7 +88,7 @@ bits [47:32]  head2
 bits [63:48]  head3
 ```
 
-`best_conc` 不由 CVA6 写入，也不保存在 `head_q/reserve_q` FF 中；RTL 用 `best_conc_t(ntok)` 组合计算。
+`best_conc` 不由 CVA6 写入，也不保存在 `head_q/reserve_q` FF 中；RTL 用 `best_conc_ticks(ntok)` 组合计算，并只在需要时扩展到 `time_t`。
 
 ## Auto-Run
 
@@ -77,11 +118,68 @@ candidate。
 ```
 
 删除内容包括 `PAIR(top0,top2/top3)`、`PAIR(top1,top3)`、PAIR reverse
-direction，以及 `SPLIT(top0)` 的 front_m4/front_m8/tail-side cuts。`nr==1`
-和 `not_both_idle` 的候选集合暂时保持不变。
+direction，以及 `SPLIT(top0)` 的 front_m4/front_m8/tail-side cuts。
+
+`nr==1` 时保留 13 个候选：
+
+```text
+0..9   : SOLO(top0)，C2/C3 各 5 种高频 shape
+         C/C, A/A, A/C, B/B, A/B
+10     : SPLIT(top0), ceil(ntok/2)
+11..12 : not-both-idle early-start SOLO，只保留 release1/release2
+```
+
+`nr==1` 删除低频 SOLO shape：B/A、B/C、C/A、C/B；删除
+half_floor split；early-start 删除 idle_t，只保留忙侧 release endpoint。
+`not_both_idle` 的候选集合暂时保持不变。
 
 S2PF 仍使用 `sched_s2pf_pair` 的 lite policy，并由单个共享 `sched_bw_ok_seq`
-顺序检查 BW。
+顺序检查 BW。`sched_bw_ok_seq` 内部使用有序 interval sweep：每拍只比较
+A/B 两侧 segment 队列的队头 `seg_q[0]`。推进时把对应队列左移一格，
+因此 pair check 路径不再经过 `row_q/col_q` 动态索引 mux。发现超带宽
+立即 early stop；正常完成时检查次数由有效 segment 数决定，避免固定扫描
+25 对 cross product。
+
+当前 S2PF placement 只由 `sched_s2pf_pair` 产生，且 `can_apply_s2pf`
+要求 `pf_start >= task_start`。因此 BW segment builder 明确删除了
+`s2pf_start < task_start` 的通用分支，只保留：
+
+```text
+task_start <= s2pf_start < dma1_end  : S1/S2PF 局部 overlap
+task_start <  dma1_end <= s2pf_start : S1 在前，S2PF 在后
+```
+
+`sched_s2pf_pair.apply_s2pf` 也不再重复做 placement 合法性检查；合法性在
+trial 生成阶段由 `try_valid`、`can_a/b`、`dma_start_valid_a/b` 保证，apply
+只负责 patch timeline 字段。这样避免同一个 candidate trial 里重复 duration
+decode、endpoint compare 和 BW decode。
+
+`sched_s2pf_pair` 在 `start_i` 时预先锁存 `can/hi/dma_valid/best_s4` 等标量。
+trial 阶段不再每拍重新计算 `shape_td3/shape_bw/best_s4_ticks`，也不再重复做
+`task_start + dur <= s2_end`。合法性改写为 `task_start <= s2_end - dur`，
+并把 `s2_end - dur` 作为 `hi` 锁存，减少 trial path 的加法和 endpoint fanout。
+
+BW segment builder 不再使用动态 compact list。每侧固定 4 个 slot：
+
+```text
+slot0: S1/S2PF 局部切分后的前段，或无 overlap 时较早的 S1/S2PF 段
+slot1: S1 和 S2PF overlap 后的 merged 段
+slot2: S1/S2PF 局部切分后的后段；若无 S2PF，则复用为 S3 DMA
+slot3: S4PF ghost window
+```
+
+`s2pf_valid` 和 S3 DMA 在当前 RTL 生产路径中互斥：`sched_s2pf_pair`
+置位 `s2pf_valid` 时同步清零 `bw_s3`。因此不再为 S2PF tail 和 S3 DMA
+分别保留独立 slot。
+
+无效 slot 只拉低 `valid`，sweep 自动跳过 invalid slot。这样避免
+`seg[idx]`/`idx++` 形成 variable-index write 和 compact mux 网络。
+segment 记录也不再保存完整 2-bit BW 编码，只保存 `is_128`：全局 BW
+检查只需要知道重叠区间是否包含 128 B/cc。64+64 合法，任何包含 128 的
+cross-cluster overlap 非法，因此 sweep 阶段不需要加法器。
+`has_s1/has_s3/has_s2pf` 只依赖 upstream 的 compact timeline contract：
+跳过的 DMA 由 `BW_0` 表示，合法 S2PF 由 `s2pf_valid` 表示。BW checker
+不再重复检查 `dma_end > start` 这类生产端已保证的不变量。
 
 ## Output FIFO
 

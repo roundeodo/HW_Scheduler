@@ -58,6 +58,11 @@ module tb_scheduler_reg_wrapper;
     logic       allow_s4pf;
   } plan_entry_t;
 
+  typedef struct packed {
+    ntok_t m_s2_exec;
+    ntok_t m_s4_exec;
+  } tb_plan_scalar_t;
+
   logic clk_i;
   logic rst_ni;
 
@@ -220,19 +225,28 @@ module tb_scheduler_reg_wrapper;
     end
   endfunction
 
-  function automatic task_lower_scalar_t unpack_lower_scalar(input logic [63:0] word);
-    task_lower_scalar_t s;
-    task_desc_t t;
+  function automatic tb_plan_scalar_t unpack_plan_scalar(input logic [63:0] word);
+    tb_plan_scalar_t s;
     begin
       s = '0;
-      t = unpack_task(word);
-      s.m_s2_exec        = word[PLAN_M_S2_LSB +: NTOK_W];
-      s.m_s4_exec        = word[PLAN_M_S4_LSB +: NTOK_W];
-      s.skip_s2          = (s.m_s2_exec == '0);
-      s.skip_s4          = (s.m_s4_exec == '0);
-      s.dma_s1_for_shape = s1_dma_for_shape(t.s1);
-      s.dma_s3_for_shape = s3_dma_for_shape(t.s3);
-      unpack_lower_scalar = s;
+      s.m_s2_exec = word[PLAN_M_S2_LSB +: NTOK_W];
+      s.m_s4_exec = word[PLAN_M_S4_LSB +: NTOK_W];
+      unpack_plan_scalar = s;
+    end
+  endfunction
+
+  function automatic tb_plan_scalar_t scalar_from_task(input task_desc_t t);
+    tb_plan_scalar_t s;
+    ntok_t tail_s2;
+    ntok_t tail_s4;
+    begin
+      tail_s2 = t.skip_s1 ? t.ntok :
+                ((t.ntok > shape_mdim(t.s1)) ? (t.ntok - shape_mdim(t.s1)) : '0);
+      tail_s4 = t.skip_s3 ? t.ntok :
+                ((t.ntok > shape_mdim(t.s3)) ? (t.ntok - shape_mdim(t.s3)) : '0);
+      s.m_s2_exec = ceil_div2_ntok(tail_s2);
+      s.m_s4_exec = ceil_div2_ntok(tail_s4);
+      scalar_from_task = s;
     end
   endfunction
 
@@ -311,7 +325,7 @@ module tb_scheduler_reg_wrapper;
             h++;
           end
           active_cnt++;
-          total_conc += int'(best_conc_t(rem_ntok[i]));
+          total_conc += int'(best_conc_ticks(rem_ntok[i]));
         end
       end
 
@@ -448,15 +462,15 @@ module tb_scheduler_reg_wrapper;
 	    input int tid,
 	    input int round_idx,
 	    input int plan_idx,
-		    input task_desc_t got,
+	    input task_desc_t got,
 		    input slot_id_t got_slot,
-		    input task_lower_scalar_t got_scalar,
+		    input tb_plan_scalar_t got_scalar,
 		    input slot_id_t exp_slot,
 	    input plan_entry_t exp
 	  );
-	    task_lower_scalar_t exp_scalar;
+	    tb_plan_scalar_t exp_scalar;
 	    begin
-	      exp_scalar = lower_scalar_from_task(exp.desc);
+	      exp_scalar = scalar_from_task(exp.desc);
 	      if (!exp.valid) begin
 	        $display("[FAIL] tid=%0d plan=%0d expected entry invalid", tid, plan_idx);
 	        total_fail++;
@@ -472,25 +486,17 @@ module tb_scheduler_reg_wrapper;
 		          got.skip_s3 !== exp.desc.skip_s3 ||
 		          got.has_s2pf !== exp.desc.has_s2pf ||
 		          got_slot !== exp_slot ||
-	          got_scalar.skip_s2 !== exp_scalar.skip_s2 ||
-	          got_scalar.skip_s4 !== exp_scalar.skip_s4 ||
-	          got_scalar.dma_s1_for_shape !== exp_scalar.dma_s1_for_shape ||
-	          got_scalar.dma_s3_for_shape !== exp_scalar.dma_s3_for_shape ||
 	          got_scalar.m_s2_exec !== exp_scalar.m_s2_exec ||
 	          got_scalar.m_s4_exec !== exp_scalar.m_s4_exec) begin
 	        $display("[FAIL] tid=%0d round=%0d plan=%0d mismatch", tid, round_idx, plan_idx);
-		        $display("       got: cluster=%0d slot=%0d eid=%0d tok_start=%0d ntok=%0d s1=%0d s3=%0d skip_s1=%0d skip_s3=%0d has_s2pf=%0d skip_s2=%0d skip_s4=%0d dma_s1=%0d dma_s3=%0d m_s2=%0d m_s4=%0d",
+		        $display("       got: cluster=%0d slot=%0d eid=%0d tok_start=%0d ntok=%0d s1=%0d s3=%0d skip_s1=%0d skip_s3=%0d has_s2pf=%0d m_s2=%0d m_s4=%0d",
 		                 got.cluster, got_slot, got.eid, got.tok_start, got.ntok, got.s1, got.s3,
 		                 got.skip_s1, got.skip_s3, got.has_s2pf,
-		                 got_scalar.skip_s2, got_scalar.skip_s4,
-		                 got_scalar.dma_s1_for_shape, got_scalar.dma_s3_for_shape,
 		                 got_scalar.m_s2_exec, got_scalar.m_s4_exec);
-		        $display("       exp: cluster=%0d slot=%0d eid=%0d tok_start=%0d ntok=%0d s1=%0d s3=%0d skip_s1=%0d skip_s3=%0d has_s2pf=%0d allow_s4pf=%0d skip_s2=%0d skip_s4=%0d dma_s1=%0d dma_s3=%0d m_s2=%0d m_s4=%0d",
+		        $display("       exp: cluster=%0d slot=%0d eid=%0d tok_start=%0d ntok=%0d s1=%0d s3=%0d skip_s1=%0d skip_s3=%0d has_s2pf=%0d allow_s4pf=%0d m_s2=%0d m_s4=%0d",
 		                 exp.desc.cluster, exp_slot, exp.desc.eid, exp.desc.tok_start, exp.desc.ntok,
 		                 exp.desc.s1, exp.desc.s3, exp.desc.skip_s1,
 	                 exp.desc.skip_s3, exp.desc.has_s2pf, exp.allow_s4pf,
-	                 exp_scalar.skip_s2, exp_scalar.skip_s4,
-	                 exp_scalar.dma_s1_for_shape, exp_scalar.dma_s3_for_shape,
 	                 exp_scalar.m_s2_exec, exp_scalar.m_s4_exec);
 	        total_fail++;
 	      end
@@ -624,7 +630,7 @@ module tb_scheduler_reg_wrapper;
 	    rem_head_t push_head;
       rem_head_t push_heads [3:0];
 	    slot_id_t got_slot;
-	    task_lower_scalar_t got_scalar;
+	    tb_plan_scalar_t got_scalar;
 	    slot_id_t exp_local_slot;
     begin
       fail_before = total_fail;
@@ -633,7 +639,7 @@ module tb_scheduler_reg_wrapper;
       next_rem_pos = 0;
       total_conc = 0;
       for (int i = 0; i < n_experts; i++) begin
-        total_conc += int'(best_conc_t(rem_ntok[i]));
+        total_conc += int'(best_conc_ticks(rem_ntok[i]));
       end
 
 	      sw_head = '{default: '0};
@@ -777,7 +783,7 @@ module tb_scheduler_reg_wrapper;
 			                if (s < int'(plan_count)) begin
 			                  got_task = unpack_task(plan_word[s]);
 			                  got_slot = unpack_local_slot(plan_word[s]);
-		                  got_scalar = unpack_lower_scalar(plan_word[s]);
+		                  got_scalar = unpack_plan_scalar(plan_word[s]);
 		                  if (got_task.cluster) begin
 		                    if (c3_slot_exp >= (1 << SLOT_W)) begin
 		                      $display("[FAIL] tid=%0d round=%0d C3 local_slot overflow exp=%0d",
@@ -828,7 +834,7 @@ module tb_scheduler_reg_wrapper;
 		                if (sw_head[s].valid &&
 		                    consumed_eid_match(sw_head[s].eid, consumed_eids, consumed_count)) begin
 		                  removed_count_seen++;
-		                  removed_conc += int'(best_conc_t(sw_head[s].ntok));
+		                  removed_conc += int'(best_conc_ticks(sw_head[s].ntok));
 		                  remove_one(int'(sw_head[s].rem_index), tid, round_idx);
 		                end
 		              end

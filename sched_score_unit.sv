@@ -24,8 +24,10 @@ module sched_score_unit (
   output logic                  busy_o,
   output logic                  done_o,
 
-  input  eval_snap_t            c2_snap_i,
-  input  eval_snap_t            c3_snap_i,
+  input  snap_timeline_t        c2_timeline_i,
+  input  snap_timeline_t        c3_timeline_i,
+  input  snap_cache_t           c2_cache_i,
+  input  snap_cache_t           c3_cache_i,
   input  logic [NR_W-1:0]       rem_len_i,
   input  logic [EID_RAW_W-1:0]  rem0_eid_i,
   input  logic [NTOK_W-1:0]     rem0_ntok_i,
@@ -33,8 +35,8 @@ module sched_score_unit (
   input  logic [T_W-1:0]        total_conc_i,
   input  logic [T_W-1:0]        max_conc_i,
   output logic                  bw_start_o,
-  output eval_snap_t            bw_snap_a_o,
-  output eval_snap_t            bw_snap_b_o,
+  output snap_timeline_t        bw_snap_a_o,
+  output snap_timeline_t        bw_snap_b_o,
   input  logic                  bw_done_i,
   input  logic                  bw_ok_i,
   output logic [T_W-1:0]        cost_o
@@ -129,11 +131,12 @@ module sched_score_unit (
   logic split_b_unused_skip_s2, split_b_unused_skip_s4;
   logic [1:0] split_b_unused_dma_s1, split_b_unused_dma_s3;
 
-  eval_snap_t split_a_snap;
-  eval_snap_t split_b_snap;
-
-  eval_snap_t split_pf_a;
-  eval_snap_t split_pf_b;
+  snap_timeline_t split_a_snap;
+  snap_timeline_t split_b_snap;
+  snap_timeline_t split_pf_a;
+  snap_timeline_t split_pf_b;
+  snap_timeline_t split_bw_snap_a;
+  snap_timeline_t split_bw_snap_b;
   logic       split_ok;
   logic       split_s2pf_start;
   logic       split_s2pf_bw_start;
@@ -236,8 +239,8 @@ module sched_score_unit (
     .snap_a_i             (split_a_snap),
     .snap_b_i             (split_b_snap),
     .bw_start_o           (split_s2pf_bw_start),
-    .bw_snap_a_o          (bw_snap_a_o),
-    .bw_snap_b_o          (bw_snap_b_o),
+    .bw_snap_a_o          (split_bw_snap_a),
+    .bw_snap_b_o          (split_bw_snap_b),
     .bw_done_i            (bw_done_i),
     .bw_ok_i              (bw_ok_i),
     .ok_o                 (split_ok),
@@ -246,6 +249,8 @@ module sched_score_unit (
   );
 
   assign bw_start_o = split_s2pf_bw_start;
+  assign bw_snap_a_o = split_bw_snap_a;
+  assign bw_snap_b_o = split_bw_snap_b;
 
   function automatic logic [T_W-1:0] min_t(
     input logic [T_W-1:0] a,
@@ -307,10 +312,10 @@ module sched_score_unit (
       if (rem_len == NR_W'(0)) begin
         fast_cost = tl_i;
       end else if (rem_len == NR_W'(2)) begin
-        bc0  = best_conc_t(rem0_ntok);
-        bc1  = best_conc_t(rem1_ntok);
-        bt0  = best_task_t(rem0_ntok);
-        bt1  = best_task_t(rem1_ntok);
+        bc0  = best_conc_ticks(rem0_ntok);
+        bc1  = best_conc_ticks(rem1_ntok);
+        bt0  = best_task_ticks(rem0_ntok);
+        bt1  = best_task_ticks(rem1_ntok);
         pc   = tl_i + max_t(bc0, bc1);
         ser  = csa3_sum_t(te_i, bt0, bt1);
         serc = max_t(ser, tl_i);
@@ -326,16 +331,16 @@ module sched_score_unit (
   always_comb begin
     // 当前两个 cluster 的完成时间基准。tl=t_now，保留 te/tl 命名是为了
     // 对齐 C 代码中 greedy_h/continuation_cost 的表达式。
-    t_now = max_t(c2_snap_i.task_end, c3_snap_i.task_end);
-    te    = min_t(c2_snap_i.task_end, c3_snap_i.task_end);
+    t_now = max_t(c2_timeline_i.task_end, c3_timeline_i.task_end);
+    te    = min_t(c2_timeline_i.task_end, c3_timeline_i.task_end);
     tl    = t_now;
 
-    sw_c2 = swiglu_hit_t(rem0_eid_i, c2_snap_i.pf_eid, c2_snap_i.pf_end, t_now);
-    dn_c2 = down_hit_t(rem0_eid_i, c2_snap_i.pf_eid, c2_snap_i.pf_end,
-                       c2_snap_i.pf_full, t_now);
-    sw_c3 = swiglu_hit_t(rem0_eid_i, c3_snap_i.pf_eid, c3_snap_i.pf_end, t_now);
-    dn_c3 = down_hit_t(rem0_eid_i, c3_snap_i.pf_eid, c3_snap_i.pf_end,
-                       c3_snap_i.pf_full, t_now);
+    sw_c2 = swiglu_hit_t(rem0_eid_i, c2_cache_i.pf_eid, c2_cache_i.pf_end, t_now);
+    dn_c2 = down_hit_t(rem0_eid_i, c2_cache_i.pf_eid, c2_cache_i.pf_end,
+                       c2_cache_i.pf_full, t_now);
+    sw_c3 = swiglu_hit_t(rem0_eid_i, c3_cache_i.pf_eid, c3_cache_i.pf_end, t_now);
+    dn_c3 = down_hit_t(rem0_eid_i, c3_cache_i.pf_eid, c3_cache_i.pf_end,
+                       c3_cache_i.pf_full, t_now);
 
     split_tmp    = {1'b0, rem0_ntok_i} + {{NTOK_W{1'b0}}, 1'b1};
     split_a_ntok = NTOK_W'(split_tmp >> 1);
@@ -366,7 +371,6 @@ module sched_score_unit (
     split_a_snap.bw_s1      = split_a_bw_s1;
     split_a_snap.bw_s3      = split_a_bw_s3;
     split_a_snap.ntok       = split_a_ntok;
-    split_a_snap.pf_eid     = PF_EID_NONE;
 
     split_b_snap = '0;
     split_b_snap.valid      = (rem0_ntok_i >= NTOK_W'(2));
@@ -379,7 +383,6 @@ module sched_score_unit (
     split_b_snap.bw_s1      = split_b_bw_s1;
     split_b_snap.bw_s3      = split_b_bw_s3;
     split_b_snap.ntok       = split_b_ntok;
-    split_b_snap.pf_eid     = PF_EID_NONE;
   end
 
   always_comb begin
@@ -424,7 +427,7 @@ module sched_score_unit (
             st_d = ST_SIM1_SPLIT_S2PF;
           end else begin
             cost_d = (next_best == INF_T) ?
-                     (t_now + best_task_t(rem0_ntok_i)) : next_best;
+                     (t_now + best_task_ticks(rem0_ntok_i)) : next_best;
             st_d = ST_DONE;
           end
         end else begin
@@ -445,7 +448,7 @@ module sched_score_unit (
             next_best = min_t(best_cost_q, split_ms);
           end
           cost_d = (next_best == INF_T) ?
-                   (t_now + best_task_t(rem0_ntok_i)) : next_best;
+                   (t_now + best_task_ticks(rem0_ntok_i)) : next_best;
           best_cost_d = next_best;
           st_d = ST_DONE;
         end

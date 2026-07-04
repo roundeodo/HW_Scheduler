@@ -29,18 +29,18 @@ module sched_s2pf_pair (
   input  logic         side_b_active_i,
   input  logic [1:0]   shape_s3_a_i,
   input  logic [1:0]   shape_s3_b_i,
-  input  eval_snap_t   snap_a_i,
-  input  eval_snap_t   snap_b_i,
+  input  snap_timeline_t snap_a_i,
+  input  snap_timeline_t snap_b_i,
 
   output logic         bw_start_o,
-  output eval_snap_t   bw_snap_a_o,
-  output eval_snap_t   bw_snap_b_o,
+  output snap_timeline_t bw_snap_a_o,
+  output snap_timeline_t bw_snap_b_o,
   input  logic         bw_done_i,
   input  logic         bw_ok_i,
 
   output logic         ok_o,
-  output eval_snap_t   snap_a_o,
-  output eval_snap_t   snap_b_o
+  output snap_timeline_t snap_a_o,
+  output snap_timeline_t snap_b_o
 );
 
   typedef enum logic [2:0] {
@@ -54,32 +54,38 @@ module sched_s2pf_pair (
 
   state_t st_q, st_d;
 
-  eval_snap_t   snap_a_q, snap_a_d;
-  eval_snap_t   snap_b_q, snap_b_d;
+  // 本模块不锁存完整 snap request。调用者必须在 busy_o 期间保持 snap_a/b
+  // 输入稳定；本模块只锁存 trial 阶段真正需要的小标量，避免 shape/policy/
+  // endpoint 解码逻辑在每个 S2PF trial 中反复展开。
+  logic [1:0]   scan_idx_q, scan_idx_d;
   s2pf_policy_t policy_q, policy_d;
   logic         side_a_q, side_a_d;
   logic         side_b_q, side_b_d;
-  logic [1:0]   shape_a_q, shape_a_d;
-  logic [1:0]   shape_b_q, shape_b_d;
-  logic [1:0]   scan_idx_q, scan_idx_d;
 
   logic         best_valid_q, best_valid_d;
   logic [1:0]   best_class_q, best_class_d;
   logic [T_W:0] best_start_sum_q, best_start_sum_d;
   logic         best_a_pf_q, best_a_pf_d;
   logic         best_b_pf_q, best_b_pf_d;
-  logic [1:0]   best_a_sel_q, best_a_sel_d;
-  logic [1:0]   best_b_sel_q, best_b_sel_d;
+  logic [T_W-1:0] best_a_start_q, best_a_start_d;
+  logic [T_W-1:0] best_b_start_q, best_b_start_d;
 
-  logic [T_W-1:0] hi_a;
-  logic [T_W-1:0] hi_b;
-  logic           can_a;
-  logic           can_b;
-  logic           dma_start_valid_a;
-  logic           dma_start_valid_b;
+  logic [T_W-1:0] hi_a_q, hi_a_d;
+  logic [T_W-1:0] hi_b_q, hi_b_d;
+  logic [T_W-1:0] best_s4_a_q, best_s4_a_d;
+  logic [T_W-1:0] best_s4_b_q, best_s4_b_d;
+  logic           dur_a_is2_q, dur_a_is2_d;
+  logic           dur_b_is2_q, dur_b_is2_d;
+  logic           pf_bw_a_is128_q, pf_bw_a_is128_d;
+  logic           pf_bw_b_is128_q, pf_bw_b_is128_d;
+  logic           can_a_q, can_a_d;
+  logic           can_b_q, can_b_d;
+  logic           dma_start_valid_a_q, dma_start_valid_a_d;
+  logic           dma_start_valid_b_q, dma_start_valid_b_d;
+  logic [1:0]     trial_count_q, trial_count_d;
 
-  eval_snap_t try_a;
-  eval_snap_t try_b;
+  snap_timeline_t try_a;
+  snap_timeline_t try_b;
   logic       try_valid;
   logic [1:0] try_class;
   logic [T_W:0] try_start_sum;
@@ -87,65 +93,89 @@ module sched_s2pf_pair (
   logic       try_b_pf;
   logic [1:0] try_a_sel;
   logic [1:0] try_b_sel;
-  logic [1:0] trial_count;
+  logic [T_W-1:0] try_a_start;
+  logic [T_W-1:0] try_b_start;
   logic       last_trial;
+
+  logic [T_W-1:0] dur_a_start;
+  logic [T_W-1:0] dur_b_start;
+  logic [T_W-1:0] hi_a_start;
+  logic [T_W-1:0] hi_b_start;
+  logic           dur_a_is2_start;
+  logic           dur_b_is2_start;
+  logic           pf_bw_a_is128_start;
+  logic           pf_bw_b_is128_start;
+  logic           can_a_start;
+  logic           can_b_start;
+  logic           dma_start_valid_a_start;
+  logic           dma_start_valid_b_start;
+  logic           room_a_start;
+  logic           room_b_start;
+  logic [1:0]     trial_count_start;
+  logic [T_W-1:0] dur_a_trial;
+  logic [T_W-1:0] dur_b_trial;
+  logic [BW_W-1:0] pf_bw_a_trial;
+  logic [BW_W-1:0] pf_bw_b_trial;
 
   localparam logic [1:0] SEL_TASK_START = 2'd0;
   localparam logic [1:0] SEL_DMA1_END   = 2'd1;
   localparam logic [1:0] SEL_LATEST     = 2'd2;
 
-  function automatic logic can_apply_s2pf(
-    input eval_snap_t sn,
-    input logic [1:0] shape_s3,
+  function automatic snap_timeline_t apply_s2pf(
+    input snap_timeline_t sn,
+    input logic [T_W-1:0] dur,
+    input logic [BW_W-1:0] pf_bw,
+    input logic [T_W-1:0] best_s4,
     input logic [T_W-1:0] pf_start
   );
-    logic [T_W-1:0] dur;
-    begin
-      dur = kTd3(shape_s3);
-      can_apply_s2pf = sn.valid &&
-                       (sn.bw_s3 != BW_0) &&
-                       (pf_start >= sn.task_start) &&
-                       (pf_start + dur <= sn.s2_end);
-    end
-  endfunction
-
-  function automatic eval_snap_t apply_s2pf(
-    input eval_snap_t sn,
-    input logic [1:0] shape_s3,
-    input logic [T_W-1:0] pf_start
-  );
-    eval_snap_t ret;
+    snap_timeline_t ret;
     logic [T_W-1:0] pf_end;
     begin
       ret    = sn;
-      pf_end = pf_start + kTd3(shape_s3);
-      if (can_apply_s2pf(sn, shape_s3, pf_start)) begin
-        ret.s2pf_valid = 1'b1;
-        ret.s2pf_start = pf_start;
-        ret.s2pf_end   = pf_end;
-        ret.s2pf_bw    = alloc_bw(shape_s3);
-        ret.dma3_end   = sn.s2_end;
-        ret.s4_start   = sn.s2_end;
-        ret.bw_s3      = BW_0;
-        ret.task_end   = sn.s2_end + best_s4_t(sn.ntok);
-      end
+      pf_end = pf_start + dur;
+      // Call sites only invoke this for a valid template.  Do not repeat the
+      // can_apply comparison here; keeping apply as a pure field patch avoids
+      // duplicated duration decode and endpoint checks.
+      ret.s2pf_valid = 1'b1;
+      ret.s2pf_start = pf_start;
+      ret.s2pf_end   = pf_end;
+      ret.s2pf_bw    = pf_bw;
+      ret.dma3_end   = sn.s2_end;
+      ret.s4_start   = sn.s2_end;
+      ret.bw_s3      = BW_0;
+      ret.task_end   = sn.s2_end + best_s4;
       apply_s2pf = ret;
     end
   endfunction
 
+  function automatic logic shape_s3_dur_is2(input logic [1:0] sh);
+    unique case (sh)
+      SHAPE_A, SHAPE_B: shape_s3_dur_is2 = 1'b1;
+      default:          shape_s3_dur_is2 = 1'b0;
+    endcase
+  endfunction
+
+  function automatic logic [T_W-1:0] dur_from_is2(input logic is2);
+    dur_from_is2 = is2 ? T_W'(2) : T_W'(1);
+  endfunction
+
+  function automatic logic [BW_W-1:0] pf_bw_from_is128(input logic is128);
+    pf_bw_from_is128 = is128 ? BW_128 : BW_64;
+  endfunction
+
   function automatic logic [T_W-1:0] start_a_from_sel(input logic [1:0] sel);
     unique case (sel)
-      SEL_TASK_START: start_a_from_sel = snap_a_q.task_start;
-      SEL_DMA1_END:   start_a_from_sel = snap_a_q.dma1_end;
-      default:        start_a_from_sel = hi_a;
+      SEL_TASK_START: start_a_from_sel = snap_a_i.task_start;
+      SEL_DMA1_END:   start_a_from_sel = snap_a_i.dma1_end;
+      default:        start_a_from_sel = hi_a_q;
     endcase
   endfunction
 
   function automatic logic [T_W-1:0] start_b_from_sel(input logic [1:0] sel);
     unique case (sel)
-      SEL_TASK_START: start_b_from_sel = snap_b_q.task_start;
-      SEL_DMA1_END:   start_b_from_sel = snap_b_q.dma1_end;
-      default:        start_b_from_sel = hi_b;
+      SEL_TASK_START: start_b_from_sel = snap_b_i.task_start;
+      SEL_DMA1_END:   start_b_from_sel = snap_b_i.dma1_end;
+      default:        start_b_from_sel = hi_b_q;
     endcase
   endfunction
 
@@ -159,30 +189,51 @@ module sched_s2pf_pair (
   endfunction
 
   always_comb begin
-    can_a = (policy_q != S2PF_OFF) && side_a_q &&
-            can_apply_s2pf(snap_a_q, shape_a_q, snap_a_q.task_start);
-    can_b = (policy_q != S2PF_OFF) && side_b_q &&
-            can_apply_s2pf(snap_b_q, shape_b_q, snap_b_q.task_start);
+    dur_a_is2_start     = shape_s3_dur_is2(shape_s3_a_i);
+    dur_b_is2_start     = shape_s3_dur_is2(shape_s3_b_i);
+    pf_bw_a_is128_start = (shape_s3_a_i == SHAPE_C);
+    pf_bw_b_is128_start = (shape_s3_b_i == SHAPE_C);
+    dur_a_start         = dur_from_is2(dur_a_is2_start);
+    dur_b_start         = dur_from_is2(dur_b_is2_start);
 
-    hi_a = can_a ? (snap_a_q.s2_end - kTd3(shape_a_q)) : '0;
-    hi_b = can_b ? (snap_b_q.s2_end - kTd3(shape_b_q)) : '0;
+    // Use task_start <= s2_end - dur instead of task_start + dur <= s2_end.
+    // This moves the adder out of the repeated trial path and avoids exposing
+    // an unnecessary intermediate sum.
+    room_a_start = (snap_a_i.s2_end >= dur_a_start);
+    room_b_start = (snap_b_i.s2_end >= dur_b_start);
+    hi_a_start   = room_a_start ? (snap_a_i.s2_end - dur_a_start) : '0;
+    hi_b_start   = room_b_start ? (snap_b_i.s2_end - dur_b_start) : '0;
+    can_a_start = (policy_i != S2PF_OFF) && side_a_active_i &&
+                  snap_a_i.valid &&
+                  (snap_a_i.bw_s3 != BW_0) &&
+                  room_a_start &&
+                  (snap_a_i.task_start <= hi_a_start);
+    can_b_start = (policy_i != S2PF_OFF) && side_b_active_i &&
+                  snap_b_i.valid &&
+                  (snap_b_i.bw_s3 != BW_0) &&
+                  room_b_start &&
+                  (snap_b_i.task_start <= hi_b_start);
 
-    dma_start_valid_a = can_a &&
-                        (snap_a_q.dma1_end >= snap_a_q.task_start) &&
-                        (snap_a_q.dma1_end <= hi_a) &&
-                        (snap_a_q.dma1_end != snap_a_q.task_start);
-    dma_start_valid_b = can_b &&
-                        (snap_b_q.dma1_end >= snap_b_q.task_start) &&
-                        (snap_b_q.dma1_end <= hi_b) &&
-                        (snap_b_q.dma1_end != snap_b_q.task_start);
+    dma_start_valid_a_start = can_a_start &&
+                              (snap_a_i.dma1_end >= snap_a_i.task_start) &&
+                              (snap_a_i.dma1_end <= hi_a_start) &&
+                              (snap_a_i.dma1_end != snap_a_i.task_start);
+    dma_start_valid_b_start = can_b_start &&
+                              (snap_b_i.dma1_end >= snap_b_i.task_start) &&
+                              (snap_b_i.dma1_end <= hi_b_start) &&
+                              (snap_b_i.dma1_end != snap_b_i.task_start);
 
-    trial_count = policy_trial_count(policy_q);
-    last_trial  = ((scan_idx_q + 2'd1) >= trial_count);
+    trial_count_start = policy_trial_count(policy_i);
+    dur_a_trial       = dur_from_is2(dur_a_is2_q);
+    dur_b_trial       = dur_from_is2(dur_b_is2_q);
+    pf_bw_a_trial     = pf_bw_from_is128(pf_bw_a_is128_q);
+    pf_bw_b_trial     = pf_bw_from_is128(pf_bw_b_is128_q);
+    last_trial        = ((scan_idx_q + 2'd1) >= trial_count_q);
   end
 
   always_comb begin
-    try_a         = snap_a_q;
-    try_b         = snap_b_q;
+    try_a         = snap_a_i;
+    try_b         = snap_b_i;
     try_valid     = 1'b0;
     try_class     = 2'd0;
     try_start_sum = '0;
@@ -190,10 +241,12 @@ module sched_s2pf_pair (
     try_b_pf      = 1'b0;
     try_a_sel     = SEL_TASK_START;
     try_b_sel     = SEL_TASK_START;
+    try_a_start   = '0;
+    try_b_start   = '0;
 
     unique case (st_q)
       ST_RAW_WAIT: begin
-        try_valid = snap_a_q.valid || snap_b_q.valid;
+        try_valid = snap_a_i.valid || snap_b_i.valid;
       end
 
       ST_TRIAL_START,
@@ -205,23 +258,21 @@ module sched_s2pf_pair (
               2'd0: begin
                 try_a_sel = SEL_TASK_START;
                 try_b_sel = SEL_TASK_START;
-                try_valid = can_a && can_b;
+                try_valid = can_a_q && can_b_q;
               end
               2'd1: begin
                 try_a_sel = SEL_DMA1_END;
                 try_b_sel = SEL_DMA1_END;
-                try_valid = dma_start_valid_a && dma_start_valid_b;
+                try_valid = dma_start_valid_a_q && dma_start_valid_b_q;
               end
               default: begin
                 try_a_sel = SEL_LATEST;
                 try_b_sel = SEL_LATEST;
-                try_valid = can_a && can_b;
+                try_valid = can_a_q && can_b_q;
               end
             endcase
             try_a_pf      = try_valid;
             try_b_pf      = try_valid;
-            try_start_sum = {1'b0, start_a_from_sel(try_a_sel)} +
-                            {1'b0, start_b_from_sel(try_b_sel)};
           end
 
           S2PF_SPLIT_LITE: begin
@@ -230,28 +281,23 @@ module sched_s2pf_pair (
                 try_class = 2'd2;
                 try_a_sel = SEL_TASK_START;
                 try_b_sel = SEL_TASK_START;
-                try_valid = can_a && can_b;
+                try_valid = can_a_q && can_b_q;
                 try_a_pf  = try_valid;
                 try_b_pf  = try_valid;
-                try_start_sum = {1'b0, start_a_from_sel(try_a_sel)} +
-                                {1'b0, start_b_from_sel(try_b_sel)};
               end
               2'd1: begin
                 try_class = 2'd2;
                 try_a_sel = SEL_DMA1_END;
                 try_b_sel = SEL_DMA1_END;
-                try_valid = dma_start_valid_a && dma_start_valid_b;
+                try_valid = dma_start_valid_a_q && dma_start_valid_b_q;
                 try_a_pf  = try_valid;
                 try_b_pf  = try_valid;
-                try_start_sum = {1'b0, start_a_from_sel(try_a_sel)} +
-                                {1'b0, start_b_from_sel(try_b_sel)};
               end
               default: begin
                 try_class = 2'd1;
                 try_b_sel = SEL_LATEST;
-                try_valid = can_b;
+                try_valid = can_b_q;
                 try_b_pf  = try_valid;
-                try_start_sum = {1'b0, start_b_from_sel(try_b_sel)};
               end
             endcase
           end
@@ -260,14 +306,12 @@ module sched_s2pf_pair (
             try_class = 2'd1;
             if (side_a_q && !side_b_q) begin
               try_a_sel = SEL_LATEST;
-              try_valid = can_a;
+              try_valid = can_a_q;
               try_a_pf  = try_valid;
-              try_start_sum = {1'b0, start_a_from_sel(try_a_sel)};
             end else if (side_b_q && !side_a_q) begin
               try_b_sel = SEL_LATEST;
-              try_valid = can_b;
+              try_valid = can_b_q;
               try_b_pf  = try_valid;
-              try_start_sum = {1'b0, start_b_from_sel(try_b_sel)};
             end
           end
 
@@ -276,10 +320,26 @@ module sched_s2pf_pair (
         endcase
 
         if (try_a_pf) begin
-          try_a = apply_s2pf(snap_a_q, shape_a_q, start_a_from_sel(try_a_sel));
+          try_a_start = start_a_from_sel(try_a_sel);
         end
         if (try_b_pf) begin
-          try_b = apply_s2pf(snap_b_q, shape_b_q, start_b_from_sel(try_b_sel));
+          try_b_start = start_b_from_sel(try_b_sel);
+        end
+        if (try_a_pf && try_b_pf) begin
+          try_start_sum = {1'b0, try_a_start} + {1'b0, try_b_start};
+        end else if (try_a_pf) begin
+          try_start_sum = {1'b0, try_a_start};
+        end else if (try_b_pf) begin
+          try_start_sum = {1'b0, try_b_start};
+        end
+
+        if (try_a_pf) begin
+          try_a = apply_s2pf(snap_a_i, dur_a_trial, pf_bw_a_trial,
+                             best_s4_a_q, try_a_start);
+        end
+        if (try_b_pf) begin
+          try_b = apply_s2pf(snap_b_i, dur_b_trial, pf_bw_b_trial,
+                             best_s4_b_q, try_b_start);
         end
       end
 
@@ -290,41 +350,59 @@ module sched_s2pf_pair (
 
   always_comb begin
     st_d             = st_q;
-    snap_a_d         = snap_a_q;
-    snap_b_d         = snap_b_q;
+    scan_idx_d       = scan_idx_q;
     policy_d         = policy_q;
     side_a_d         = side_a_q;
     side_b_d         = side_b_q;
-    shape_a_d        = shape_a_q;
-    shape_b_d        = shape_b_q;
-    scan_idx_d       = scan_idx_q;
     best_valid_d     = best_valid_q;
     best_class_d     = best_class_q;
     best_start_sum_d = best_start_sum_q;
     best_a_pf_d      = best_a_pf_q;
     best_b_pf_d      = best_b_pf_q;
-    best_a_sel_d     = best_a_sel_q;
-    best_b_sel_d     = best_b_sel_q;
+    best_a_start_d   = best_a_start_q;
+    best_b_start_d   = best_b_start_q;
+    hi_a_d           = hi_a_q;
+    hi_b_d           = hi_b_q;
+    best_s4_a_d      = best_s4_a_q;
+    best_s4_b_d      = best_s4_b_q;
+    dur_a_is2_d      = dur_a_is2_q;
+    dur_b_is2_d      = dur_b_is2_q;
+    pf_bw_a_is128_d  = pf_bw_a_is128_q;
+    pf_bw_b_is128_d  = pf_bw_b_is128_q;
+    can_a_d          = can_a_q;
+    can_b_d          = can_b_q;
+    dma_start_valid_a_d = dma_start_valid_a_q;
+    dma_start_valid_b_d = dma_start_valid_b_q;
+    trial_count_d    = trial_count_q;
     bw_start_o       = 1'b0;
 
     unique case (st_q)
       ST_IDLE: begin
         if (start_i) begin
-          snap_a_d          = snap_a_i;
-          snap_b_d          = snap_b_i;
           policy_d          = policy_i;
           side_a_d          = side_a_active_i;
           side_b_d          = side_b_active_i;
-          shape_a_d         = shape_s3_a_i;
-          shape_b_d         = shape_s3_b_i;
           scan_idx_d        = '0;
           best_valid_d      = 1'b0;
           best_class_d      = '0;
           best_start_sum_d  = '0;
           best_a_pf_d       = 1'b0;
           best_b_pf_d       = 1'b0;
-          best_a_sel_d      = SEL_TASK_START;
-          best_b_sel_d      = SEL_TASK_START;
+          best_a_start_d    = '0;
+          best_b_start_d    = '0;
+          hi_a_d            = hi_a_start;
+          hi_b_d            = hi_b_start;
+          best_s4_a_d       = best_s4_ticks(snap_a_i.ntok);
+          best_s4_b_d       = best_s4_ticks(snap_b_i.ntok);
+          dur_a_is2_d       = dur_a_is2_start;
+          dur_b_is2_d       = dur_b_is2_start;
+          pf_bw_a_is128_d   = pf_bw_a_is128_start;
+          pf_bw_b_is128_d   = pf_bw_b_is128_start;
+          can_a_d           = can_a_start;
+          can_b_d           = can_b_start;
+          dma_start_valid_a_d = dma_start_valid_a_start;
+          dma_start_valid_b_d = dma_start_valid_b_start;
+          trial_count_d     = trial_count_start;
           st_d              = ST_RAW_START;
         end
       end
@@ -341,10 +419,10 @@ module sched_s2pf_pair (
           best_start_sum_d = '0;
           best_a_pf_d      = 1'b0;
           best_b_pf_d      = 1'b0;
-          best_a_sel_d     = SEL_TASK_START;
-          best_b_sel_d     = SEL_TASK_START;
+          best_a_start_d   = '0;
+          best_b_start_d   = '0;
           scan_idx_d       = '0;
-          st_d             = (trial_count == 2'd0) ? ST_DONE : ST_TRIAL_START;
+          st_d             = (trial_count_q == 2'd0) ? ST_DONE : ST_TRIAL_START;
         end
       end
 
@@ -373,8 +451,8 @@ module sched_s2pf_pair (
               best_start_sum_d = try_start_sum;
               best_a_pf_d      = try_a_pf;
               best_b_pf_d      = try_b_pf;
-              best_a_sel_d     = try_a_sel;
-              best_b_sel_d     = try_b_sel;
+              best_a_start_d   = try_a_start;
+              best_b_start_d   = try_b_start;
             end
           end
 
@@ -398,46 +476,64 @@ module sched_s2pf_pair (
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       st_q             <= ST_IDLE;
-      snap_a_q         <= '0;
-      snap_b_q         <= '0;
+      scan_idx_q       <= '0;
       policy_q         <= S2PF_OFF;
       side_a_q         <= 1'b0;
       side_b_q         <= 1'b0;
-      shape_a_q        <= '0;
-      shape_b_q        <= '0;
-      scan_idx_q       <= '0;
       best_valid_q     <= 1'b0;
       best_class_q     <= '0;
       best_start_sum_q <= '0;
       best_a_pf_q      <= 1'b0;
       best_b_pf_q      <= 1'b0;
-      best_a_sel_q     <= SEL_TASK_START;
-      best_b_sel_q     <= SEL_TASK_START;
+      best_a_start_q   <= '0;
+      best_b_start_q   <= '0;
+      hi_a_q           <= '0;
+      hi_b_q           <= '0;
+      best_s4_a_q      <= '0;
+      best_s4_b_q      <= '0;
+      dur_a_is2_q      <= 1'b0;
+      dur_b_is2_q      <= 1'b0;
+      pf_bw_a_is128_q  <= 1'b0;
+      pf_bw_b_is128_q  <= 1'b0;
+      can_a_q          <= 1'b0;
+      can_b_q          <= 1'b0;
+      dma_start_valid_a_q <= 1'b0;
+      dma_start_valid_b_q <= 1'b0;
+      trial_count_q    <= '0;
     end else begin
       st_q             <= st_d;
-      snap_a_q         <= snap_a_d;
-      snap_b_q         <= snap_b_d;
+      scan_idx_q       <= scan_idx_d;
       policy_q         <= policy_d;
       side_a_q         <= side_a_d;
       side_b_q         <= side_b_d;
-      shape_a_q        <= shape_a_d;
-      shape_b_q        <= shape_b_d;
-      scan_idx_q       <= scan_idx_d;
       best_valid_q     <= best_valid_d;
       best_class_q     <= best_class_d;
       best_start_sum_q <= best_start_sum_d;
       best_a_pf_q      <= best_a_pf_d;
       best_b_pf_q      <= best_b_pf_d;
-      best_a_sel_q     <= best_a_sel_d;
-      best_b_sel_q     <= best_b_sel_d;
+      best_a_start_q   <= best_a_start_d;
+      best_b_start_q   <= best_b_start_d;
+      hi_a_q           <= hi_a_d;
+      hi_b_q           <= hi_b_d;
+      best_s4_a_q      <= best_s4_a_d;
+      best_s4_b_q      <= best_s4_b_d;
+      dur_a_is2_q      <= dur_a_is2_d;
+      dur_b_is2_q      <= dur_b_is2_d;
+      pf_bw_a_is128_q  <= pf_bw_a_is128_d;
+      pf_bw_b_is128_q  <= pf_bw_b_is128_d;
+      can_a_q          <= can_a_d;
+      can_b_q          <= can_b_d;
+      dma_start_valid_a_q <= dma_start_valid_a_d;
+      dma_start_valid_b_q <= dma_start_valid_b_d;
+      trial_count_q    <= trial_count_d;
     end
   end
 
   always_comb begin
-    snap_a_o = best_a_pf_q ? apply_s2pf(snap_a_q, shape_a_q,
-                                        start_a_from_sel(best_a_sel_q)) : snap_a_q;
-    snap_b_o = best_b_pf_q ? apply_s2pf(snap_b_q, shape_b_q,
-                                        start_b_from_sel(best_b_sel_q)) : snap_b_q;
+    snap_a_o = best_a_pf_q ? apply_s2pf(snap_a_i, dur_a_trial, pf_bw_a_trial,
+                                        best_s4_a_q, best_a_start_q) : snap_a_i;
+    snap_b_o = best_b_pf_q ? apply_s2pf(snap_b_i, dur_b_trial, pf_bw_b_trial,
+                                        best_s4_b_q, best_b_start_q) : snap_b_i;
   end
 
   assign ok_o   = best_valid_q;

@@ -6,7 +6,7 @@ package:
 sources:
   - files:
       - sched_pkg.sv
-      - sched_bw_ok.sv
+      - sched_candidate_pkg.sv
       - sched_bw_ok_seq.sv
       - sched_mk_snap.sv
       - sched_pick_shapes.sv
@@ -17,5 +17,6 @@ sources:
       - sched_best_reduce.sv
       - sched_commit_unit.sv
       - sched_ghost_inject_unit.sv
+      - sched_plan_pack.sv
       - sched_schedule_core.sv
       - moe_scheduler_reg_wrapper.sv

@@ -10,22 +10,25 @@
 import sched_pkg::*;
 
 module sched_ghost_inject_unit (
-  input  eval_snap_t snap_i,
-  output eval_snap_t snap_o
+  input  snap_timeline_t timeline_i,
+  input  snap_cache_t    cache_i,
+  output snap_timeline_t timeline_o,
+  output snap_cache_t    cache_o
 );
 
   always_comb begin
-    snap_o = snap_i;
+    timeline_o = timeline_i;
+    cache_o    = cache_i;
 
-    if (snap_i.valid &&
-        (snap_i.pf_eid == PF_EID_NONE) &&
-        (snap_i.dma1_end <= snap_i.s4_start) &&
-        (snap_i.s4_start + GHOST_WINDOW_TICKS <= snap_i.task_end)) begin
-      snap_o.pf_eid  = PF_EID_GHOST;
-      snap_o.pf_end  = snap_i.task_end;
-      snap_o.pf_full = 1'b0;
-      snap_o.s4pf_valid = 1'b1;
-      snap_o.s4pf_start = snap_i.s4_start;
+    if (timeline_i.valid &&
+        (cache_i.pf_eid == PF_EID_NONE) &&
+        (timeline_i.dma1_end <= timeline_i.s4_start) &&
+        (timeline_i.s4_start + GHOST_WINDOW_TICKS <= timeline_i.task_end)) begin
+      cache_o.pf_eid  = PF_EID_GHOST;
+      cache_o.pf_end  = timeline_i.task_end;
+      cache_o.pf_full = 1'b0;
+      timeline_o.s4pf_valid = 1'b1;
+      timeline_o.s4pf_start = timeline_i.s4_start;
     end
   end
 

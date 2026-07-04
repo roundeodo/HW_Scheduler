@@ -7,12 +7,13 @@
 // The descriptor uses physical side A=C2 and side B=C3.
 //
 // Covered candidate families:
-//   nr == 1      : 2 clusters x 9 solo shapes, split half cuts,
-//                  optional early-start on idle cluster
+//   nr == 1      : 2 clusters x 5 solo shapes, half_ceil split,
+//                  optional release-endpoint early-start on idle cluster
 //   both_idle    : compressed PAIR/SPLIT set tuned for hardware timing
 //   not both idle: top0 to idle cluster at idle_t / busy DMA endpoints
 
 import sched_pkg::*;
+import sched_candidate_pkg::*;
 
 module sched_candidate_generator (
   input  logic                 clk_i,
@@ -42,7 +43,7 @@ module sched_candidate_generator (
   input  logic [T_W-1:0]       total_conc_i,
 
   // ── 候选描述符输出（直接送往 sched_candidate_eval_lane）──────────────────
-  output cand_desc_t           cand_o,
+  output cand_issue_t           cand_o,
   output logic                 cand_valid_o
 );
 
@@ -52,10 +53,16 @@ module sched_candidate_generator (
   localparam logic [1:0] PLAN_SPLIT = 2'b01;
   localparam logic [1:0] PLAN_SOLO  = 2'b10;
 
+  localparam int unsigned SINGLE_SOLO_SHAPES = 5;
+  localparam int unsigned SINGLE_SOLO_COUNT  = 2 * SINGLE_SOLO_SHAPES;
+  localparam int unsigned SINGLE_SPLIT_ID    = SINGLE_SOLO_COUNT;
+  localparam int unsigned SINGLE_EARLY0_ID   = SINGLE_SPLIT_ID + 1;
+  localparam int unsigned SINGLE_LAST_ID     = SINGLE_EARLY0_ID + 1;
+
   // 模式由 active_count / both_idle 在 ST_IDLE 时确定，整轮不变
   typedef enum logic [1:0] {
     MODE_NONE     = 2'd0,  // active_count==0，不应出现（FSM 直接跳 ST_DONE）
-    MODE_SINGLE   = 2'd1,  // nr==1：solo×18 + split×2 + early-start×3
+    MODE_SINGLE   = 2'd1,  // nr==1：solo×10 + split×1 + early-start×2
     MODE_BOTH     = 2'd2,  // both_idle：3 fixed PAIR + 2 SPLIT cuts
     MODE_NOT_BOTH = 2'd3   // not_both_idle：top0 放 idle cluster，最多3个起始时刻
   } mode_t;
@@ -96,9 +103,9 @@ module sched_candidate_generator (
   // 作为新任务在 idle cluster 上的"早起步"候选起始点（此时部分 DMA 带宽已释放）。
   assign busy_snap  = idle_is_c3 ? c2_snap_i : c3_snap_i;
 
-  // ── early-start 候选起始时刻（MODE_SINGLE idx20..22 和 MODE_NOT_BOTH 共用）──
+  // ── early-start 候选起始时刻（MODE_SINGLE release1/2 和 MODE_NOT_BOTH 共用）──
   //
-  // release endpoint 已由 schedule_core 从完整 eval_snap_t 预先压缩成
+  // release endpoint 已由 schedule_core 从 timeline/cache state 预先压缩成
   // cand_gen_snap_t.release_valid/t。这里只负责从忙侧 cluster 的 release list
   // 里选出前两个晚于 idle_t 的非重复 endpoint，避免完整 snap 字段跨模块扇出。
   always_comb begin
@@ -138,54 +145,41 @@ module sched_candidate_generator (
   end
 
   // ── 辅助函数（综合时展开为查找表/比较树）────────────────────────────────
-  // MODE_SINGLE 只保留两个 split：ceil(ntok/2) 与 floor(ntok/2)。
-  // 删除通用 cut 枚举后，这里不再需要动态 slot case mux 和重复 cut 比较链。
+  // MODE_SINGLE split 只保留 half_ceil。统计中 half_floor 未被 commit，
+  // 因此删除 floor candidate 和重复 cut 判定。
   function automatic logic [NTOK_W-1:0] single_split_cut(
-    input logic [NTOK_W-1:0] ntok,
-    input logic              id_is_floor
+    input logic [NTOK_W-1:0] ntok
   );
-    single_split_cut = id_is_floor ? (ntok >> 1) :
-                                     ((ntok + NTOK_W'(1)) >> 1);
+    single_split_cut = (ntok + NTOK_W'(1)) >> 1;
   endfunction
 
-  // solo shape 枚举：S1 和 S3 各3种 shape（A/B/C），组合成 9 种配置
-  // 2D 展开：行方向 = S1 shape（每3个一组），列方向 = S3 shape
-  //   slot: 0(AA) 1(AB) 2(AC) | 3(BA) 4(BB) 5(BC) | 6(CA) 7(CB) 8(CC)
+  // MODE_SINGLE solo shape 只保留高频集合：
+  //   slot0 C/C, slot1 A/A, slot2 A/C, slot3 B/B, slot4 A/B
+  // 删除低频 B/A、B/C、C/A、C/B。
   function automatic logic [1:0] solo_s1_for_slot(input logic [3:0] slot);
     unique case (slot)
-      4'd0, 4'd1, 4'd2: solo_s1_for_slot = SHAPE_A;
-      4'd3, 4'd4, 4'd5: solo_s1_for_slot = SHAPE_B;
-      default:          solo_s1_for_slot = SHAPE_C;
+      4'd0:   solo_s1_for_slot = SHAPE_C;  // C/C
+      4'd3:   solo_s1_for_slot = SHAPE_B;  // B/B
+      default: solo_s1_for_slot = SHAPE_A; // A/A, A/C, A/B
     endcase
   endfunction
 
   function automatic logic [1:0] solo_s3_for_slot(input logic [3:0] slot);
     unique case (slot)
-      4'd0, 4'd3, 4'd6: solo_s3_for_slot = SHAPE_A;
-      4'd1, 4'd4, 4'd7: solo_s3_for_slot = SHAPE_B;
-      default:          solo_s3_for_slot = SHAPE_C;
+      4'd0, 4'd2: solo_s3_for_slot = SHAPE_C; // C/C, A/C
+      4'd3, 4'd4: solo_s3_for_slot = SHAPE_B; // B/B, A/B
+      default:    solo_s3_for_slot = SHAPE_A; // A/A
     endcase
   endfunction
 
-  // MODE_SINGLE split 有效性：
-  //   - ceil 候选：只要求 0 < ceil < ntok
-  //   - floor 候选：还要求 floor != ceil，避免偶数 ntok 重复评估同一 cut
+  // MODE_SINGLE split 有效性：只保留 half_ceil，要求 0 < cut < ntok。
   function automatic logic single_split_valid(
-    input logic [NTOK_W-1:0] ntok,
-    input logic              id_is_floor
+    input logic [NTOK_W-1:0] ntok
   );
     logic [NTOK_W-1:0] c0;
-    logic [NTOK_W-1:0] c1;
     begin
       c0 = (ntok + NTOK_W'(1)) >> 1;
-      c1 = ntok >> 1;
-
-      if (!id_is_floor) begin
-        single_split_valid = (ntok >= NTOK_W'(2)) && (c0 > '0) && (c0 < ntok);
-      end else begin
-        single_split_valid = (ntok >= NTOK_W'(2)) && (c1 > '0) &&
-                             (c1 < ntok) && (c1 != c0);
-      end
+      single_split_valid = (ntok >= NTOK_W'(2)) && (c0 > '0) && (c0 < ntok);
     end
   endfunction
 
@@ -216,7 +210,7 @@ module sched_candidate_generator (
 
   function automatic logic [CAND_ID_W-1:0] mode_last_idx(input mode_t mode);
     unique case (mode)
-      MODE_SINGLE:   mode_last_idx = CAND_ID_W'(22);
+      MODE_SINGLE:   mode_last_idx = CAND_ID_W'(SINGLE_LAST_ID);
       MODE_BOTH:     mode_last_idx = CAND_ID_W'(4);
       MODE_NOT_BOTH: mode_last_idx = CAND_ID_W'(2);
       default:       mode_last_idx = '0;
@@ -230,25 +224,25 @@ module sched_candidate_generator (
     input mode_t                 mode,
     input logic [CAND_ID_W-1:0]  id
   );
-    logic single_split_is_floor;
+    logic [1:0] early_tpt_idx;
     logic [NTOK_W-1:0] cut;
     begin
       candidate_id_possible = 1'b0;
-      single_split_is_floor = 1'b0;
+      early_tpt_idx = '0;
       cut = '0;
 
       unique case (mode)
         MODE_SINGLE: begin
-          if (id < CAND_ID_W'(18)) begin
+          if (id < CAND_ID_W'(SINGLE_SOLO_COUNT)) begin
             candidate_id_possible = head_i[0].valid;
-          end else if (id < CAND_ID_W'(20)) begin
-            single_split_is_floor = (id == CAND_ID_W'(19));
+          end else if (id == CAND_ID_W'(SINGLE_SPLIT_ID)) begin
             candidate_id_possible = head_i[0].valid &&
-                                    single_split_valid(head_i[0].ntok,
-                                                       single_split_is_floor);
-          end else if (id <= CAND_ID_W'(22)) begin
+                                    single_split_valid(head_i[0].ntok);
+          end else if (id <= CAND_ID_W'(SINGLE_LAST_ID)) begin
+            // MODE_SINGLE early-start 删除 idle_t，只尝试 release1/release2。
+            early_tpt_idx = 2'(id - CAND_ID_W'(SINGLE_EARLY0_ID)) + 2'd1;
             candidate_id_possible = head_i[0].valid && !both_idle &&
-                                    (2'(id - CAND_ID_W'(20)) < ntpts);
+                                    (early_tpt_idx < ntpts);
           end
         end
 
@@ -289,7 +283,7 @@ module sched_candidate_generator (
   // 覆盖 MODE_SINGLE / MODE_BOTH / MODE_NOT_BOTH 三种模式，与上方 tpts/cand_* 无直属模式绑定。
 
   // 每种模式的最后一个候选 ID（到达后下一拍转 ST_DONE）
-  //   MODE_SINGLE   : 0..22 → 23候选 (18 solo + 2 split + 3 early-start)
+  //   MODE_SINGLE   : 0..12 → 13候选 (10 solo + 1 split + 2 early-start)
   //   MODE_BOTH     : 0..4  → 5候选 (3 fixed PAIR + half_ceil/front_m2 SPLIT)
   //   MODE_NOT_BOTH : 0..2  → 最多3候选 (ntpts 个有效起始时刻)
   always_comb begin
@@ -305,7 +299,7 @@ module sched_candidate_generator (
       ST_IDLE: begin
         // start_i 高时：根据 active_count / both_idle 决定本轮枚举模式。
         // idx 从 0 开始，后续由 ST_SEARCH 顺序跳过无效 candidate。
-        // 这里刻意不用 24 路组合 find，避免 head_i/active_count_i 被大扇出展开。
+        // 这里刻意不用全候选组合 find，避免 head_i/active_count_i 被大扇出展开。
         if (start_i) begin
           mode_t next_mode;
 
@@ -422,13 +416,13 @@ module sched_candidate_generator (
     // 遍历 top4：累加被移除项的 conc，并找出 commit 后剩余的第一、二项
     for (int i = 0; i < 4; i++) begin
       if (head_i[i].valid && remove_slot_mask[i]) begin
-        removed_conc = removed_conc + best_conc_t(head_i[i].ntok);
+        removed_conc = removed_conc + best_conc_ticks(head_i[i].ntok);
       end
       if (head_i[i].valid && !remove_slot_mask[i]) begin
         if (found == 2'd0) begin
           rem0_eid = head_i[i].eid;
           rem0_ntok = head_i[i].ntok;
-          max_conc_after = best_conc_t(head_i[i].ntok);  // 新 top0 的 best_conc
+          max_conc_after = best_conc_ticks(head_i[i].ntok);  // 新 top0 的 best_conc
         end else if (found == 2'd1) begin
           rem1_ntok = head_i[i].ntok;  // 新 top1 ntok（greedy_h nr==2 时用）
         end
@@ -488,24 +482,27 @@ module sched_candidate_generator (
     unique case (mode_q)
       // ── MODE_SINGLE：nr==1 ──────────────────────────────────────────────────
       // 对应 C moe_plan() 中 nr==1 分支。只有 head_i[0]（唯一 active expert）有效。
-      // idx 0..17 : solo，依次尝试 top0 放 C2（9种 shape）和放 C3（9种 shape）
-      // idx 18..19: split，将 top0 拆成两份分配给两个 cluster（ceil/floor 各一刀）
-      // idx 20..22: early-start（仅 not_both_idle 时有效），top0 放 idle cluster，
-      //             在 tpts[early_slot] 时刻启动，强制 ShapeC，不做 S2PF
+      // idx 0..9  : solo，依次尝试 top0 放 C2/C3，各5种高频 shape
+      // idx 10    : split half_ceil，将 top0 拆成两份分配给两个 cluster
+      // idx 11..12: early-start（仅 not_both_idle 时有效），删除 idle_t，
+      //             只在 tpts[1]/tpts[2] release endpoint 启动，强制 ShapeC，不做 S2PF
       MODE_SINGLE: begin
         logic [3:0] solo_slot;
         logic       solo_to_c3;
-        logic       single_split_is_floor;
         logic [1:0] early_slot;
+        logic [1:0] early_tpt_idx;
         logic [NTOK_W-1:0] cut;
 
-        solo_to_c3 = (idx_eff >= CAND_ID_W'(9)) && (idx_eff < CAND_ID_W'(18));
-        solo_slot = solo_to_c3 ? 4'(idx_eff - CAND_ID_W'(9)) : 4'(idx_eff);
-        single_split_is_floor = (idx_eff == CAND_ID_W'(19));
-        early_slot = 2'(idx_eff - CAND_ID_W'(20));
+        solo_to_c3 = (idx_eff >= CAND_ID_W'(SINGLE_SOLO_SHAPES)) &&
+                     (idx_eff < CAND_ID_W'(SINGLE_SOLO_COUNT));
+        solo_slot = solo_to_c3 ?
+                    4'(idx_eff - CAND_ID_W'(SINGLE_SOLO_SHAPES)) :
+                    4'(idx_eff);
+        early_slot = 2'(idx_eff - CAND_ID_W'(SINGLE_EARLY0_ID));
+        early_tpt_idx = early_slot + 2'd1;
         cut = '0;
 
-        if (idx_eff < CAND_ID_W'(18)) begin
+        if (idx_eff < CAND_ID_W'(SINGLE_SOLO_COUNT)) begin
           cand_o.plan_type     = PLAN_SOLO;
           cand_o.cluster_a     = solo_to_c3;
           cand_o.s2pf_policy   = S2PF_OFF;
@@ -531,14 +528,13 @@ module sched_candidate_generator (
             cand_o.forced_s3b    = solo_s3_for_slot(solo_slot);
             cand_o.shape_t0      = c3_snap_i.task_end;
           end
-        end else if (idx_eff < CAND_ID_W'(20)) begin
-            cut = single_split_cut(head_i[0].ntok, single_split_is_floor);
+        end else if (idx_eff == CAND_ID_W'(SINGLE_SPLIT_ID)) begin
+            cut = single_split_cut(head_i[0].ntok);
             cand_o.plan_type     = PLAN_SPLIT;
             cand_o.cluster_a     = 1'b0;
             cand_o.s2pf_policy   = S2PF_SPLIT_LITE;
             cand_o.cost_only_tie = 1'b1;
-            cand_o.side_a_valid  = single_split_valid(head_i[0].ntok,
-                                                      single_split_is_floor);
+            cand_o.side_a_valid  = single_split_valid(head_i[0].ntok);
             cand_o.side_b_valid  = cand_o.side_a_valid;
             cand_o.start_a       = tnow;
             cand_o.start_b       = tnow;
@@ -550,17 +546,17 @@ module sched_candidate_generator (
             cand_o.remove_slot_mask = mask_one_slot(2'd0);
         end else begin
           cand_o.valid          = cand_o.valid && !both_idle && head_i[0].valid &&
-                                  (early_slot < ntpts);
+                                  (early_tpt_idx < ntpts);
           cand_o.plan_type      = PLAN_SOLO;
           cand_o.cluster_a      = idle_is_c3;
           cand_o.s2pf_policy    = S2PF_OFF;
           cand_o.cost_only_tie  = 1'b1;
           cand_o.remove_slot_mask = mask_one_slot(2'd0);
-          cand_o.shape_t0       = tpts[early_slot];
+          cand_o.shape_t0       = tpts[early_tpt_idx];
 
           if (!idle_is_c3) begin
             cand_o.side_a_valid  = cand_o.valid;
-            cand_o.start_a       = tpts[early_slot];
+            cand_o.start_a       = tpts[early_tpt_idx];
             cand_o.eid_a         = head_i[0].eid;
             cand_o.ntok_a        = head_i[0].ntok;
             cand_o.force_shape_a = 1'b1;
@@ -568,7 +564,7 @@ module sched_candidate_generator (
             cand_o.forced_s3a    = SHAPE_C;
           end else begin
             cand_o.side_b_valid  = cand_o.valid;
-            cand_o.start_b       = tpts[early_slot];
+            cand_o.start_b       = tpts[early_tpt_idx];
             cand_o.eid_b         = head_i[0].eid;
             cand_o.ntok_b        = head_i[0].ntok;
             cand_o.force_shape_b = 1'b1;

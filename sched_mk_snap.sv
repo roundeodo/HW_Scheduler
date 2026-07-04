@@ -7,8 +7,8 @@
 // （1 Tick = 11264 clock cycles），使每个时间字段从 32 bit 压缩到 T_W bit。
 //
 // 时序常量（tick 域，原始值 ÷ 11264）：
-//   kTs1: A=8, B=4, C=2    kTd1: A=4, B=4, C=2
-//   kTs3: A=4, B=2, C=1    kTd3: A=2, B=2, C=1
+//   shape_ts1: A=8, B=4, C=2    shape_td1: A=4, B=4, C=2
+//   shape_ts3: A=4, B=2, C=1    shape_td3: A=2, B=2, C=1
 //   M_dim: A=8, B=4, C=2
 //
 // best_s4(r) = ((r+1)/2) ticks      → 硬件实现：(r+1)>>1（加法+右移，无乘法）
@@ -80,21 +80,21 @@ module sched_mk_snap (
   logic [T_W-1:0]    task_end_off;
 
   // 统一复用 sched_pkg 的时序原语函数，避免与包内定义漂移。
-  assign bs2_ntok = best_s2_t(ntok_i);
-  assign bs4_ntok = best_s4_t(ntok_i);
-  assign bs2_s1t  = best_s2_t(s1_tail);
-  assign bs4_s3t  = best_s4_t(s3_tail);
+  assign bs2_ntok = best_s2_ticks(ntok_i);
+  assign bs4_ntok = best_s4_ticks(ntok_i);
+  assign bs2_s1t  = best_s2_ticks(s1_tail);
+  assign bs4_s3t  = best_s4_ticks(s3_tail);
 
   // Shape 解码集中在这里，避免在 tail/timing/DMA 选择里重复实例化同一组
   // case/mux。后续组合路径只使用这些小 fanout 的预解码信号。
-  assign s1_mdim = mdim(shape_s1_i);
-  assign s3_mdim = mdim(shape_s3_i);
-  assign s1_ts   = kTs1(shape_s1_i);
-  assign s1_td   = kTd1(shape_s1_i);
-  assign s3_ts   = kTs3(shape_s3_i);
-  assign s3_td   = kTd3(shape_s3_i);
-  assign s1_bw   = alloc_bw(shape_s1_i);
-  assign s3_bw   = alloc_bw(shape_s3_i);
+  assign s1_mdim = shape_mdim(shape_s1_i);
+  assign s3_mdim = shape_mdim(shape_s3_i);
+  assign s1_ts   = shape_ts1(shape_s1_i);
+  assign s1_td   = shape_td1(shape_s1_i);
+  assign s3_ts   = shape_ts3(shape_s3_i);
+  assign s3_td   = shape_td3(shape_s3_i);
+  assign s1_bw   = shape_bw(shape_s1_i);
+  assign s3_bw   = shape_bw(shape_s3_i);
 
   // ── tail 计算 ─────────────────────────────────────────────────────────────
   always_comb begin

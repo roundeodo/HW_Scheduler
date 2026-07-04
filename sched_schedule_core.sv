@@ -13,6 +13,7 @@
 // outside this core; the wrapper only exposes register/FIFO state to CVA6.
 
 import sched_pkg::*;
+import sched_candidate_pkg::*;
 
 module sched_schedule_core (
   input  logic                         clk_i,
@@ -71,13 +72,13 @@ module sched_schedule_core (
 
   state_t st_q, st_d;
 
-  // These registers feed several local sub-blocks.  Give Vivado permission to
-  // replicate drivers instead of forcing one high-fanout net across the whole
-  // scheduler placement region.
-  (* max_fanout = 64 *) eval_snap_t c2_snap_q;
-  eval_snap_t c2_snap_d;
-  (* max_fanout = 64 *) eval_snap_t c3_snap_q;
-  eval_snap_t c3_snap_d;
+  // Persistent per-cluster state is split by consumer class.  Timeline feeds
+  // BW/S2PF/commit timing, while cache feeds hit logic.  Do not recreate a
+  // full snap struct here; that was the old high-fanout boundary.
+  snap_timeline_t c2_timeline_q, c2_timeline_d;
+  snap_timeline_t c3_timeline_q, c3_timeline_d;
+  snap_cache_t    c2_cache_q, c2_cache_d;
+  snap_cache_t    c3_cache_q, c3_cache_d;
   (* max_fanout = 64 *) head_ctx_t [3:0] round_head_q;
   head_ctx_t [3:0] round_head_d;
   logic [NR_W-1:0] round_active_count_q, round_active_count_d;
@@ -106,10 +107,26 @@ module sched_schedule_core (
   logic [1:0]        tail_pending_skip_s1_q, tail_pending_skip_s1_d;
   slot_id_t [1:0]    tail_pending_slot_q, tail_pending_slot_d;
   logic [1:0][7:0]   commit_inline_patch;
+  logic [1:0][63:0]  commit_plan_word;
   logic [1:0][63:0]  commit_plan_data;
 
-  function automatic eval_snap_t make_initial_snap(input logic [7:0] cache_eid);
-    eval_snap_t s;
+  function automatic logic [7:0] pack_inline_patch_byte(
+    input logic     valid,
+    input logic     no_copy,
+    input slot_id_t local_slot
+  );
+    logic [7:0] word;
+    begin
+      word = '0;
+      word[INLINE_PATCH_VALID_LSB] = valid;
+      word[INLINE_PATCH_NO_COPY_LSB] = no_copy;
+      word[INLINE_PATCH_LOCAL_SLOT_LSB +: SLOT_W] = local_slot;
+      pack_inline_patch_byte = word;
+    end
+  endfunction
+
+  function automatic snap_cache_t make_initial_cache(input logic [7:0] cache_eid);
+    snap_cache_t s;
     s = '0;
     s.pf_eid = PF_EID_NONE;
     if (!cache_eid[7]) begin
@@ -117,88 +134,111 @@ module sched_schedule_core (
       s.pf_end  = '0;
       s.pf_full = 1'b1;
     end
-    make_initial_snap = s;
+    make_initial_cache = s;
   endfunction
 
-  function automatic eval_snap_t apply_accepted_ghost(
-    input eval_snap_t base,
-    input logic       accept
+  function automatic snap_cache_t apply_accepted_ghost_cache(
+    input snap_timeline_t timeline,
+    input snap_cache_t    cache,
+    input logic           accept
   );
-    eval_snap_t s;
+    snap_cache_t s;
     begin
-      s = base;
+      s = cache;
       if (accept) begin
-        s.pf_eid      = PF_EID_GHOST;
-        s.pf_end      = base.task_end;
-        s.pf_full     = 1'b0;
-        s.s4pf_valid  = 1'b1;
-        s.s4pf_start  = base.s4_start;
+        s.pf_eid  = PF_EID_GHOST;
+        s.pf_end  = timeline.task_end;
+        s.pf_full = 1'b0;
       end
-      apply_accepted_ghost = s;
+      apply_accepted_ghost_cache = s;
     end
   endfunction
 
-  function automatic cand_gen_snap_t make_cand_gen_snap(input eval_snap_t s);
+  function automatic snap_timeline_t apply_accepted_ghost_timeline(
+    input snap_timeline_t timeline,
+    input logic           accept
+  );
+    snap_timeline_t s;
+    begin
+      s = timeline;
+      if (accept) begin
+        s.s4pf_valid = 1'b1;
+        s.s4pf_start = timeline.s4_start;
+      end
+      apply_accepted_ghost_timeline = s;
+    end
+  endfunction
+
+  function automatic cand_gen_snap_t make_cand_gen_snap(
+    input snap_timeline_t timeline,
+    input snap_cache_t    cache
+  );
     cand_gen_snap_t v;
     begin
       v = '0;
-      v.task_end = s.task_end;
-      v.pf_eid   = s.pf_eid;
-      v.pf_end   = s.pf_end;
-      v.pf_full  = s.pf_full;
+      v.task_end = timeline.task_end;
+      v.pf_eid   = cache.pf_eid;
+      v.pf_end   = cache.pf_end;
+      v.pf_full  = cache.pf_full;
 
-      v.release_valid[0] = s.valid && (s.bw_s1 != BW_0) &&
-                           (s.dma1_end > s.task_start);
-      v.release_t[0]     = s.dma1_end;
+      v.release_valid[0] = timeline.valid && (timeline.bw_s1 != BW_0) &&
+                           (timeline.dma1_end > timeline.task_start);
+      v.release_t[0]     = timeline.dma1_end;
 
-      v.release_valid[1] = s.valid && s.s2pf_valid &&
-                           (s.s2pf_bw != BW_0) &&
-                           (s.s2pf_end > s.s2pf_start);
-      v.release_t[1]     = s.s2pf_end;
+      v.release_valid[1] = timeline.valid && timeline.s2pf_valid &&
+                           (timeline.s2pf_bw != BW_0) &&
+                           (timeline.s2pf_end > timeline.s2pf_start);
+      v.release_t[1]     = timeline.s2pf_end;
 
-      v.release_valid[2] = s.valid && (s.bw_s3 != BW_0) &&
-                           (s.dma3_end > s.s2_end);
-      v.release_t[2]     = s.dma3_end;
+      v.release_valid[2] = timeline.valid && (timeline.bw_s3 != BW_0) &&
+                           (timeline.dma3_end > timeline.s2_end);
+      v.release_t[2]     = timeline.dma3_end;
 
-      v.release_valid[3] = s.valid && s.s4pf_valid;
-      v.release_t[3]     = s.s4pf_start + GHOST_WINDOW_TICKS;
+      v.release_valid[3] = timeline.valid && timeline.s4pf_valid;
+      v.release_t[3]     = timeline.s4pf_start + GHOST_WINDOW_TICKS;
 
       make_cand_gen_snap = v;
     end
   endfunction
 
   // ── Ghost injection ───────────────────────────────────────────────────
-  eval_snap_t c2_ghost_try;
-  eval_snap_t c3_ghost_try;
+  snap_timeline_t c2_ghost_timeline_try;
+  snap_timeline_t c3_ghost_timeline_try;
+  snap_cache_t    c2_ghost_cache_try;
+  snap_cache_t    c3_ghost_cache_try;
   logic       ghost_bw_start;
-  eval_snap_t ghost_bw_snap_a;
-  eval_snap_t ghost_bw_snap_b;
+  snap_timeline_t ghost_bw_snap_a;
+  snap_timeline_t ghost_bw_snap_b;
   logic       c2_ghost_bw_ok_q, c2_ghost_bw_ok_d;
   logic       c2_new_ghost;
   logic       c3_new_ghost;
 
   logic       shared_bw_start;
-  eval_snap_t shared_bw_snap_a;
-  eval_snap_t shared_bw_snap_b;
+  snap_timeline_t shared_bw_snap_a;
+  snap_timeline_t shared_bw_snap_b;
   logic       shared_bw_done;
   logic       shared_bw_ok;
 
   logic       eval_bw_start;
-  eval_snap_t eval_bw_snap_a;
-  eval_snap_t eval_bw_snap_b;
+  snap_timeline_t eval_bw_snap_a;
+  snap_timeline_t eval_bw_snap_b;
 
   logic       commit_bw_start;
-  eval_snap_t commit_bw_snap_a;
-  eval_snap_t commit_bw_snap_b;
+  snap_timeline_t commit_bw_snap_a;
+  snap_timeline_t commit_bw_snap_b;
 
   sched_ghost_inject_unit i_ghost_c2 (
-    .snap_i (c2_snap_q),
-    .snap_o (c2_ghost_try)
+    .timeline_i (c2_timeline_q),
+    .cache_i    (c2_cache_q),
+    .timeline_o (c2_ghost_timeline_try),
+    .cache_o    (c2_ghost_cache_try)
   );
 
   sched_ghost_inject_unit i_ghost_c3 (
-    .snap_i (c3_snap_q),
-    .snap_o (c3_ghost_try)
+    .timeline_i (c3_timeline_q),
+    .cache_i    (c3_cache_q),
+    .timeline_o (c3_ghost_timeline_try),
+    .cache_o    (c3_ghost_cache_try)
   );
 
   sched_bw_ok_seq i_shared_bw_ok (
@@ -246,10 +286,10 @@ module sched_schedule_core (
     endcase
   end
 
-  assign c2_new_ghost = (c2_snap_q.pf_eid == PF_EID_NONE) &&
-                        (c2_ghost_try.pf_eid == PF_EID_GHOST);
-  assign c3_new_ghost = (c3_snap_q.pf_eid == PF_EID_NONE) &&
-                        (c3_ghost_try.pf_eid == PF_EID_GHOST);
+  assign c2_new_ghost = (c2_cache_q.pf_eid == PF_EID_NONE) &&
+                        (c2_ghost_cache_try.pf_eid == PF_EID_GHOST);
+  assign c3_new_ghost = (c3_cache_q.pf_eid == PF_EID_NONE) &&
+                        (c3_ghost_cache_try.pf_eid == PF_EID_GHOST);
 
   // ── Candidate generation ──────────────────────────────────────────────
   logic       gen_start;
@@ -257,13 +297,13 @@ module sched_schedule_core (
   logic       gen_replay;
   logic       gen_busy;
   logic       gen_done;
-  cand_desc_t cand;
+  cand_issue_t cand;
   logic       cand_valid;
   cand_gen_snap_t c2_gen_snap;
   cand_gen_snap_t c3_gen_snap;
 
-  assign c2_gen_snap = make_cand_gen_snap(c2_snap_q);
-  assign c3_gen_snap = make_cand_gen_snap(c3_snap_q);
+  assign c2_gen_snap = make_cand_gen_snap(c2_timeline_q, c2_cache_q);
+  assign c3_gen_snap = make_cand_gen_snap(c3_timeline_q, c3_cache_q);
 
   logic best_valid;
   logic [CAND_ID_W-1:0] best_id;
@@ -297,8 +337,10 @@ module sched_schedule_core (
   logic [T_W-1:0] unused_makespan;
   score_key_t eval_score;
   plan_desc_t eval_plan;
-  eval_snap_t eval_snap_a;
-  eval_snap_t eval_snap_b;
+  snap_timeline_t eval_timeline_a;
+  snap_timeline_t eval_timeline_b;
+  snap_cache_t    eval_cache_a;
+  snap_cache_t    eval_cache_b;
 
   sched_candidate_eval_lane i_eval_lane (
     .clk_i                 (clk_i),
@@ -318,8 +360,10 @@ module sched_schedule_core (
     .forced_s3b_i          (cand.forced_s3b),
     .cost_only_tie_i       (cand.cost_only_tie),
     .score_makespan_only_i (cand.score_makespan_only),
-    .base_snap_a_i         (c2_snap_q),
-    .base_snap_b_i         (c3_snap_q),
+    .base_timeline_a_i     (c2_timeline_q),
+    .base_timeline_b_i     (c3_timeline_q),
+    .base_cache_a_i        (c2_cache_q),
+    .base_cache_b_i        (c3_cache_q),
     .side_a_valid_i        (cand.side_a_valid),
     .side_b_valid_i        (cand.side_b_valid),
     .start_a_i             (cand.start_a),
@@ -351,8 +395,10 @@ module sched_schedule_core (
     .makespan_o            (unused_makespan),
     .score_key_o           (eval_score),
     .plan_desc_o           (eval_plan),
-    .snap_a_o              (eval_snap_a),
-    .snap_b_o              (eval_snap_b),
+    .snap_timeline_a_o     (eval_timeline_a),
+    .snap_timeline_b_o     (eval_timeline_b),
+    .snap_cache_a_o        (eval_cache_a),
+    .snap_cache_b_o        (eval_cache_b),
     .shape_s1a_o           (),
     .shape_s3a_o           (),
     .shape_s1b_o           (),
@@ -423,7 +469,8 @@ module sched_schedule_core (
   logic fallback_skip_s4;
   logic [1:0] fallback_dma_s1;
   logic [1:0] fallback_dma_s3;
-  eval_snap_t fallback_snap;
+  snap_timeline_t fallback_timeline;
+  snap_cache_t    fallback_cache;
   plan_desc_t fallback_plan;
 
   sched_mk_snap i_fallback_mk_snap (
@@ -450,38 +497,39 @@ module sched_schedule_core (
   );
 
   always_comb begin
-    fallback_tnow       = (c2_snap_q.task_end > c3_snap_q.task_end) ?
-                          c2_snap_q.task_end : c3_snap_q.task_end;
-    fallback_both_idle  = (c2_snap_q.task_end == c3_snap_q.task_end);
-    fallback_idle_is_c3 = (c3_snap_q.task_end < c2_snap_q.task_end);
+    fallback_tnow       = (c2_timeline_q.task_end > c3_timeline_q.task_end) ?
+                          c2_timeline_q.task_end : c3_timeline_q.task_end;
+    fallback_both_idle  = (c2_timeline_q.task_end == c3_timeline_q.task_end);
+    fallback_idle_is_c3 = (c3_timeline_q.task_end < c2_timeline_q.task_end);
     fallback_cluster    = fallback_both_idle ? 1'b0 : fallback_idle_is_c3;
     fallback_start      = fallback_both_idle ? fallback_tnow :
-                          (fallback_idle_is_c3 ? c3_snap_q.task_end : c2_snap_q.task_end);
+                          (fallback_idle_is_c3 ? c3_timeline_q.task_end : c2_timeline_q.task_end);
 
     // Match C: not_both fallback reuses c2c0/c3c0 computed at tnow, not idle_t.
     fallback_sw = fallback_cluster ?
-                  swiglu_hit_t(round_head_q[0].eid, c3_snap_q.pf_eid, c3_snap_q.pf_end,
+                  swiglu_hit_t(round_head_q[0].eid, c3_cache_q.pf_eid, c3_cache_q.pf_end,
                                fallback_tnow) :
-                  swiglu_hit_t(round_head_q[0].eid, c2_snap_q.pf_eid, c2_snap_q.pf_end,
+                  swiglu_hit_t(round_head_q[0].eid, c2_cache_q.pf_eid, c2_cache_q.pf_end,
                                fallback_tnow);
     fallback_dn = fallback_cluster ?
-                  down_hit_t(round_head_q[0].eid, c3_snap_q.pf_eid, c3_snap_q.pf_end,
-                             c3_snap_q.pf_full, fallback_tnow) :
-                  down_hit_t(round_head_q[0].eid, c2_snap_q.pf_eid, c2_snap_q.pf_end,
-                             c2_snap_q.pf_full, fallback_tnow);
+                  down_hit_t(round_head_q[0].eid, c3_cache_q.pf_eid, c3_cache_q.pf_end,
+                             c3_cache_q.pf_full, fallback_tnow) :
+                  down_hit_t(round_head_q[0].eid, c2_cache_q.pf_eid, c2_cache_q.pf_end,
+                             c2_cache_q.pf_full, fallback_tnow);
 
-    fallback_snap = '0;
-    fallback_snap.valid      = round_head_q[0].valid;
-    fallback_snap.task_start = fallback_task_start;
-    fallback_snap.task_end   = fallback_task_end;
-    fallback_snap.dma1_end   = fallback_dma1_end;
-    fallback_snap.s2_end     = fallback_s2_end;
-    fallback_snap.dma3_end   = fallback_dma3_end;
-    fallback_snap.s4_start   = fallback_s4_start;
-    fallback_snap.bw_s1      = fallback_bw_s1;
-    fallback_snap.bw_s3      = fallback_bw_s3;
-    fallback_snap.ntok       = round_head_q[0].ntok;
-    fallback_snap.pf_eid     = PF_EID_NONE;
+    fallback_timeline = '0;
+    fallback_timeline.valid      = round_head_q[0].valid;
+    fallback_timeline.task_start = fallback_task_start;
+    fallback_timeline.task_end   = fallback_task_end;
+    fallback_timeline.dma1_end   = fallback_dma1_end;
+    fallback_timeline.s2_end     = fallback_s2_end;
+    fallback_timeline.dma3_end   = fallback_dma3_end;
+    fallback_timeline.s4_start   = fallback_s4_start;
+    fallback_timeline.bw_s1      = fallback_bw_s1;
+    fallback_timeline.bw_s3      = fallback_bw_s3;
+    fallback_timeline.ntok       = round_head_q[0].ntok;
+    fallback_cache = '0;
+    fallback_cache.pf_eid = PF_EID_NONE;
 
     fallback_plan = '0;
     fallback_plan.plan_type   = 2'b10; // SOLO
@@ -503,8 +551,10 @@ module sched_schedule_core (
   logic commit_from_fallback;
   logic commit_fire;
   plan_desc_t commit_plan;
-  eval_snap_t commit_snap_a;
-  eval_snap_t commit_snap_b;
+  snap_timeline_t commit_timeline_a;
+  snap_timeline_t commit_timeline_b;
+  snap_cache_t    commit_cache_a;
+  snap_cache_t    commit_cache_b;
   logic [1:0] commit_remove_count;
   logic [3:0] commit_remove_slot_mask;
 
@@ -518,20 +568,28 @@ module sched_schedule_core (
     commit_remove_slot_mask = commit_from_replay ? best_remove_slot_mask : 4'b0001;
 
     if (commit_from_replay) begin
-      commit_snap_a = eval_snap_a;
-      commit_snap_b = eval_snap_b;
+      commit_timeline_a = eval_timeline_a;
+      commit_timeline_b = eval_timeline_b;
+      commit_cache_a    = eval_cache_a;
+      commit_cache_b    = eval_cache_b;
     end else if (fallback_cluster) begin
-      commit_snap_a = c2_snap_q;
-      commit_snap_b = fallback_snap;
+      commit_timeline_a = c2_timeline_q;
+      commit_timeline_b = fallback_timeline;
+      commit_cache_a    = c2_cache_q;
+      commit_cache_b    = fallback_cache;
     end else begin
-      commit_snap_a = fallback_snap;
-      commit_snap_b = c3_snap_q;
+      commit_timeline_a = fallback_timeline;
+      commit_timeline_b = c3_timeline_q;
+      commit_cache_a    = fallback_cache;
+      commit_cache_b    = c3_cache_q;
     end
   end
 
   logic              commit_valid;
-  eval_snap_t        commit_c2_snap;
-  eval_snap_t        commit_c3_snap;
+  snap_timeline_t    commit_c2_timeline;
+  snap_timeline_t    commit_c3_timeline;
+  snap_cache_t       commit_c2_cache;
+  snap_cache_t       commit_c3_cache;
   task_desc_t [1:0] commit_task_desc;
   logic [1:0]        commit_plan_allow_s4pf;
   logic [1:0]        commit_plan_count;
@@ -543,21 +601,34 @@ module sched_schedule_core (
   logic              commit_busy;
   logic              commit_done;
 
+  for (genvar pp = 0; pp < 2; pp++) begin : gen_plan_pack
+    sched_plan_pack i_plan_pack (
+      .task_i         (commit_task_desc[pp]),
+      .local_slot_i   (commit_local_slot[pp]),
+      .inline_patch_i (commit_inline_patch[pp]),
+      .word_o         (commit_plan_word[pp])
+    );
+  end
+
   sched_commit_unit i_commit (
     .clk_i               (clk_i),
     .rst_ni              (rst_ni),
     .commit_i            (commit_fire),
     .best_valid_i        (commit_fire),
     .best_plan_i         (commit_plan),
-    .best_snap_a_i       (commit_snap_a),
-    .best_snap_b_i       (commit_snap_b),
+    .best_timeline_a_i   (commit_timeline_a),
+    .best_timeline_b_i   (commit_timeline_b),
+    .best_cache_a_i      (commit_cache_a),
+    .best_cache_b_i      (commit_cache_b),
     .best_remove_count_i (commit_remove_count),
     .best_remove_slot_mask_i (commit_remove_slot_mask),
     .busy_o              (commit_busy),
     .done_o              (commit_done),
     .commit_valid_o      (commit_valid),
-    .next_c2_snap_o      (commit_c2_snap),
-    .next_c3_snap_o      (commit_c3_snap),
+    .next_c2_timeline_o  (commit_c2_timeline),
+    .next_c3_timeline_o  (commit_c3_timeline),
+    .next_c2_cache_o     (commit_c2_cache),
+    .next_c3_cache_o     (commit_c3_cache),
     .plan_valid_o        (),
     .task_desc_o         (commit_task_desc),
     .plan_allow_s4pf_o   (commit_plan_allow_s4pf),
@@ -623,7 +694,7 @@ module sched_schedule_core (
         no_copy = pend_skip_s1[ci] && cache_hit;
 
         if (pend_valid[ci]) begin
-          commit_inline_patch[s] = pack_inline_patch(1'b1, no_copy, pend_slot[ci]);
+          commit_inline_patch[s] = pack_inline_patch_byte(1'b1, no_copy, pend_slot[ci]);
           pend_valid[ci]   = 1'b0;
           pend_skip_s1[ci] = 1'b0;
           pend_slot[ci]    = '0;
@@ -635,9 +706,7 @@ module sched_schedule_core (
           pend_slot[ci]    = commit_local_slot[s];
         end
 
-        commit_plan_data[s] = pack_plan_entry_word(commit_task_desc[s],
-                                                   commit_local_slot[s],
-                                                   commit_inline_patch[s]);
+        commit_plan_data[s] = commit_plan_word[s];
       end
     end
 
@@ -660,8 +729,10 @@ module sched_schedule_core (
   // ── Control FSM ───────────────────────────────────────────────────────
   always_comb begin
     st_d                 = st_q;
-    c2_snap_d            = c2_snap_q;
-    c3_snap_d            = c3_snap_q;
+    c2_timeline_d        = c2_timeline_q;
+    c3_timeline_d        = c3_timeline_q;
+    c2_cache_d           = c2_cache_q;
+    c3_cache_d           = c3_cache_q;
     round_head_d         = round_head_q;
     round_active_count_d = round_active_count_q;
     round_total_conc_d   = round_total_conc_q;
@@ -688,8 +759,8 @@ module sched_schedule_core (
     eval_start  = 1'b0;
     best_clear  = 1'b0;
     ghost_bw_start = 1'b0;
-    ghost_bw_snap_a = c2_snap_q;
-    ghost_bw_snap_b = c3_snap_q;
+    ghost_bw_snap_a = c2_timeline_q;
+    ghost_bw_snap_b = c3_timeline_q;
 
     remove_free_after_ready = !remove_valid_q || remove_ready_i;
     planq_pop_count_eff = (PLANQ_COUNT_W'(plan_pop_count_i) > planq_count_q) ?
@@ -724,8 +795,10 @@ module sched_schedule_core (
     end
 
     if (init_i) begin
-      c2_snap_d            = make_initial_snap(cache_eid_c2_i);
-      c3_snap_d            = make_initial_snap(cache_eid_c3_i);
+      c2_timeline_d        = '0;
+      c3_timeline_d        = '0;
+      c2_cache_d           = make_initial_cache(cache_eid_c2_i);
+      c3_cache_d           = make_initial_cache(cache_eid_c3_i);
       round_head_d         = '{default: '0};
       round_active_count_d = '0;
       round_total_conc_d   = '0;
@@ -773,8 +846,8 @@ module sched_schedule_core (
 
         ST_GHOST_C2_START: begin
           ghost_bw_start = 1'b1;
-          ghost_bw_snap_a = c2_ghost_try;
-          ghost_bw_snap_b = c3_snap_q;
+          ghost_bw_snap_a = c2_ghost_timeline_try;
+          ghost_bw_snap_b = c3_timeline_q;
           st_d           = ST_GHOST_C2_WAIT;
         end
 
@@ -787,17 +860,21 @@ module sched_schedule_core (
 
         ST_GHOST_C3_START: begin
           ghost_bw_start = 1'b1;
-          ghost_bw_snap_a = c2_snap_q;
-          ghost_bw_snap_b = c3_ghost_try;
+          ghost_bw_snap_a = c2_timeline_q;
+          ghost_bw_snap_b = c3_ghost_timeline_try;
           st_d           = ST_GHOST_C3_WAIT;
         end
 
         ST_GHOST_C3_WAIT: begin
           if (shared_bw_done) begin
-            c2_snap_d = apply_accepted_ghost(c2_snap_q,
-                                             c2_new_ghost && c2_ghost_bw_ok_q);
-            c3_snap_d = apply_accepted_ghost(c3_snap_q,
-                                             c3_new_ghost && shared_bw_ok);
+            c2_timeline_d = apply_accepted_ghost_timeline(
+                c2_timeline_q, c2_new_ghost && c2_ghost_bw_ok_q);
+            c2_cache_d = apply_accepted_ghost_cache(
+                c2_timeline_q, c2_cache_q, c2_new_ghost && c2_ghost_bw_ok_q);
+            c3_timeline_d = apply_accepted_ghost_timeline(
+                c3_timeline_q, c3_new_ghost && shared_bw_ok);
+            c3_cache_d = apply_accepted_ghost_cache(
+                c3_timeline_q, c3_cache_q, c3_new_ghost && shared_bw_ok);
             c2_ghost_bw_ok_d = 1'b0;
             st_d      = ST_EVAL_START;
           end
@@ -849,8 +926,10 @@ module sched_schedule_core (
         ST_COMMIT_WAIT: begin
           if (commit_done) begin
             if (commit_valid) begin
-            c2_snap_d             = commit_c2_snap;
-            c3_snap_d             = commit_c3_snap;
+            c2_timeline_d         = commit_c2_timeline;
+            c3_timeline_d         = commit_c3_timeline;
+            c2_cache_d            = commit_c2_cache;
+            c3_cache_d            = commit_c3_cache;
             c2_slot_d             = c2_slot_after_commit;
             c3_slot_d             = c3_slot_after_commit;
             remove_valid_d        = 1'b1;
@@ -880,8 +959,10 @@ module sched_schedule_core (
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       st_q                  <= ST_IDLE;
-      c2_snap_q             <= '0;
-      c3_snap_q             <= '0;
+      c2_timeline_q         <= '0;
+      c3_timeline_q         <= '0;
+      c2_cache_q            <= '0;
+      c3_cache_q            <= '0;
       round_head_q          <= '{default: '0};
       round_active_count_q  <= '0;
       round_total_conc_q    <= '0;
@@ -904,8 +985,10 @@ module sched_schedule_core (
       end
     end else begin
       st_q                  <= st_d;
-      c2_snap_q             <= c2_snap_d;
-      c3_snap_q             <= c3_snap_d;
+      c2_timeline_q         <= c2_timeline_d;
+      c3_timeline_q         <= c3_timeline_d;
+      c2_cache_q            <= c2_cache_d;
+      c3_cache_q            <= c3_cache_d;
       round_head_q          <= round_head_d;
       round_active_count_q  <= round_active_count_d;
       round_total_conc_q    <= round_total_conc_d;
@@ -949,7 +1032,7 @@ module sched_schedule_core (
                   ((planq_count_q == PLANQ_COUNT_W'(PLANQ_DEPTH)) &&
                    (planq_pop_count_eff == PLANQ_COUNT_W'(0)));
   assign done_o = done_q;
-  assign makespan_o = (c2_snap_q.task_end > c3_snap_q.task_end) ?
-                      c2_snap_q.task_end : c3_snap_q.task_end;
+  assign makespan_o = (c2_timeline_q.task_end > c3_timeline_q.task_end) ?
+                      c2_timeline_q.task_end : c3_timeline_q.task_end;
 
 endmodule

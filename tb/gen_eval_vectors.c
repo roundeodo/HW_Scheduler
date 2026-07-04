@@ -99,7 +99,7 @@ static const int      KBW[3]   = {1, 1, 2};   /* DMA BW: 1=64, 2=128 */
 /* RTL pf_eid encoding */
 #define PF_EID_NONE   0
 #define PF_EID_GHOST  1
-#define PF_EID_BASE   2
+#define PF_EID_VALID_BASE (1u << 6)
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Timing primitives (tick domain)
@@ -219,7 +219,7 @@ static void pick_shapes(uint32_t ntok_a, uint32_t ntok_b,
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * bw_ok — mirrors sched_bw_ok.sv exactly
+ * bw_ok — mirrors the scheduler BW segment semantics used by sched_bw_ok_seq.sv
  * ═══════════════════════════════════════════════════════════════════════════ */
 typedef struct { uint32_t lo, hi; int bw; } seg_t;
 
@@ -396,7 +396,7 @@ static void try_s2pf_pair(const snap_t *raw_a, int s3a,
 /* ═══════════════════════════════════════════════════════════════════════════
  * swiglu_hit / down_hit (mirrors sched_pkg.sv functions)
  * ═══════════════════════════════════════════════════════════════════════════ */
-static int encode_eid(int eid_raw) { return PF_EID_BASE + eid_raw; }
+static int encode_eid(int eid_raw) { return (int)(PF_EID_VALID_BASE | (uint32_t)eid_raw); }
 
 static int swiglu_hit(int eid_raw, int pf_eid, uint32_t pf_end, uint32_t t) {
     if (pf_eid == PF_EID_NONE) return 0;

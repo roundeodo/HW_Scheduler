@@ -28,6 +28,57 @@ module tb_schedule_core;
     logic       allow_s4pf;
   } plan_entry_t;
 
+  function automatic logic [7:0] tb_pack_inline_patch(
+    input logic     valid,
+    input logic     no_copy,
+    input slot_id_t local_slot
+  );
+    logic [7:0] word;
+    begin
+      word = '0;
+      word[INLINE_PATCH_VALID_LSB] = valid;
+      word[INLINE_PATCH_NO_COPY_LSB] = no_copy;
+      word[INLINE_PATCH_LOCAL_SLOT_LSB +: SLOT_W] = local_slot;
+      tb_pack_inline_patch = word;
+    end
+  endfunction
+
+  function automatic logic [63:0] tb_pack_plan_entry_word(
+    input task_desc_t t,
+    input slot_id_t   local_slot,
+    input logic [7:0] inline_patch
+  );
+    logic [63:0] word;
+    logic [PLAN_CTRL_W-1:0] ctrl;
+    ntok_t tail_s2;
+    ntok_t tail_s4;
+    begin
+      tail_s2 = t.skip_s1 ? t.ntok :
+                ((t.ntok > shape_mdim(t.s1)) ? (t.ntok - shape_mdim(t.s1)) : '0);
+      tail_s4 = t.skip_s3 ? t.ntok :
+                ((t.ntok > shape_mdim(t.s3)) ? (t.ntok - shape_mdim(t.s3)) : '0);
+
+      ctrl = '0;
+      ctrl[0]    = t.skip_s1;
+      ctrl[1]    = t.skip_s3;
+      ctrl[3:2]  = t.s1;
+      ctrl[5:4]  = t.s3;
+      ctrl[6]    = t.cluster;
+      ctrl[12:7] = local_slot;
+
+      word = '0;
+      word[PLAN_EID_LSB +: EID_RAW_W]          = t.eid;
+      word[PLAN_TOKEN_START_LSB +: NTOK_W]     = t.tok_start;
+      word[PLAN_NTOK_LSB +: NTOK_W]            = t.ntok;
+      word[PLAN_HAS_S2PF_LSB]                  = t.has_s2pf;
+      word[PLAN_CTRL_LSB +: PLAN_CTRL_W]       = ctrl;
+      word[PLAN_M_S2_LSB +: NTOK_W]            = ceil_div2_ntok(tail_s2);
+      word[PLAN_M_S4_LSB +: NTOK_W]            = ceil_div2_ntok(tail_s4);
+      word[PLAN_INLINE_PATCH_LSB +: 8]         = inline_patch;
+      tb_pack_plan_entry_word = word;
+    end
+  endfunction
+
   logic clk_i;
   logic rst_ni;
 
@@ -143,7 +194,7 @@ module tb_schedule_core;
             h++;
           end
           active_cnt++;
-          total_conc += int'(best_conc_t(rem_ntok[i]));
+          total_conc += int'(best_conc_ticks(rem_ntok[i]));
         end
       end
 
@@ -340,7 +391,7 @@ module tb_schedule_core;
                            (EID_RAW_W'(cache_c3) == golden_plan[plan_seen + s].desc.eid));
               no_copy = exp_pending_skip_s1[ci] && cache_hit;
               exp_patch = exp_pending_valid[ci] ?
-                          pack_inline_patch(1'b1, no_copy, exp_pending_slot[ci]) : 8'h00;
+                          tb_pack_inline_patch(1'b1, no_copy, exp_pending_slot[ci]) : 8'h00;
 
               if (exp_pending_valid[ci]) begin
                 exp_pending_valid[ci] = 1'b0;
@@ -354,7 +405,7 @@ module tb_schedule_core;
                 exp_pending_slot[ci] = exp_local_slot;
               end
 
-              exp_word = pack_plan_entry_word(golden_plan[plan_seen + s].desc,
+              exp_word = tb_pack_plan_entry_word(golden_plan[plan_seen + s].desc,
                                               exp_local_slot,
                                               exp_patch);
               compare_plan_word(tid, round_idx, plan_seen + s,
