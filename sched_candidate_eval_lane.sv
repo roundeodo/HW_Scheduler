@@ -4,8 +4,8 @@
 // MoE Hardware Scheduler — 1-lane candidate evaluator（Tick 域版本）
 //
 // 一个 lane 每次评估一个 candidate token：
-//   eval_req_q -> shape_q -> shared mk_timeline(A) -> raw_timeline_a_q/cache_a_q
-//              -> shared mk_timeline(B) -> raw_timeline_b_q/cache_b_q
+//   eval_req_q -> shape_q -> shared mk_timeline(A) -> raw_task_a_q
+//              -> shared mk_timeline(B) -> raw_task_b_q
 //              -> lite S2PF policy -> bw_ok -> continuation_cost -> score_key/winner_plan
 //
 // 本模块是带 start/done 握手的单候选 evaluator。start_i 到来后先把
@@ -82,12 +82,27 @@ module sched_candidate_eval_lane (
   logic mk_skip_s1, mk_skip_s3;
   logic mk_side_b;
 
-  snap_timeline_t raw_timeline_a_q, raw_timeline_a_d;
-  snap_timeline_t raw_timeline_b_q, raw_timeline_b_d;
-  snap_cache_t    raw_cache_a_q, raw_cache_a_d;
-  snap_cache_t    raw_cache_b_q, raw_cache_b_d;
+  typedef struct packed {
+    logic                 valid;
+    time_t                task_start;
+    time_t                task_end;
+    time_t                dma1_end;
+    time_t                s2_end;
+    time_t                dma3_end;
+    time_t                s4_start;
+    bw_t                  bw_s1;
+    bw_t                  bw_s3;
+    ntok_t                ntok;
+  } task_timeline_t;
+
+  task_timeline_t raw_task_a_q, raw_task_a_d;
+  task_timeline_t raw_task_b_q, raw_task_b_d;
+  snap_timeline_t raw_timeline_a;
+  snap_timeline_t raw_timeline_b;
   snap_timeline_t post_s2pf_a_timeline;
   snap_timeline_t post_s2pf_b_timeline;
+  snap_cache_t    score_cache_a;
+  snap_cache_t    score_cache_b;
   logic [T_W-1:0] cont_cost;
   logic s2pf_start;
   logic s2pf_busy;
@@ -107,6 +122,12 @@ module sched_candidate_eval_lane (
   logic [1:0] pick_s3a;
   logic [1:0] pick_s1b;
   logic [1:0] pick_s3b;
+  logic       force_shape_a;
+  logic       force_shape_b;
+  logic [1:0] forced_s1a;
+  logic [1:0] forced_s3a;
+  logic [1:0] forced_s1b;
+  logic [1:0] forced_s3b;
   logic [1:0] shape_s1a_q, shape_s1a_d;
   logic [1:0] shape_s3a_q, shape_s3a_d;
   logic [1:0] shape_s1b_q, shape_s1b_d;
@@ -150,12 +171,6 @@ module sched_candidate_eval_lane (
     logic                  dn_a;
     logic                  sw_b;
     logic                  dn_b;
-    logic                  force_shape_a;
-    logic                  force_shape_b;
-    logic [1:0]            forced_s1a;
-    logic [1:0]            forced_s3a;
-    logic [1:0]            forced_s1b;
-    logic [1:0]            forced_s3b;
   } eval_req_t;
 
   eval_req_t req_q, req_d;
@@ -177,6 +192,33 @@ module sched_candidate_eval_lane (
   assign token_tpts[1] = early_i.t0;
   assign token_tpts[2] = early_i.t1;
   assign token_ntpts = 2'(1 + early_i.count);
+
+  function automatic snap_timeline_t task_to_snap(input task_timeline_t t);
+    snap_timeline_t s;
+    begin
+      s = '0;
+      s.valid      = t.valid;
+      s.task_start = t.task_start;
+      s.task_end   = t.task_end;
+      s.dma1_end   = t.dma1_end;
+      s.s2_end     = t.s2_end;
+      s.dma3_end   = t.dma3_end;
+      s.s4_start   = t.s4_start;
+      s.bw_s1      = t.bw_s1;
+      s.bw_s3      = t.bw_s3;
+      s.ntok       = t.ntok;
+      task_to_snap = s;
+    end
+  endfunction
+
+  function automatic snap_cache_t empty_cache();
+    snap_cache_t c;
+    begin
+      c = '0;
+      c.pf_eid = PF_EID_NONE;
+      empty_cache = c;
+    end
+  endfunction
 
   function automatic s2pf_policy_t token_s2pf_policy(input cand_token_t token);
     unique case (token.mode)
@@ -312,17 +354,11 @@ module sched_candidate_eval_lane (
               req.start_a = base_timeline_a_i.task_end;
               req.eid_a = head_i[0].eid;
               req.ntok_a = head_i[0].ntok;
-              req.force_shape_a = 1'b1;
-              req.forced_s1a = cand_single_solo_s1(solo_slot);
-              req.forced_s3a = cand_single_solo_s3(solo_slot);
             end else begin
               req.side_b_valid = head_i[0].valid;
               req.start_b = base_timeline_b_i.task_end;
               req.eid_b = head_i[0].eid;
               req.ntok_b = head_i[0].ntok;
-              req.force_shape_b = 1'b1;
-              req.forced_s1b = cand_single_solo_s1(solo_slot);
-              req.forced_s3b = cand_single_solo_s3(solo_slot);
             end
           end else if (token.id == CAND_ID_W'(SINGLE_SPLIT_ID)) begin
             cut = cand_single_split_cut(head_i[0].ntok);
@@ -343,17 +379,11 @@ module sched_candidate_eval_lane (
               req.start_a = token_tpts[early_tpt_idx];
               req.eid_a = head_i[0].eid;
               req.ntok_a = head_i[0].ntok;
-              req.force_shape_a = 1'b1;
-              req.forced_s1a = SHAPE_C;
-              req.forced_s3a = SHAPE_C;
             end else begin
               req.side_b_valid = req.valid;
               req.start_b = token_tpts[early_tpt_idx];
               req.eid_b = head_i[0].eid;
               req.ntok_b = head_i[0].ntok;
-              req.force_shape_b = 1'b1;
-              req.forced_s1b = SHAPE_C;
-              req.forced_s3b = SHAPE_C;
             end
           end
         end
@@ -402,17 +432,11 @@ module sched_candidate_eval_lane (
             req.start_a = token_tpts[token.id[1:0]];
             req.eid_a = head_i[0].eid;
             req.ntok_a = head_i[0].ntok;
-            req.force_shape_a = 1'b1;
-            req.forced_s1a = SHAPE_C;
-            req.forced_s3a = SHAPE_C;
           end else begin
             req.side_b_valid = req.valid;
             req.start_b = token_tpts[token.id[1:0]];
             req.eid_b = head_i[0].eid;
             req.ntok_b = head_i[0].ntok;
-            req.force_shape_b = 1'b1;
-            req.forced_s1b = SHAPE_C;
-            req.forced_s3b = SHAPE_C;
           end
         end
 
@@ -439,6 +463,97 @@ module sched_candidate_eval_lane (
     end
   endtask
 
+  task automatic decode_shape_override(
+    input  cand_token_t token,
+    output logic        force_a,
+    output shape_t      s1a,
+    output shape_t      s3a,
+    output logic        force_b,
+    output shape_t      s1b,
+    output shape_t      s3b
+  );
+    logic [3:0] solo_slot;
+    logic       solo_to_c3;
+    begin
+      force_a = 1'b0;
+      force_b = 1'b0;
+      s1a = '0;
+      s3a = '0;
+      s1b = '0;
+      s3b = '0;
+
+      unique case (token.mode)
+        CAND_MODE_SINGLE: begin
+          solo_to_c3 = (token.id >= CAND_ID_W'(SINGLE_SOLO_SHAPES)) &&
+                       (token.id < CAND_ID_W'(SINGLE_SOLO_COUNT));
+          solo_slot = solo_to_c3 ?
+                      4'(token.id - CAND_ID_W'(SINGLE_SOLO_SHAPES)) :
+                      4'(token.id);
+          if (token.id < CAND_ID_W'(SINGLE_SOLO_COUNT)) begin
+            if (solo_to_c3) begin
+              force_b = 1'b1;
+              s1b = cand_single_solo_s1(solo_slot);
+              s3b = cand_single_solo_s3(solo_slot);
+            end else begin
+              force_a = 1'b1;
+              s1a = cand_single_solo_s1(solo_slot);
+              s3a = cand_single_solo_s3(solo_slot);
+            end
+          end else if (token.id > CAND_ID_W'(SINGLE_SPLIT_ID)) begin
+            if (token_idle_is_c3) begin
+              force_b = 1'b1;
+              s1b = SHAPE_C;
+              s3b = SHAPE_C;
+            end else begin
+              force_a = 1'b1;
+              s1a = SHAPE_C;
+              s3a = SHAPE_C;
+            end
+          end
+        end
+
+        CAND_MODE_NOT_BOTH: begin
+          if (token_idle_is_c3) begin
+            force_b = 1'b1;
+            s1b = SHAPE_C;
+            s3b = SHAPE_C;
+          end else begin
+            force_a = 1'b1;
+            s1a = SHAPE_C;
+            s3a = SHAPE_C;
+          end
+        end
+
+        default: begin
+        end
+      endcase
+    end
+  endtask
+
+  task automatic put_plan_slot(
+    inout  winner_plan_t          p,
+    input  logic                  dst,
+    input  logic                  cluster,
+    input  logic [EID_RAW_W-1:0]  eid,
+    input  ntok_t                 ntok,
+    input  ntok_t                 tok_start,
+    input  shape_t                s1,
+    input  shape_t                s3,
+    input  snap_timeline_t        sn
+  );
+    begin
+      p.token[dst].eid       = eid;
+      p.token[dst].ntok      = ntok;
+      p.token[dst].tok_start = tok_start;
+      p.ctrl[dst].cluster    = cluster;
+      p.ctrl[dst].s1         = s1;
+      p.ctrl[dst].s3         = s3;
+      p.ctrl[dst].skip_s1    = (sn.bw_s1 == BW_0);
+      p.ctrl[dst].skip_s3    = (sn.bw_s3 == BW_0);
+      p.ctrl[dst].has_s2pf   = sn.s2pf_valid;
+    end
+  endtask
+
   // ── pick_shapes 实例 ─────────────────────────────────────────────────────
   sched_pick_shapes i_pick_shapes (
     .ntok_a_i (req_q.ntok_a),
@@ -457,6 +572,11 @@ module sched_candidate_eval_lane (
   assign shape_s3a_o = shape_s3a_q;
   assign shape_s1b_o = shape_s1b_q;
   assign shape_s3b_o = shape_s3b_q;
+
+  always_comb begin
+    decode_shape_override(req_q.token, force_shape_a, forced_s1a, forced_s3a,
+                          force_shape_b, forced_s1b, forced_s3b);
+  end
 
   // ── shared mk_timeline：EV_MK_A/EV_MK_B 两拍复用同一套组合逻辑 ─────────────
   assign mk_side_b   = (ev_st_q == EV_MK_B);
@@ -495,8 +615,8 @@ module sched_candidate_eval_lane (
     .side_b_active_i      (req_q.side_b_valid),
     .shape_s3_a_i         (shape_s3a_q),
     .shape_s3_b_i         (shape_s3b_q),
-    .snap_a_i             (raw_timeline_a_q),
-    .snap_b_i             (raw_timeline_b_q),
+    .snap_a_i             (raw_timeline_a),
+    .snap_b_i             (raw_timeline_b),
     .bw_start_o           (s2pf_bw_start),
     .bw_snap_a_o          (s2pf_bw_timeline_a),
     .bw_snap_b_o          (s2pf_bw_timeline_b),
@@ -506,11 +626,17 @@ module sched_candidate_eval_lane (
   );
 
   assign bw_ok_o = s2pf_patch.ok;
+  assign raw_timeline_a = req_q.side_a_valid ? task_to_snap(raw_task_a_q) :
+                                               base_timeline_a_i;
+  assign raw_timeline_b = req_q.side_b_valid ? task_to_snap(raw_task_b_q) :
+                                               base_timeline_b_i;
+  assign score_cache_a = req_q.side_a_valid ? empty_cache() : base_cache_a_i;
+  assign score_cache_b = req_q.side_b_valid ? empty_cache() : base_cache_b_i;
   assign post_s2pf_a_timeline = apply_s2pf_patch_timeline(
-      raw_timeline_a_q, s2pf_patch.has_a, s2pf_patch.pf_start_a,
+      raw_timeline_a, s2pf_patch.has_a, s2pf_patch.pf_start_a,
       s2pf_patch.pf_end_a, s2pf_patch.task_end_a, shape_s3a_q);
   assign post_s2pf_b_timeline = apply_s2pf_patch_timeline(
-      raw_timeline_b_q, s2pf_patch.has_b, s2pf_patch.pf_start_b,
+      raw_timeline_b, s2pf_patch.has_b, s2pf_patch.pf_start_b,
       s2pf_patch.pf_end_b, s2pf_patch.task_end_b, shape_s3b_q);
 
   assign eval_candidate_ok = req_q.valid && s2pf_patch.ok &&
@@ -522,10 +648,10 @@ module sched_candidate_eval_lane (
     .start_i            (score_start),
     .busy_o             (score_busy),
     .done_o             (score_done),
-    .c2_timeline_i      (post_s2pf_a_timeline),
-    .c3_timeline_i      (post_s2pf_b_timeline),
-    .c2_cache_i         (raw_cache_a_q),
-    .c3_cache_i         (raw_cache_b_q),
+    .c2_task_end_i      (post_s2pf_a_timeline.task_end),
+    .c3_task_end_i      (post_s2pf_b_timeline.task_end),
+    .c2_cache_i         (score_cache_a),
+    .c3_cache_i         (score_cache_b),
     .rem_len_i          (score_rem_len_after),
     .rem0_eid_i         (score_rem0_eid),
     .rem0_ntok_i        (score_rem0_ntok),
@@ -547,10 +673,8 @@ module sched_candidate_eval_lane (
   always_comb begin
     ev_st_d    = ev_st_q;
     req_d      = req_q;
-    raw_timeline_a_d = raw_timeline_a_q;
-    raw_timeline_b_d = raw_timeline_b_q;
-    raw_cache_a_d = raw_cache_a_q;
-    raw_cache_b_d = raw_cache_b_q;
+    raw_task_a_d = raw_task_a_q;
+    raw_task_b_d = raw_task_b_q;
     shape_s1a_d = shape_s1a_q;
     shape_s3a_d = shape_s3a_q;
     shape_s1b_d = shape_s1b_q;
@@ -579,51 +703,43 @@ module sched_candidate_eval_lane (
       end
 
       EV_PICK: begin
-        shape_s1a_d = req_q.force_shape_a ? req_q.forced_s1a : pick_s1a;
-        shape_s3a_d = req_q.force_shape_a ? req_q.forced_s3a : pick_s3a;
-        shape_s1b_d = req_q.force_shape_b ? req_q.forced_s1b : pick_s1b;
-        shape_s3b_d = req_q.force_shape_b ? req_q.forced_s3b : pick_s3b;
+        shape_s1a_d = force_shape_a ? forced_s1a : pick_s1a;
+        shape_s3a_d = force_shape_a ? forced_s3a : pick_s3a;
+        shape_s1b_d = force_shape_b ? forced_s1b : pick_s1b;
+        shape_s3b_d = force_shape_b ? forced_s3b : pick_s3b;
         ev_st_d = EV_MK_A;
       end
 
       EV_MK_A: begin
-        raw_timeline_a_d = base_timeline_a_i;
-        raw_cache_a_d    = base_cache_a_i;
+        raw_task_a_d = '0;
         if (req_q.side_a_valid) begin
-          raw_timeline_a_d              = '0;
-          raw_timeline_a_d.valid        = 1'b1;
-          raw_timeline_a_d.task_start   = mk_task_start;
-          raw_timeline_a_d.task_end     = mk_task_end;
-          raw_timeline_a_d.dma1_end     = mk_dma1_end;
-          raw_timeline_a_d.s2_end       = mk_s2_end;
-          raw_timeline_a_d.dma3_end     = mk_dma3_end;
-          raw_timeline_a_d.s4_start     = mk_s4_start;
-          raw_timeline_a_d.bw_s1        = mk_bw_s1;
-          raw_timeline_a_d.bw_s3        = mk_bw_s3;
-          raw_timeline_a_d.ntok         = req_q.ntok_a;
-          raw_cache_a_d                 = '0;
-          raw_cache_a_d.pf_eid          = PF_EID_NONE;
+          raw_task_a_d.valid      = 1'b1;
+          raw_task_a_d.task_start = mk_task_start;
+          raw_task_a_d.task_end   = mk_task_end;
+          raw_task_a_d.dma1_end   = mk_dma1_end;
+          raw_task_a_d.s2_end     = mk_s2_end;
+          raw_task_a_d.dma3_end   = mk_dma3_end;
+          raw_task_a_d.s4_start   = mk_s4_start;
+          raw_task_a_d.bw_s1      = mk_bw_s1;
+          raw_task_a_d.bw_s3      = mk_bw_s3;
+          raw_task_a_d.ntok       = req_q.ntok_a;
         end
         ev_st_d = EV_MK_B;
       end
 
       EV_MK_B: begin
-        raw_timeline_b_d = base_timeline_b_i;
-        raw_cache_b_d    = base_cache_b_i;
+        raw_task_b_d = '0;
         if (req_q.side_b_valid) begin
-          raw_timeline_b_d              = '0;
-          raw_timeline_b_d.valid        = 1'b1;
-          raw_timeline_b_d.task_start   = mk_task_start;
-          raw_timeline_b_d.task_end     = mk_task_end;
-          raw_timeline_b_d.dma1_end     = mk_dma1_end;
-          raw_timeline_b_d.s2_end       = mk_s2_end;
-          raw_timeline_b_d.dma3_end     = mk_dma3_end;
-          raw_timeline_b_d.s4_start     = mk_s4_start;
-          raw_timeline_b_d.bw_s1        = mk_bw_s1;
-          raw_timeline_b_d.bw_s3        = mk_bw_s3;
-          raw_timeline_b_d.ntok         = req_q.ntok_b;
-          raw_cache_b_d                 = '0;
-          raw_cache_b_d.pf_eid          = PF_EID_NONE;
+          raw_task_b_d.valid      = 1'b1;
+          raw_task_b_d.task_start = mk_task_start;
+          raw_task_b_d.task_end   = mk_task_end;
+          raw_task_b_d.dma1_end   = mk_dma1_end;
+          raw_task_b_d.s2_end     = mk_s2_end;
+          raw_task_b_d.dma3_end   = mk_dma3_end;
+          raw_task_b_d.s4_start   = mk_s4_start;
+          raw_task_b_d.bw_s1      = mk_bw_s1;
+          raw_task_b_d.bw_s3      = mk_bw_s3;
+          raw_task_b_d.ntok       = req_q.ntok_b;
         end
         ev_st_d = EV_S2PF_START;
       end
@@ -664,10 +780,8 @@ module sched_candidate_eval_lane (
     if (!rst_ni) begin
       ev_st_q <= EV_IDLE;
       req_q   <= '0;
-      raw_timeline_a_q <= '0;
-      raw_timeline_b_q <= '0;
-      raw_cache_a_q <= '0;
-      raw_cache_b_q <= '0;
+      raw_task_a_q <= '0;
+      raw_task_b_q <= '0;
       shape_s1a_q <= '0;
       shape_s3a_q <= '0;
       shape_s1b_q <= '0;
@@ -676,10 +790,8 @@ module sched_candidate_eval_lane (
     end else begin
       ev_st_q <= ev_st_d;
       req_q   <= req_d;
-      raw_timeline_a_q <= raw_timeline_a_d;
-      raw_timeline_b_q <= raw_timeline_b_d;
-      raw_cache_a_q <= raw_cache_a_d;
-      raw_cache_b_q <= raw_cache_b_d;
+      raw_task_a_q <= raw_task_a_d;
+      raw_task_b_q <= raw_task_b_d;
       shape_s1a_q <= shape_s1a_d;
       shape_s3a_q <= shape_s3a_d;
       shape_s1b_q <= shape_s1b_d;
@@ -694,8 +806,8 @@ module sched_candidate_eval_lane (
   always_comb begin
     snap_timeline_a_o = post_s2pf_a_timeline;
     snap_timeline_b_o = post_s2pf_b_timeline;
-    snap_cache_a_o    = raw_cache_a_q;
-    snap_cache_b_o    = raw_cache_b_q;
+    snap_cache_a_o    = score_cache_a;
+    snap_cache_b_o    = score_cache_b;
 
     task_end_a_o  = post_s2pf_a_timeline.task_end;
     task_end_b_o  = post_s2pf_b_timeline.task_end;
@@ -714,55 +826,24 @@ module sched_candidate_eval_lane (
     score_key_o.snap_max = makespan_o;
 
     winner_plan_o = '0;
-    if (req_q.side_a_valid && req_q.side_b_valid) begin
-      winner_plan_o.valid = 2'b11;
-      winner_plan_o.token[0].eid       = req_q.eid_a;
-      winner_plan_o.token[0].ntok      = req_q.ntok_a;
-      winner_plan_o.token[0].tok_start = req_q.tok_start_a;
-      winner_plan_o.ctrl[0].cluster    = 1'b0;
-      winner_plan_o.ctrl[0].s1         = shape_s1a_o;
-      winner_plan_o.ctrl[0].s3         = shape_s3a_o;
-      winner_plan_o.ctrl[0].skip_s1    = (post_s2pf_a_timeline.bw_s1 == BW_0);
-      winner_plan_o.ctrl[0].skip_s3    = (post_s2pf_a_timeline.bw_s3 == BW_0);
-      winner_plan_o.ctrl[0].has_s2pf   = post_s2pf_a_timeline.s2pf_valid;
-
-      winner_plan_o.token[1].eid       = req_q.eid_b;
-      winner_plan_o.token[1].ntok      = req_q.ntok_b;
-      winner_plan_o.token[1].tok_start = req_q.tok_start_b;
-      winner_plan_o.ctrl[1].cluster    = 1'b1;
-      winner_plan_o.ctrl[1].s1         = shape_s1b_o;
-      winner_plan_o.ctrl[1].s3         = shape_s3b_o;
-      winner_plan_o.ctrl[1].skip_s1    = (post_s2pf_b_timeline.bw_s1 == BW_0);
-      winner_plan_o.ctrl[1].skip_s3    = (post_s2pf_b_timeline.bw_s3 == BW_0);
-      winner_plan_o.ctrl[1].has_s2pf   = post_s2pf_b_timeline.s2pf_valid;
-    end else if (req_q.side_a_valid) begin
-      winner_plan_o.valid = 2'b01;
-      winner_plan_o.token[0].eid       = req_q.eid_a;
-      winner_plan_o.token[0].ntok      = req_q.ntok_a;
-      winner_plan_o.token[0].tok_start = req_q.tok_start_a;
-      winner_plan_o.ctrl[0].cluster    = 1'b0;
-      winner_plan_o.ctrl[0].s1         = shape_s1a_o;
-      winner_plan_o.ctrl[0].s3         = shape_s3a_o;
-      winner_plan_o.ctrl[0].skip_s1    = (post_s2pf_a_timeline.bw_s1 == BW_0);
-      winner_plan_o.ctrl[0].skip_s3    = (post_s2pf_a_timeline.bw_s3 == BW_0);
-      winner_plan_o.ctrl[0].has_s2pf   = post_s2pf_a_timeline.s2pf_valid;
-    end else if (req_q.side_b_valid) begin
-      winner_plan_o.valid = 2'b01;
-      winner_plan_o.token[0].eid       = req_q.eid_b;
-      winner_plan_o.token[0].ntok      = req_q.ntok_b;
-      winner_plan_o.token[0].tok_start = req_q.tok_start_b;
-      winner_plan_o.ctrl[0].cluster    = 1'b1;
-      winner_plan_o.ctrl[0].s1         = shape_s1b_o;
-      winner_plan_o.ctrl[0].s3         = shape_s3b_o;
-      winner_plan_o.ctrl[0].skip_s1    = (post_s2pf_b_timeline.bw_s1 == BW_0);
-      winner_plan_o.ctrl[0].skip_s3    = (post_s2pf_b_timeline.bw_s3 == BW_0);
-      winner_plan_o.ctrl[0].has_s2pf   = post_s2pf_b_timeline.s2pf_valid;
+    if (req_q.side_a_valid) begin
+      put_plan_slot(winner_plan_o, 1'b0, 1'b0, req_q.eid_a, req_q.ntok_a,
+                    req_q.tok_start_a, shape_s1a_q, shape_s3a_q,
+                    post_s2pf_a_timeline);
     end
+    if (req_q.side_b_valid) begin
+      put_plan_slot(winner_plan_o, req_q.side_a_valid, 1'b1, req_q.eid_b,
+                    req_q.ntok_b, req_q.tok_start_b, shape_s1b_q, shape_s3b_q,
+                    post_s2pf_b_timeline);
+    end
+    winner_plan_o.valid = (req_q.side_a_valid && req_q.side_b_valid) ? 2'b11 :
+                          (req_q.side_a_valid || req_q.side_b_valid) ? 2'b01 :
+                          2'b00;
   end
 
-  assign bw_s1a_o = raw_timeline_a_q.bw_s1;
-  assign bw_s3a_o = raw_timeline_a_q.bw_s3;
-  assign bw_s1b_o = raw_timeline_b_q.bw_s1;
-  assign bw_s3b_o = raw_timeline_b_q.bw_s3;
+  assign bw_s1a_o = raw_timeline_a.bw_s1;
+  assign bw_s3a_o = raw_timeline_a.bw_s3;
+  assign bw_s1b_o = raw_timeline_b.bw_s1;
+  assign bw_s3b_o = raw_timeline_b.bw_s3;
 
 endmodule

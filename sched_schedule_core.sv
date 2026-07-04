@@ -6,7 +6,7 @@
 // This is the datapath-only core under the MMIO wrapper:
 //   wrapper-maintained top4/reserve state -> token candidate_generator
 //   -> token-decode candidate_eval_lane -> compact best_reduce -> replay(best_token)
-//   -> commit_unit -> remove metadata + depth-4 round FIFO
+//   -> core-local commit/S4PF check -> remove metadata + depth-4 round FIFO
 //
 // There is intentionally no internal rem_sram, plan_sram, AXI master, or DMA
 // writer in this module.  The full rem stream and final lowered args live
@@ -57,16 +57,16 @@ module sched_schedule_core (
   typedef enum logic [3:0] {
     ST_IDLE,
     ST_ROUND_START,
-    ST_GHOST_C2_START,
-    ST_GHOST_C2_WAIT,
-    ST_GHOST_C3_START,
-    ST_GHOST_C3_WAIT,
     ST_EVAL_START,
     ST_EVAL,
     ST_REPLAY_START,
     ST_REPLAY_WAIT,
     ST_FALLBACK,
-    ST_COMMIT_WAIT,
+    ST_COMMIT_S4PF_A_START,
+    ST_COMMIT_S4PF_A_WAIT,
+    ST_COMMIT_S4PF_B_START,
+    ST_COMMIT_S4PF_B_WAIT,
+    ST_COMMIT_APPLY,
     ST_DONE_EMPTY
   } state_t;
 
@@ -179,16 +179,6 @@ module sched_schedule_core (
     end
   endfunction
 
-  // ── Ghost injection ───────────────────────────────────────────────────
-  snap_timeline_t c2_ghost_timeline_try;
-  snap_timeline_t c3_ghost_timeline_try;
-  logic       ghost_bw_start;
-  snap_timeline_t ghost_bw_snap_a;
-  snap_timeline_t ghost_bw_snap_b;
-  logic       c2_ghost_bw_ok_q, c2_ghost_bw_ok_d;
-  logic       c2_ghost_valid;
-  logic       c3_ghost_valid;
-
   logic       shared_bw_start;
   snap_bw_view_t shared_bw_snap_a;
   snap_bw_view_t shared_bw_snap_b;
@@ -202,30 +192,6 @@ module sched_schedule_core (
   logic       commit_bw_start;
   snap_timeline_t commit_bw_snap_a;
   snap_timeline_t commit_bw_snap_b;
-
-  assign c2_ghost_valid = c2_timeline_q.valid &&
-                          (c2_cache_q.pf_eid == PF_EID_NONE) &&
-                          (c2_timeline_q.dma1_end <= c2_timeline_q.s4_start) &&
-                          ((c2_timeline_q.s4_start + GHOST_WINDOW_TICKS) <=
-                           c2_timeline_q.task_end);
-  assign c3_ghost_valid = c3_timeline_q.valid &&
-                          (c3_cache_q.pf_eid == PF_EID_NONE) &&
-                          (c3_timeline_q.dma1_end <= c3_timeline_q.s4_start) &&
-                          ((c3_timeline_q.s4_start + GHOST_WINDOW_TICKS) <=
-                           c3_timeline_q.task_end);
-
-  always_comb begin
-    c2_ghost_timeline_try = c2_timeline_q;
-    c3_ghost_timeline_try = c3_timeline_q;
-    if (c2_ghost_valid) begin
-      c2_ghost_timeline_try.s4pf_valid = 1'b1;
-      c2_ghost_timeline_try.s4pf_start = c2_timeline_q.s4_start;
-    end
-    if (c3_ghost_valid) begin
-      c3_ghost_timeline_try.s4pf_valid = 1'b1;
-      c3_ghost_timeline_try.s4pf_start = c3_timeline_q.s4_start;
-    end
-  end
 
   sched_bw_ok_seq i_shared_bw_ok (
     .clk_i    (clk_i),
@@ -247,13 +213,6 @@ module sched_schedule_core (
     shared_bw_snap_b = '0;
 
     unique case (st_q)
-      ST_GHOST_C2_START,
-      ST_GHOST_C3_START: begin
-        shared_bw_start  = ghost_bw_start;
-        shared_bw_snap_a = to_bw_view(ghost_bw_snap_a);
-        shared_bw_snap_b = to_bw_view(ghost_bw_snap_b);
-      end
-
       ST_EVAL,
       ST_REPLAY_WAIT: begin
         shared_bw_start  = eval_bw_start;
@@ -261,7 +220,8 @@ module sched_schedule_core (
         shared_bw_snap_b = to_bw_view(eval_bw_snap_b);
       end
 
-      ST_COMMIT_WAIT: begin
+      ST_COMMIT_S4PF_A_START,
+      ST_COMMIT_S4PF_B_START: begin
         shared_bw_start  = commit_bw_start;
         shared_bw_snap_a = to_bw_view(commit_bw_snap_a);
         shared_bw_snap_b = to_bw_view(commit_bw_snap_b);
@@ -480,7 +440,10 @@ module sched_schedule_core (
   // ── Commit mux and output-buffer producer ─────────────────────────────
   logic commit_from_replay;
   logic commit_from_fallback;
-  logic commit_fire;
+  logic commit_active_q, commit_active_d;
+  logic commit_replay_q, commit_replay_d;
+  logic allow_s4pf_a_q, allow_s4pf_a_d;
+  logic allow_s4pf_b_q, allow_s4pf_b_d;
   winner_plan_t commit_plan;
   snap_timeline_t commit_timeline_a;
   snap_timeline_t commit_timeline_b;
@@ -488,17 +451,41 @@ module sched_schedule_core (
   snap_cache_t    commit_cache_b;
   logic [1:0] commit_remove_count;
   logic [3:0] commit_remove_slot_mask;
+  snap_timeline_t commit_s4pf_timeline_a;
+  snap_timeline_t commit_s4pf_timeline_b;
+  snap_timeline_t commit_timeline_a_after_s4pf;
+  logic commit_s4pf_candidate_a;
+  logic commit_s4pf_candidate_b;
 
   assign commit_from_replay   = (st_q == ST_REPLAY_WAIT) && eval_done && eval_valid;
   assign commit_from_fallback = (st_q == ST_FALLBACK) && fallback_valid;
-  assign commit_fire          = commit_from_replay || commit_from_fallback;
+
+  function automatic task_desc_t make_task_desc(
+    input winner_token_t token,
+    input task_control_t ctrl
+  );
+    task_desc_t d;
+    begin
+      d = '0;
+      d.cluster   = ctrl.cluster;
+      d.eid       = token.eid;
+      d.ntok      = token.ntok;
+      d.tok_start = token.tok_start;
+      d.s1        = ctrl.s1;
+      d.s3        = ctrl.s3;
+      d.skip_s1   = ctrl.skip_s1;
+      d.skip_s3   = ctrl.skip_s3;
+      d.has_s2pf  = ctrl.has_s2pf;
+      make_task_desc = d;
+    end
+  endfunction
 
   always_comb begin
-    commit_plan          = commit_from_replay ? eval_plan   : fallback_plan;
-    commit_remove_count  = commit_from_replay ? best_remove_count : 2'd1;
-    commit_remove_slot_mask = commit_from_replay ? best_remove_slot_mask : 4'b0001;
+    commit_plan             = commit_replay_q ? eval_plan : fallback_plan;
+    commit_remove_count     = commit_replay_q ? best_remove_count : 2'd1;
+    commit_remove_slot_mask = commit_replay_q ? best_remove_slot_mask : 4'b0001;
 
-    if (commit_from_replay) begin
+    if (commit_replay_q) begin
       commit_timeline_a = eval_timeline_a;
       commit_timeline_b = eval_timeline_b;
       commit_cache_a    = eval_cache_a;
@@ -516,21 +503,12 @@ module sched_schedule_core (
     end
   end
 
-  logic              commit_valid;
-  snap_timeline_t    commit_c2_timeline;
-  snap_timeline_t    commit_c3_timeline;
-  snap_cache_t       commit_c2_cache;
-  snap_cache_t       commit_c3_cache;
   task_desc_t [1:0] commit_task_desc;
   logic [1:0]        commit_plan_allow_s4pf;
   logic [1:0]        commit_plan_count;
   slot_id_t [1:0]    commit_local_slot;
   slot_id_t          c2_slot_after_commit;
   slot_id_t          c3_slot_after_commit;
-  logic [1:0]        commit_remove_count_o;
-  logic [3:0]        commit_remove_slot_mask_o;
-  logic              commit_busy;
-  logic              commit_done;
 
   for (genvar pp = 0; pp < 2; pp++) begin : gen_plan_pack
     sched_plan_pack i_plan_pack (
@@ -541,37 +519,54 @@ module sched_schedule_core (
     );
   end
 
-  sched_commit_unit i_commit (
-    .clk_i               (clk_i),
-    .rst_ni              (rst_ni),
-    .commit_i            (commit_fire),
-    .best_valid_i        (commit_fire),
-    .best_plan_i         (commit_plan),
-    .best_timeline_a_i   (commit_timeline_a),
-    .best_timeline_b_i   (commit_timeline_b),
-    .best_cache_a_i      (commit_cache_a),
-    .best_cache_b_i      (commit_cache_b),
-    .best_remove_count_i (commit_remove_count),
-    .best_remove_slot_mask_i (commit_remove_slot_mask),
-    .busy_o              (commit_busy),
-    .done_o              (commit_done),
-    .commit_valid_o      (commit_valid),
-    .next_c2_timeline_o  (commit_c2_timeline),
-    .next_c3_timeline_o  (commit_c3_timeline),
-    .next_c2_cache_o     (commit_c2_cache),
-    .next_c3_cache_o     (commit_c3_cache),
-    .plan_valid_o        (),
-    .task_desc_o         (commit_task_desc),
-    .plan_allow_s4pf_o   (commit_plan_allow_s4pf),
-    .plan_count_o        (commit_plan_count),
-    .remove_count_o      (commit_remove_count_o),
-    .remove_slot_mask_o  (commit_remove_slot_mask_o),
-    .bw_start_o          (commit_bw_start),
-    .bw_snap_a_o         (commit_bw_snap_a),
-    .bw_snap_b_o         (commit_bw_snap_b),
-    .bw_done_i           ((st_q == ST_COMMIT_WAIT) ? shared_bw_done : 1'b0),
-    .bw_ok_i             (shared_bw_ok)
-  );
+  assign commit_s4pf_candidate_a =
+      commit_active_q &&
+      commit_timeline_a.valid &&
+      (commit_cache_a.pf_eid == PF_EID_NONE) &&
+      (commit_timeline_a.dma1_end <= commit_timeline_a.s4_start) &&
+      ((commit_timeline_a.s4_start + GHOST_WINDOW_TICKS) <=
+       commit_timeline_a.task_end);
+
+  assign commit_s4pf_candidate_b =
+      commit_active_q &&
+      commit_timeline_b.valid &&
+      (commit_cache_b.pf_eid == PF_EID_NONE) &&
+      (commit_timeline_b.dma1_end <= commit_timeline_b.s4_start) &&
+      ((commit_timeline_b.s4_start + GHOST_WINDOW_TICKS) <=
+       commit_timeline_b.task_end);
+
+  always_comb begin
+    commit_s4pf_timeline_a = commit_timeline_a;
+    commit_s4pf_timeline_b = commit_timeline_b;
+    if (commit_s4pf_candidate_a) begin
+      commit_s4pf_timeline_a.s4pf_valid = 1'b1;
+      commit_s4pf_timeline_a.s4pf_start = commit_timeline_a.s4_start;
+    end
+    if (commit_s4pf_candidate_b) begin
+      commit_s4pf_timeline_b.s4pf_valid = 1'b1;
+      commit_s4pf_timeline_b.s4pf_start = commit_timeline_b.s4_start;
+    end
+  end
+
+  assign commit_timeline_a_after_s4pf =
+      allow_s4pf_a_q ? commit_s4pf_timeline_a : commit_timeline_a;
+
+  always_comb begin
+    commit_task_desc       = '{default: '0};
+    commit_plan_allow_s4pf = '0;
+    commit_plan_count      = '0;
+    if (commit_active_q) begin
+      for (int i = 0; i < 2; i++) begin
+        if (commit_plan.valid[i]) begin
+          commit_task_desc[i] = make_task_desc(commit_plan.token[i], commit_plan.ctrl[i]);
+          commit_plan_allow_s4pf[i] =
+              commit_plan.ctrl[i].cluster ? allow_s4pf_b_q : allow_s4pf_a_q;
+        end
+      end
+      commit_plan_count = {1'b0, commit_plan.valid[0]} +
+                          {1'b0, commit_plan.valid[1]};
+    end
+  end
 
   always_comb begin
     commit_local_slot = '{default: '0};
@@ -649,7 +644,7 @@ module sched_schedule_core (
       tail_pending_valid_d   = '0;
       tail_pending_skip_s1_d = '0;
       tail_pending_slot_d    = '{default: '0};
-    end else if (commit_done && commit_valid &&
+    end else if ((st_q == ST_COMMIT_APPLY) && commit_active_q &&
                  (planq_count_d < PLANQ_COUNT_W'(PLANQ_DEPTH))) begin
       tail_pending_valid_d   = pend_valid;
       tail_pending_skip_s1_d = pend_skip_s1;
@@ -668,7 +663,10 @@ module sched_schedule_core (
     c3_slot_d            = c3_slot_q;
     eval_inflight_d      = eval_inflight_q;
     done_d               = 1'b0;
-    c2_ghost_bw_ok_d     = c2_ghost_bw_ok_q;
+    commit_active_d      = commit_active_q;
+    commit_replay_d      = commit_replay_q;
+    allow_s4pf_a_d       = allow_s4pf_a_q;
+    allow_s4pf_b_d       = allow_s4pf_b_q;
 
     remove_valid_d        = remove_valid_q;
     remove_count_d        = remove_count_q;
@@ -687,9 +685,9 @@ module sched_schedule_core (
     gen_advance = 1'b0;
     eval_start  = 1'b0;
     best_clear  = 1'b0;
-    ghost_bw_start = 1'b0;
-    ghost_bw_snap_a = c2_timeline_q;
-    ghost_bw_snap_b = c3_timeline_q;
+    commit_bw_start = 1'b0;
+    commit_bw_snap_a = commit_timeline_a;
+    commit_bw_snap_b = commit_timeline_b;
 
     remove_free_after_ready = !remove_valid_q || remove_ready_i;
     planq_pop_count_eff = (PLANQ_COUNT_W'(plan_pop_count_i) > planq_count_q) ?
@@ -721,7 +719,10 @@ module sched_schedule_core (
       c2_slot_d            = '0;
       c3_slot_d            = '0;
       eval_inflight_d      = 1'b0;
-      c2_ghost_bw_ok_d     = 1'b0;
+      commit_active_d      = 1'b0;
+      commit_replay_d      = 1'b0;
+      allow_s4pf_a_d       = 1'b0;
+      allow_s4pf_b_d       = 1'b0;
       remove_valid_d       = 1'b0;
       remove_count_d       = '0;
       remove_slot_mask_d   = '0;
@@ -754,49 +755,7 @@ module sched_schedule_core (
             done_d = 1'b1;
             st_d   = ST_DONE_EMPTY;
           end else begin
-            st_d = ST_GHOST_C2_START;
-          end
-        end
-
-        ST_GHOST_C2_START: begin
-          ghost_bw_start = 1'b1;
-          ghost_bw_snap_a = c2_ghost_timeline_try;
-          ghost_bw_snap_b = c3_timeline_q;
-          st_d           = ST_GHOST_C2_WAIT;
-        end
-
-        ST_GHOST_C2_WAIT: begin
-          if (shared_bw_done) begin
-            c2_ghost_bw_ok_d = shared_bw_ok;
-            st_d             = ST_GHOST_C3_START;
-          end
-        end
-
-        ST_GHOST_C3_START: begin
-          ghost_bw_start = 1'b1;
-          ghost_bw_snap_a = c2_timeline_q;
-          ghost_bw_snap_b = c3_ghost_timeline_try;
-          st_d           = ST_GHOST_C3_WAIT;
-        end
-
-        ST_GHOST_C3_WAIT: begin
-          if (shared_bw_done) begin
-            if (c2_ghost_valid && c2_ghost_bw_ok_q) begin
-              c2_timeline_d.s4pf_valid = 1'b1;
-              c2_timeline_d.s4pf_start = c2_timeline_q.s4_start;
-              c2_cache_d.pf_eid        = PF_EID_GHOST;
-              c2_cache_d.pf_end        = c2_timeline_q.task_end;
-              c2_cache_d.pf_full       = 1'b0;
-            end
-            if (c3_ghost_valid && shared_bw_ok) begin
-              c3_timeline_d.s4pf_valid = 1'b1;
-              c3_timeline_d.s4pf_start = c3_timeline_q.s4_start;
-              c3_cache_d.pf_eid        = PF_EID_GHOST;
-              c3_cache_d.pf_end        = c3_timeline_q.task_end;
-              c3_cache_d.pf_full       = 1'b0;
-            end
-            c2_ghost_bw_ok_d = 1'b0;
-            st_d      = ST_EVAL_START;
+            st_d = ST_EVAL_START;
           end
         end
 
@@ -833,37 +792,101 @@ module sched_schedule_core (
         ST_REPLAY_WAIT: begin
           if (eval_inflight_q && eval_done) begin
             eval_inflight_d = 1'b0;
-            st_d             = ST_COMMIT_WAIT;
+            commit_active_d  = eval_valid;
+            commit_replay_d  = 1'b1;
+            allow_s4pf_a_d   = 1'b0;
+            allow_s4pf_b_d   = 1'b0;
+            st_d             = ST_COMMIT_S4PF_A_START;
           end
         end
 
         ST_FALLBACK: begin
-          st_d = ST_COMMIT_WAIT;
+          commit_active_d = fallback_valid;
+          commit_replay_d = 1'b0;
+          allow_s4pf_a_d  = 1'b0;
+          allow_s4pf_b_d  = 1'b0;
+          st_d            = fallback_valid ? ST_COMMIT_S4PF_A_START :
+                                             ST_COMMIT_APPLY;
         end
 
-        ST_COMMIT_WAIT: begin
-          if (commit_done) begin
-            if (commit_valid) begin
-              c2_timeline_d         = commit_c2_timeline;
-              c3_timeline_d         = commit_c3_timeline;
-              c2_cache_d            = commit_c2_cache;
-              c3_cache_d            = commit_c3_cache;
+        ST_COMMIT_S4PF_A_START: begin
+          if (commit_active_q && commit_s4pf_candidate_a) begin
+            commit_bw_start = 1'b1;
+            commit_bw_snap_a = commit_s4pf_timeline_a;
+            commit_bw_snap_b = commit_timeline_b;
+            st_d = ST_COMMIT_S4PF_A_WAIT;
+          end else begin
+            allow_s4pf_a_d = 1'b0;
+            st_d = ST_COMMIT_S4PF_B_START;
+          end
+        end
+
+        ST_COMMIT_S4PF_A_WAIT: begin
+          if (shared_bw_done) begin
+            allow_s4pf_a_d = shared_bw_ok;
+            st_d = ST_COMMIT_S4PF_B_START;
+          end
+        end
+
+        ST_COMMIT_S4PF_B_START: begin
+          if (commit_active_q && commit_s4pf_candidate_b) begin
+            commit_bw_start = 1'b1;
+            // Preserve sequential C2-then-C3 S4PF semantics: C3 is checked
+            // against C2 after the accepted C2 ghost window.
+            commit_bw_snap_a = commit_timeline_a_after_s4pf;
+            commit_bw_snap_b = commit_s4pf_timeline_b;
+            st_d = ST_COMMIT_S4PF_B_WAIT;
+          end else begin
+            allow_s4pf_b_d = 1'b0;
+            st_d = ST_COMMIT_APPLY;
+          end
+        end
+
+        ST_COMMIT_S4PF_B_WAIT: begin
+          if (shared_bw_done) begin
+            allow_s4pf_b_d = shared_bw_ok;
+            st_d = ST_COMMIT_APPLY;
+          end
+        end
+
+        ST_COMMIT_APPLY: begin
+          if (commit_active_q) begin
+            c2_timeline_d = allow_s4pf_a_q ? commit_s4pf_timeline_a :
+                                              commit_timeline_a;
+            c3_timeline_d = allow_s4pf_b_q ? commit_s4pf_timeline_b :
+                                              commit_timeline_b;
+            c2_cache_d    = commit_cache_a;
+            c3_cache_d    = commit_cache_b;
+            if (allow_s4pf_a_q) begin
+              c2_cache_d.pf_eid  = PF_EID_GHOST;
+              c2_cache_d.pf_end  = commit_timeline_a.task_end;
+              c2_cache_d.pf_full = 1'b0;
+            end
+            if (allow_s4pf_b_q) begin
+              c3_cache_d.pf_eid  = PF_EID_GHOST;
+              c3_cache_d.pf_end  = commit_timeline_b.task_end;
+              c3_cache_d.pf_full = 1'b0;
+            end
+
               c2_slot_d             = c2_slot_after_commit;
               c3_slot_d             = c3_slot_after_commit;
               remove_valid_d        = 1'b1;
-              remove_count_d        = commit_remove_count_o;
-              remove_slot_mask_d    = commit_remove_slot_mask_o;
+            remove_count_d        = commit_remove_count;
+            remove_slot_mask_d    = commit_remove_slot_mask;
               if (planq_count_d < PLANQ_COUNT_W'(PLANQ_DEPTH)) begin
                 planq_data_d[planq_tail_d] = commit_plan_data;
                 planq_plan_count_d[planq_tail_d] = commit_plan_count;
-                planq_remove_count_d[planq_tail_d] = commit_remove_count_o;
+              planq_remove_count_d[planq_tail_d] = commit_remove_count;
                 planq_tail_d = planq_tail_d + PLANQ_PTR_W'(1);
                 planq_count_d = planq_count_d + PLANQ_COUNT_W'(1);
               end
-            end
-            done_d = 1'b1;
-            st_d   = ST_IDLE;
           end
+          commit_active_d = 1'b0;
+          commit_replay_d = 1'b0;
+          allow_s4pf_a_d  = 1'b0;
+          allow_s4pf_b_d  = 1'b0;
+          done_d = 1'b1;
+          st_d   = ST_IDLE;
         end
 
         ST_DONE_EMPTY: begin
@@ -885,7 +908,10 @@ module sched_schedule_core (
       c2_slot_q             <= '0;
       c3_slot_q             <= '0;
       eval_inflight_q       <= 1'b0;
-      c2_ghost_bw_ok_q      <= 1'b0;
+      commit_active_q       <= 1'b0;
+      commit_replay_q       <= 1'b0;
+      allow_s4pf_a_q        <= 1'b0;
+      allow_s4pf_b_q        <= 1'b0;
       done_q                <= 1'b0;
       remove_valid_q        <= 1'b0;
       remove_count_q        <= '0;
@@ -910,7 +936,10 @@ module sched_schedule_core (
       c2_slot_q             <= c2_slot_d;
       c3_slot_q             <= c3_slot_d;
       eval_inflight_q       <= eval_inflight_d;
-      c2_ghost_bw_ok_q      <= c2_ghost_bw_ok_d;
+      commit_active_q       <= commit_active_d;
+      commit_replay_q       <= commit_replay_d;
+      allow_s4pf_a_q        <= allow_s4pf_a_d;
+      allow_s4pf_b_q        <= allow_s4pf_b_d;
       done_q                <= done_d;
       remove_valid_q        <= remove_valid_d;
       remove_count_q        <= remove_count_d;

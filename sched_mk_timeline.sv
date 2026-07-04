@@ -46,6 +46,9 @@ module sched_mk_timeline (
   logic [NTOK_W-1:0] s3_tail;
   logic [NTOK_W-1:0] s1_mdim;
   logic [NTOK_W-1:0] s3_mdim;
+  logic [NTOK_W-1:0] ceil_ntok;
+  logic [NTOK_W-1:0] ceil_s1t;
+  logic [NTOK_W-1:0] ceil_s3t;
   logic [T_W-1:0]    bs2_ntok, bs4_ntok;  // full ntok 的 best_s2/best_s4
   logic [T_W-1:0]    bs2_s1t,  bs4_s3t;   // tail ntok 的 best_s2/best_s4
   logic [T_W-1:0]    s1_ts;
@@ -66,11 +69,16 @@ module sched_mk_timeline (
   logic [T_W-1:0]    dma3_end_off;
   logic [T_W-1:0]    task_end_off;
 
-  // 统一复用 sched_pkg 的时序原语函数，避免与包内定义漂移。
-  assign bs2_ntok = best_s2_ticks(ntok_i);
-  assign bs4_ntok = best_s4_ticks(ntok_i);
-  assign bs2_s1t  = best_s2_ticks(s1_tail);
-  assign bs4_s3t  = best_s4_ticks(s3_tail);
+  // best_s4(x)=ceil(x/2)，best_s2(x)=ceil(x/2)<<1。
+  // 这里显式共享 ceil_div2 结果，避免 best_s2_ticks/best_s4_ticks
+  // 对同一个 token 数重复展开小加法器。
+  assign ceil_ntok = ceil_div2_ntok(ntok_i);
+  assign ceil_s1t  = ceil_div2_ntok(s1_tail);
+  assign ceil_s3t  = ceil_div2_ntok(s3_tail);
+  assign bs4_ntok  = time_t'(ceil_ntok);
+  assign bs2_ntok  = time_t'({ceil_ntok, 1'b0});
+  assign bs2_s1t   = time_t'({ceil_s1t, 1'b0});
+  assign bs4_s3t   = time_t'(ceil_s3t);
 
   // Shape 解码集中在这里，避免在 tail/timing/DMA 选择里重复实例化同一组
   // case/mux。后续组合路径只使用这些小 fanout 的预解码信号。

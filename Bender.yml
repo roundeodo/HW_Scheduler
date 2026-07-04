@@ -15,7 +15,6 @@ sources:
       - sched_candidate_eval_lane.sv
       - sched_candidate_generator.sv
       - sched_best_reduce.sv
-      - sched_commit_unit.sv
       - sched_plan_pack.sv
       - sched_schedule_core.sv
       - moe_scheduler_reg_wrapper.sv

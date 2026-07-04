@@ -7,7 +7,7 @@
  *   - the stable ntokens-descending rem list that a CVA6-side driver should
  *     expose to the RTL as top4 heads
  *   - the compact plan emitted by moe_make_hw_plan(), which mirrors RTL
- *     commit_unit output.
+ *     core-local commit output.
  */
 #include "moe_scheduler.h"
 #include <stdint.h>

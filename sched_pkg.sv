@@ -351,7 +351,7 @@ package sched_pkg;
   // ── Normalized winning plan ────────────────────────────────────────────
   //
   // eval/replay 后直接输出 normalized physical cluster task。每个输出项是
-  // 单个 task 的 token/control 对，commit_unit 只做 task_desc_t 组装。
+  // 单个 task 的 token/control 对，core-local commit 子状态机生成 task_desc_t。
   //
   // 位宽（E_MAX=64）：
   //   winner_token_t  = eid6 + ntok9 + tok_start9 = 24 bits

@@ -15,7 +15,6 @@ moe_scheduler_reg_wrapper
       │   ├── sched_s2pf_pair            # BW client
       │   └── sched_score_unit
       ├── sched_best_reduce
-      ├── sched_commit_unit              # BW client
       └── sched_plan_pack x2             # compact PLAN_ENTRY_DATA packer
 ```
 
@@ -29,8 +28,8 @@ moe_scheduler_reg_wrapper
 sched_candidate_generator
   -> EV_LATCH: eval_req_q       # cropped candidate request, not full cand_issue_t
   -> EV_PICK : shape_q          # forced/picked shape decision
-  -> EV_MK_A : raw_timeline_a_q + raw_cache_a_q
-  -> EV_MK_B : raw_timeline_b_q + raw_cache_b_q
+  -> EV_MK_A : raw_task_a_q     # task-only timeline, no S2PF/S4PF/cache fields
+  -> EV_MK_B : raw_task_b_q
   -> EV_S2PF: sched_s2pf_pair
   -> EV_SCORE: sched_score_unit
   -> EV_DONE
@@ -41,9 +40,11 @@ rem-after 摘要字段；不保存完整 `cand_issue_t`，也不保存 base time
 base timeline/cache 是 round-level 状态，由 `sched_schedule_core` 持有，在当前
 candidate 评估期间保持稳定。A/B 两侧复用同一套 `sched_mk_timeline`，不再并行
 实例化两套 mk_timeline 组合逻辑。`EV_MK_A/B` 的寄存器边界不保存完整
-snap 结构：S2PF/BW 只接收 `snap_timeline_t`，cache-hit 所需的
-`pf_eid/pf_end/pf_full` 单独保存在 `snap_cache_t`，只在进入 score/cache
-hit 逻辑时组合使用。
+snap 结构，只保存当前 task 必需的 `task_start/task_end/dma1_end/s2_end/
+dma3_end/s4_start/bw_s1/bw_s3/ntok`。S2PF/BW 入口需要完整
+`snap_timeline_t` 时，由 eval lane 在本地组合展开；cache-hit 所需的
+`pf_eid/pf_end/pf_full` 不在 raw 阶段打拍，而是根据 side-valid 从 base cache
+或 empty cache 组合选择。
 
 `sched_s2pf_pair` 的模块边界也不再使用完整 snap，而是只传
 `snap_timeline_t`。它不接收、不保存、不透传 cache identity 字段；在
@@ -51,9 +52,9 @@ hit 逻辑时组合使用。
 
 ```text
 policy/side
-can_a/b, hi_a/b, dma_start_valid_a/b
-best_s4_a/b
-duration_is2_a/b, pf_bw_is128_a/b
+can[2], hi[2], dma_start_valid[2]
+best_s4[2]
+duration_is2[2], pf_bw_is128[2]
 trial_count
 ```
 
@@ -149,7 +150,7 @@ task_start <  dma1_end <= s2pf_start : S1 在前，S2PF 在后
 ```
 
 `sched_s2pf_pair.apply_s2pf` 也不再重复做 placement 合法性检查；合法性在
-trial 生成阶段由 `try_valid`、`can_a/b`、`dma_start_valid_a/b` 保证，apply
+trial 生成阶段由 `try_valid`、`can[2]`、`dma_start_valid[2]` 保证，apply
 只负责 patch timeline 字段。这样避免同一个 candidate trial 里重复 duration
 decode、endpoint compare 和 BW decode。
 
@@ -179,6 +180,16 @@ cross-cluster overlap 非法，因此 sweep 阶段不需要加法器。
 `has_s1/has_s3/has_s2pf` 只依赖 upstream 的 compact timeline contract：
 跳过的 DMA 由 `BW_0` 表示，合法 S2PF 由 `s2pf_valid` 表示。BW checker
 不再重复检查 `dma_end > start` 这类生产端已保证的不变量。
+
+S4PF 只在 `sched_schedule_core` 的 commit 子状态机中做一次 BW check。
+commit 阶段如果某个 cluster 的 S4 window 合法且通过 BW 检查，core 会同时：
+
+- 输出 `plan_allow_s4pf`，用于 plan FIFO enqueue 阶段生成 inline patch。
+- 直接把 `s4pf_valid/s4pf_start` 和 `PF_EID_GHOST` 写入下一轮 persistent
+  timeline/cache。
+
+因此 `sched_schedule_core` 不再在下一轮开头保留独立 ghost-injection FSM，
+也不再为同一个 S4PF window 做第二次 BW check。
 
 ## Output FIFO
 

@@ -24,8 +24,8 @@ module sched_score_unit (
   output logic                  busy_o,
   output logic                  done_o,
 
-  input  snap_timeline_t        c2_timeline_i,
-  input  snap_timeline_t        c3_timeline_i,
+  input  logic [T_W-1:0]        c2_task_end_i,
+  input  logic [T_W-1:0]        c3_task_end_i,
   input  snap_cache_t           c2_cache_i,
   input  snap_cache_t           c3_cache_i,
   input  logic [NR_W-1:0]       rem_len_i,
@@ -45,7 +45,7 @@ module sched_score_unit (
   localparam logic [T_W-1:0] INF_T = {T_W{1'b1}};
   // 状态含义：
   //   ST_IDLE           等待一个新的 candidate score 请求。
-  //   ST_SIM1_SOLO      rem_len==1 时，复用一套 mk_snap 枚举 4 个 solo 收尾。
+  //   ST_SIM1_SOLO      rem_len==1 时，复用一套 mk_timeline 枚举 4 个 solo 收尾。
   //   ST_SIM1_SPLIT_S2PF 等待 split A/B 的 S2PF 搜索完成，再更新 best cost。
   //   ST_DONE           cost_o 有效，等待 start_i 拉低后回到 IDLE。
   typedef enum logic [2:0] {
@@ -72,8 +72,9 @@ module sched_score_unit (
   logic dn_c2;
   logic sw_c3;
   logic dn_c3;
+  logic hit_c2;
+  logic hit_c3;
 
-  logic [NTOK_W:0]   split_tmp;
   logic [NTOK_W-1:0] split_a_ntok;
   logic [NTOK_W-1:0] split_b_ntok;
   logic [1:0]        split_s1a;
@@ -108,7 +109,7 @@ module sched_score_unit (
   logic [BW_W-1:0]   mk_bw_s1;
   logic [BW_W-1:0]   mk_bw_s3;
 
-  // split replay 使用两套组合 mk_snap 直接生成 A/B 两侧，不写 full snap FF。
+  // split replay 使用两套组合 mk_timeline 直接生成 A/B 两侧，不写 full snap FF。
   logic [T_W-1:0] split_a_task_start, split_a_task_end, split_a_dma1_end;
   logic [T_W-1:0] split_a_s2_end, split_a_dma3_end;
   logic [T_W-1:0] split_a_s4_start;
@@ -121,10 +122,10 @@ module sched_score_unit (
 
   snap_timeline_t split_a_snap;
   snap_timeline_t split_b_snap;
-  snap_timeline_t split_pf_a;
-  snap_timeline_t split_pf_b;
   snap_timeline_t split_bw_snap_a;
   snap_timeline_t split_bw_snap_b;
+  logic [T_W-1:0] split_a_done;
+  logic [T_W-1:0] split_b_done;
   s2pf_patch_t split_patch;
   logic       split_s2pf_start;
   logic       split_s2pf_bw_start;
@@ -218,16 +219,8 @@ module sched_score_unit (
   assign bw_start_o = split_s2pf_bw_start;
   assign bw_snap_a_o = split_bw_snap_a;
   assign bw_snap_b_o = split_bw_snap_b;
-  assign split_pf_a = apply_s2pf_patch_timeline(split_a_snap, split_patch.has_a,
-                                                split_patch.pf_start_a,
-                                                split_patch.pf_end_a,
-                                                split_patch.task_end_a,
-                                                split_s3a);
-  assign split_pf_b = apply_s2pf_patch_timeline(split_b_snap, split_patch.has_b,
-                                                split_patch.pf_start_b,
-                                                split_patch.pf_end_b,
-                                                split_patch.task_end_b,
-                                                split_s3b);
+  assign split_a_done = split_patch.has_a ? split_patch.task_end_a : split_a_snap.task_end;
+  assign split_b_done = split_patch.has_b ? split_patch.task_end_b : split_b_snap.task_end;
 
   function automatic logic [T_W-1:0] min_t(
     input logic [T_W-1:0] a,
@@ -308,20 +301,19 @@ module sched_score_unit (
   always_comb begin
     // 当前两个 cluster 的完成时间基准。tl=t_now，保留 te/tl 命名是为了
     // 对齐 C 代码中 greedy_h/continuation_cost 的表达式。
-    t_now = max_t(c2_timeline_i.task_end, c3_timeline_i.task_end);
-    te    = min_t(c2_timeline_i.task_end, c3_timeline_i.task_end);
+    t_now = max_t(c2_task_end_i, c3_task_end_i);
+    te    = min_t(c2_task_end_i, c3_task_end_i);
     tl    = t_now;
 
-    sw_c2 = swiglu_hit_t(rem0_eid_i, c2_cache_i.pf_eid, c2_cache_i.pf_end, t_now);
-    dn_c2 = down_hit_t(rem0_eid_i, c2_cache_i.pf_eid, c2_cache_i.pf_end,
-                       c2_cache_i.pf_full, t_now);
-    sw_c3 = swiglu_hit_t(rem0_eid_i, c3_cache_i.pf_eid, c3_cache_i.pf_end, t_now);
-    dn_c3 = down_hit_t(rem0_eid_i, c3_cache_i.pf_eid, c3_cache_i.pf_end,
-                       c3_cache_i.pf_full, t_now);
+    hit_c2 = swiglu_hit_t(rem0_eid_i, c2_cache_i.pf_eid, c2_cache_i.pf_end, t_now);
+    hit_c3 = swiglu_hit_t(rem0_eid_i, c3_cache_i.pf_eid, c3_cache_i.pf_end, t_now);
+    sw_c2  = hit_c2;
+    dn_c2  = hit_c2 && c2_cache_i.pf_full;
+    sw_c3  = hit_c3;
+    dn_c3  = hit_c3 && c3_cache_i.pf_full;
 
-    split_tmp    = {1'b0, rem0_ntok_i} + {{NTOK_W{1'b0}}, 1'b1};
-    split_a_ntok = NTOK_W'(split_tmp >> 1);
-    split_b_ntok = rem0_ntok_i - split_a_ntok;
+    split_a_ntok = ceil_div2_ntok(rem0_ntok_i);
+    split_b_ntok = {1'b0, rem0_ntok_i[NTOK_W-1:1]};
 
     // 默认把复用 mk_timeline 接到当前 solo_idx 对应的 solo case。
     solo_to_c3    = solo_idx_q[1];
@@ -335,7 +327,7 @@ module sched_score_unit (
     mk_skip_s1  = solo_shape_b ? 1'b0 : (solo_to_c3 ? sw_c3 : sw_c2);
     mk_skip_s3  = solo_shape_b ? 1'b0 : (solo_to_c3 ? dn_c3 : dn_c2);
 
-    // SIM1 split replay：A/B 两侧 snap 都由组合 mk_snap 直接重算出来，
+    // SIM1 split replay：A/B 两侧 timeline 都由组合 mk_timeline 直接重算出来，
     // 只在 ST_SIM1_SPLIT_S2PF 这一拍使用，不保存 full snap 临时寄存器。
     split_a_snap = '0;
     split_a_snap.valid      = (rem0_ntok_i >= NTOK_W'(2));
@@ -416,11 +408,11 @@ module sched_score_unit (
       ST_SIM1_SPLIT_S2PF: begin
         logic [T_W-1:0] split_ms;
         logic [T_W-1:0] next_best;
-        // split A/B snap 由组合 mk_snap 重算；这里只在 S2PF 搜索完成后读取结果。
+        // split A/B timeline 由组合 mk_timeline 重算；这里只在 S2PF 搜索完成后读取结果。
         split_ms  = '0;
         next_best = best_cost_q;
         if (split_s2pf_done) begin
-          split_ms  = max_t(split_pf_a.task_end, split_pf_b.task_end);
+          split_ms  = max_t(split_a_done, split_b_done);
           if (split_patch.ok) begin
             next_best = min_t(best_cost_q, split_ms);
           end

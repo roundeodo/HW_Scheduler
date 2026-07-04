@@ -57,7 +57,6 @@ CORE_RTL_SRCS := \
     $(RTL_DIR)/sched_candidate_eval_lane.sv  \
     $(RTL_DIR)/sched_candidate_generator.sv  \
     $(RTL_DIR)/sched_best_reduce.sv          \
-    $(RTL_DIR)/sched_commit_unit.sv          \
     $(RTL_DIR)/sched_plan_pack.sv            \
     $(RTL_DIR)/sched_schedule_core.sv
 

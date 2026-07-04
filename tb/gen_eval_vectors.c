@@ -144,7 +144,7 @@ static snap_t snap_idle(uint32_t t) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * mk_snap — mirrors sched_mk_snap.sv exactly
+ * mk_snap — mirrors sched_mk_timeline.sv timing exactly
  * ═══════════════════════════════════════════════════════════════════════════ */
 static snap_t mk_snap(uint32_t start, int s1, int s3,
                       uint32_t ntok, int skip_s1, int skip_s3) {
@@ -525,7 +525,7 @@ static eval_result_t eval_lane(
     r.s1b = force_b ? forced_s1b : ps1b;
     r.s3b = force_b ? forced_s3b : ps3b;
 
-    /* 2. mk_snap A/B */
+    /* 2. mk_timeline A/B */
     snap_t raw_a = base_a;
     if (side_a_valid) {
         raw_a = mk_snap(start_a, r.s1a, r.s3a, ntok_a, sw_a, dn_a);
@@ -666,7 +666,7 @@ int main(void) {
 
     int tid = 0;
 
-    /* ─── Group 1: PAIR basic — pick_shapes and mk_snap timing ──────────── */
+    /* ─── Group 1: PAIR basic — pick_shapes and mk_timeline timing ──────── */
     /* No cache hits, varying ntok; S2PF policy=off, rem_len=0 */
     {
         static const uint32_t ntoks[] = {1, 2, 4, 8, 12, 16, 32, 64};
