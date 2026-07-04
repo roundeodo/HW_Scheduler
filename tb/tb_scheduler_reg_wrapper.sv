@@ -24,7 +24,6 @@ module tb_scheduler_reg_wrapper;
   localparam logic [47:0] ADDR_STATUS    = 48'h08;
   localparam logic [47:0] ADDR_CONFIG    = 48'h10;
   localparam logic [47:0] ADDR_ROUND_COMMIT = 48'h68;
-  localparam logic [47:0] ADDR_PLAN_FIFO_STATUS = 48'h80;
   localparam logic [47:0] ADDR_HEAD_QUAD       = 48'ha8;
   localparam logic [47:0] ADDR_RESERVE_QUAD    = 48'hb0;
   localparam logic [47:0] ADDR_HEAD_PUSH_QUAD  = 48'hb8;
@@ -627,8 +626,7 @@ module tb_scheduler_reg_wrapper;
     int active_before;
     int fail_before;
 	    logic [63:0] status_word;
-	    logic [63:0] fifo_status_word;
-	    logic [63:0] plan_word [2];
+		    logic [63:0] plan_word [2];
 		    logic [1:0] remove_count;
 	    logic [1:0] plan_count;
 	    logic [1:0] plan_slot_valid;
@@ -753,11 +751,6 @@ module tb_scheduler_reg_wrapper;
 	          fail_msg("no plan/refill/done event", tid, round_idx);
 	        end
 
-		        reg_read(ADDR_PLAN_FIFO_STATUS, fifo_status_word);
-		        if (fifo_status_word[0] !== 1'b0) begin
-		          fail_msg("PLAN_FIFO_STATUS.empty asserted despite plan_valid", tid, round_idx);
-		        end
-
 		        begin
 		          int drain_entries;
 		          drain_entries = int'(status_word[39:36]);
@@ -774,11 +767,11 @@ module tb_scheduler_reg_wrapper;
 		              fail_msg("illegal plan_count", tid, round_idx);
 		            end
 
-		            if (entry == 0) begin
-		              remove_count = fifo_status_word[13:12];
-		              plan_slot_valid = fifo_status_word[17:16];
-		              exp_slot_valid = (plan_count == 2'd2) ? 2'b11 :
-		                               (plan_count == 2'd1) ? 2'b01 : 2'b00;
+            if (entry == 0) begin
+              remove_count = status_word[9:8];
+              plan_slot_valid = status_word[25:24];
+              exp_slot_valid = (plan_count == 2'd2) ? 2'b11 :
+                               (plan_count == 2'd1) ? 2'b01 : 2'b00;
 		              if (plan_slot_valid !== exp_slot_valid) begin
 		                $display("[FAIL] tid=%0d round=%0d slot_valid got=%b exp=%b",
 		                         tid, round_idx, plan_slot_valid, exp_slot_valid);

@@ -478,13 +478,9 @@ module sched_s2pf_pair (
     patch_o.has_b = best_b_pf_q;
     if (best_a_pf_q) begin
       patch_o.pf_start_a = best_a_start_q;
-      patch_o.pf_end_a   = best_a_start_q + dur_trial[SIDE_A];
-      patch_o.task_end_a = snap_a_i.s2_end + best_s4_q[SIDE_A];
     end
     if (best_b_pf_q) begin
       patch_o.pf_start_b = best_b_start_q;
-      patch_o.pf_end_b   = best_b_start_q + dur_trial[SIDE_B];
-      patch_o.task_end_b = snap_b_i.s2_end + best_s4_q[SIDE_B];
     end
   end
 

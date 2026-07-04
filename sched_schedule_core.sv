@@ -922,6 +922,16 @@ module sched_schedule_core (
   assign remove_count_o     = remove_count_q;
   assign remove_slot_mask_o = remove_slot_mask_q;
 
+`ifndef SYNTHESIS
+  always_ff @(posedge clk_i) begin
+    if (rst_ni && remove_valid_q) begin
+      assert (cand_remove_mask_legal(remove_slot_mask_q))
+        else $error("sched_schedule_core produced illegal remove_slot_mask=%b",
+                    remove_slot_mask_q);
+    end
+  end
+`endif
+
   assign plan_valid_o       = (planq_count_q != PLANQ_COUNT_W'(0));
   for (genvar q = 0; q < PLANQ_DEPTH; q++) begin : gen_planq_out
     localparam logic [PLANQ_COUNT_W-1:0] Q_COUNT = PLANQ_COUNT_W'(q);

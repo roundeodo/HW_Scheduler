@@ -4,13 +4,14 @@
 // MoE Hardware Scheduler — 1-lane candidate evaluator（Tick 域版本）
 //
 // 一个 lane 每次评估一个 candidate token：
-//   eval_req_q -> shape_q -> shared mk_timeline(A) -> raw_task_a_q
+//   token/side_q + shape_q -> shared mk_timeline(A) -> raw_task_a_q
 //              -> shared mk_timeline(B) -> raw_task_b_q
 //              -> lite S2PF policy -> bw_ok -> continuation_cost -> score_key/winner_plan
 //
 // 本模块是带 start/done 握手的单候选 evaluator。start_i 到来后先把
-// candidate token + round context 解码并裁剪成 eval_req_q，再显式经过
-// EV_PICK/EV_MK_A/EV_MK_B/S2PF/SCORE。generator 不再输出完整候选 payload。
+// candidate token + round context 解码成组合 view，只锁存 token/side/shape
+// 这些后续阶段真正需要稳定的字段，再经过 EV_MK_A/EV_MK_B/S2PF/SCORE。
+// generator 不再输出完整候选 payload。
 // 当 continuation_cost 进入 rem_len==1 的 sim1 FSM 时，本 lane 会多拍完成。
 
 import sched_pkg::*;
@@ -66,7 +67,6 @@ module sched_candidate_eval_lane (
 
   typedef struct packed {
     logic                 valid;
-    time_t                task_start;
     time_t                task_end;
     time_t                dma1_end;
     time_t                s2_end;
@@ -74,7 +74,6 @@ module sched_candidate_eval_lane (
     time_t                s4_start;
     bw_t                  bw_s1;
     bw_t                  bw_s3;
-    ntok_t                ntok;
   } task_timeline_t;
 
   task_timeline_t raw_task_a_q, raw_task_a_d;
@@ -110,6 +109,13 @@ module sched_candidate_eval_lane (
   logic [1:0] pick_s3b;
   logic       force_shape_a;
   logic       force_shape_b;
+  logic       use_pick_shapes;
+  ntok_t      pick_ntok_a;
+  ntok_t      pick_ntok_b;
+  logic       pick_sw_a;
+  logic       pick_dn_a;
+  logic       pick_sw_b;
+  logic       pick_dn_b;
   logic [1:0] forced_s1a;
   logic [1:0] forced_s3a;
   logic [1:0] forced_s1b;
@@ -124,7 +130,6 @@ module sched_candidate_eval_lane (
   typedef enum logic [3:0] {
     EV_IDLE,
     EV_LATCH,
-    EV_PICK,
     EV_MK_A,
     EV_MK_B,
     EV_S2PF_START,
@@ -135,12 +140,11 @@ module sched_candidate_eval_lane (
 
   eval_state_t ev_st_q, ev_st_d;
 
-  // eval_req_q 是 candidate_generator → eval_lane 的第一级寄存器边界。
-  // 只锁存本 lane 后续 pick/mk/s2pf/score/winner_plan 真正读取的字段；
-  // 不锁存 generator 旧式完整 payload，也不锁存 base snap，避免无意义 FF 和结构体大扇出。
+  // decode view 是 token + round context 的组合展开；req_q 只锁存跨多拍
+  // mk/s2pf/score 必须稳定的小字段。start/eid/ntok/tok_start 不进 FF，
+  // 需要时由 req_q.token 和本轮稳定的 head/base context 重建。
   typedef struct packed {
     logic                  valid;
-    cand_token_t           token;
 
     logic                  side_a_valid;
     logic                  side_b_valid;
@@ -157,9 +161,19 @@ module sched_candidate_eval_lane (
     logic                  dn_a;
     logic                  sw_b;
     logic                  dn_b;
+  } eval_dec_t;
+
+  typedef struct packed {
+    logic                  valid;
+    cand_token_t           token;
+
+    logic                  side_a_valid;
+    logic                  side_b_valid;
   } eval_req_t;
 
   eval_req_t req_q, req_d;
+  eval_dec_t cand_dec;
+  eval_dec_t req_dec;
 
   logic s2pf_score_req_active;
   s2pf_policy_t s2pf_policy_sel;
@@ -175,7 +189,6 @@ module sched_candidate_eval_lane (
   time_t token_tpts [3];
   logic token_both_idle;
   logic token_idle_is_c3;
-  logic [1:0] token_ntpts;
   time_t head_bc_comb [4];
   time_t makespan;
 
@@ -188,18 +201,21 @@ module sched_candidate_eval_lane (
   assign token_tpts[0] = token_idle_t;
   assign token_tpts[1] = early_i.t0;
   assign token_tpts[2] = early_i.t1;
-  assign token_ntpts = 2'(1 + early_i.count);
   assign head_bc_comb[0] = best_conc_ticks(head_i[0].ntok);
   assign head_bc_comb[1] = best_conc_ticks(head_i[1].ntok);
   assign head_bc_comb[2] = best_conc_ticks(head_i[2].ntok);
   assign head_bc_comb[3] = best_conc_ticks(head_i[3].ntok);
 
-  function automatic snap_timeline_t task_to_snap(input task_timeline_t t);
+  function automatic snap_timeline_t task_to_snap(
+    input task_timeline_t t,
+    input time_t          task_start,
+    input ntok_t          ntok
+  );
     snap_timeline_t s;
     begin
       s = '0;
       s.valid      = t.valid;
-      s.task_start = t.task_start;
+      s.task_start = task_start;
       s.task_end   = t.task_end;
       s.dma1_end   = t.dma1_end;
       s.s2_end     = t.s2_end;
@@ -207,7 +223,7 @@ module sched_candidate_eval_lane (
       s.s4_start   = t.s4_start;
       s.bw_s1      = t.bw_s1;
       s.bw_s3      = t.bw_s3;
-      s.ntok       = t.ntok;
+      s.ntok       = ntok;
       task_to_snap = s;
     end
   endfunction
@@ -317,7 +333,7 @@ module sched_candidate_eval_lane (
 
   task automatic decode_token(
     input  cand_token_t token,
-    output eval_req_t   req
+    output eval_dec_t   req
   );
     logic [3:0] solo_slot;
     logic       solo_to_c3;
@@ -328,7 +344,6 @@ module sched_candidate_eval_lane (
     begin
       req = '0;
       req.valid = token.valid;
-      req.token = token;
 
       unique case (token.mode)
         CAND_MODE_SINGLE: begin
@@ -342,19 +357,19 @@ module sched_candidate_eval_lane (
 
           if (token.id < CAND_ID_W'(SINGLE_SOLO_COUNT)) begin
             if (!solo_to_c3) begin
-              req.side_a_valid = head_i[0].valid;
+              req.side_a_valid = token.valid;
               req.start_a = base_timeline_a_i.task_end;
               req.eid_a = head_i[0].eid;
               req.ntok_a = head_i[0].ntok;
             end else begin
-              req.side_b_valid = head_i[0].valid;
+              req.side_b_valid = token.valid;
               req.start_b = base_timeline_b_i.task_end;
               req.eid_b = head_i[0].eid;
               req.ntok_b = head_i[0].ntok;
             end
           end else if (token.id == CAND_ID_W'(SINGLE_SPLIT_ID)) begin
             cut = cand_single_split_cut(head_i[0].ntok);
-            req.side_a_valid = cand_single_split_valid(head_i[0].ntok);
+            req.side_a_valid = token.valid;
             req.side_b_valid = req.side_a_valid;
             req.start_a = token_tnow;
             req.start_b = token_tnow;
@@ -364,8 +379,7 @@ module sched_candidate_eval_lane (
             req.ntok_b = head_i[0].ntok - cut;
             req.tok_start_b = cut;
           end else begin
-            req.valid = token.valid && !token_both_idle && head_i[0].valid &&
-                        (early_tpt_idx < token_ntpts);
+            req.valid = token.valid;
             if (!token_idle_is_c3) begin
               req.side_a_valid = req.valid;
               req.start_a = token_tpts[early_tpt_idx];
@@ -398,7 +412,7 @@ module sched_candidate_eval_lane (
                 slot_b = 2'd3;
               end
             endcase
-            req.side_a_valid = token.valid && head_i[slot_a].valid && head_i[slot_b].valid;
+            req.side_a_valid = token.valid;
             req.side_b_valid = req.side_a_valid;
             req.eid_a = head_i[slot_a].eid;
             req.eid_b = head_i[slot_b].eid;
@@ -406,8 +420,7 @@ module sched_candidate_eval_lane (
             req.ntok_b = head_i[slot_b].ntok;
           end else begin
             cut = cand_both_split_cut(head_i[0].ntok, token.id);
-            req.side_a_valid = cand_both_split_valid(head_i[0].ntok, token.id) &&
-                               (cut > '0) && (cut < head_i[0].ntok);
+            req.side_a_valid = token.valid;
             req.side_b_valid = req.side_a_valid;
             req.eid_a = head_i[0].eid;
             req.eid_b = head_i[0].eid;
@@ -418,7 +431,7 @@ module sched_candidate_eval_lane (
         end
 
         CAND_MODE_NOT_BOTH: begin
-          req.valid = token.valid && head_i[0].valid && (token.id < CAND_ID_W'(token_ntpts));
+          req.valid = token.valid;
           if (!token_idle_is_c3) begin
             req.side_a_valid = req.valid;
             req.start_a = token_tpts[token.id[1:0]];
@@ -437,7 +450,6 @@ module sched_candidate_eval_lane (
         end
       endcase
 
-      req.valid = req.valid && (req.side_a_valid || req.side_b_valid);
       req.sw_a = req.side_a_valid &&
                  swiglu_hit_t(req.eid_a, base_cache_a_i.pf_eid,
                               base_cache_a_i.pf_end, req.start_a);
@@ -546,14 +558,30 @@ module sched_candidate_eval_lane (
     end
   endtask
 
+  always_comb begin
+    decode_token(cand_i, cand_dec);
+    decode_token(req_q.token, req_dec);
+  end
+
+  // pick_shapes 只对双侧有效、且没有 forced solo/early shape 的 candidate 有意义。
+  // forced-shape token 不驱动 pick 的 ntok/cache-hit 比较网络，减少无效切换和 fanout。
+  assign use_pick_shapes = cand_dec.side_a_valid && cand_dec.side_b_valid &&
+                           !force_shape_a && !force_shape_b;
+  assign pick_ntok_a = use_pick_shapes ? cand_dec.ntok_a : '0;
+  assign pick_ntok_b = use_pick_shapes ? cand_dec.ntok_b : '0;
+  assign pick_sw_a   = use_pick_shapes ? cand_dec.sw_a   : 1'b0;
+  assign pick_dn_a   = use_pick_shapes ? cand_dec.dn_a   : 1'b0;
+  assign pick_sw_b   = use_pick_shapes ? cand_dec.sw_b   : 1'b0;
+  assign pick_dn_b   = use_pick_shapes ? cand_dec.dn_b   : 1'b0;
+
   // ── pick_shapes 实例 ─────────────────────────────────────────────────────
   sched_pick_shapes i_pick_shapes (
-    .ntok_a_i (req_q.ntok_a),
-    .ntok_b_i (req_q.ntok_b),
-    .sw_a_i   (req_q.sw_a),
-    .dn_a_i   (req_q.dn_a),
-    .sw_b_i   (req_q.sw_b),
-    .dn_b_i   (req_q.dn_b),
+    .ntok_a_i (pick_ntok_a),
+    .ntok_b_i (pick_ntok_b),
+    .sw_a_i   (pick_sw_a),
+    .dn_a_i   (pick_dn_a),
+    .sw_b_i   (pick_sw_b),
+    .dn_b_i   (pick_dn_b),
     .s1a_o    (pick_s1a),
     .s3a_o    (pick_s3a),
     .s1b_o    (pick_s1b),
@@ -561,18 +589,18 @@ module sched_candidate_eval_lane (
   );
 
   always_comb begin
-    decode_shape_override(req_q.token, force_shape_a, forced_s1a, forced_s3a,
+    decode_shape_override(cand_i, force_shape_a, forced_s1a, forced_s3a,
                           force_shape_b, forced_s1b, forced_s3b);
   end
 
   // ── shared mk_timeline：EV_MK_A/EV_MK_B 两拍复用同一套组合逻辑 ─────────────
   assign mk_side_b   = (ev_st_q == EV_MK_B);
-  assign mk_start_t  = mk_side_b ? req_q.start_b : req_q.start_a;
-  assign mk_ntok     = mk_side_b ? req_q.ntok_b  : req_q.ntok_a;
+  assign mk_start_t  = mk_side_b ? req_dec.start_b : req_dec.start_a;
+  assign mk_ntok     = mk_side_b ? req_dec.ntok_b  : req_dec.ntok_a;
   assign mk_shape_s1 = mk_side_b ? shape_s1b_q   : shape_s1a_q;
   assign mk_shape_s3 = mk_side_b ? shape_s3b_q   : shape_s3a_q;
-  assign mk_skip_s1  = mk_side_b ? req_q.sw_b    : req_q.sw_a;
-  assign mk_skip_s3  = mk_side_b ? req_q.dn_b    : req_q.dn_a;
+  assign mk_skip_s1  = mk_side_b ? req_dec.sw_b    : req_dec.sw_a;
+  assign mk_skip_s3  = mk_side_b ? req_dec.dn_b    : req_dec.dn_a;
 
   sched_mk_timeline i_mk_timeline (
     .start_t_i     (mk_start_t),
@@ -630,18 +658,22 @@ module sched_candidate_eval_lane (
   );
 
   assign cand_patch = (ev_st_q == EV_WAIT_S2PF) ? s2pf_patch : cand_s2pf_patch_q;
-  assign raw_timeline_a = req_q.side_a_valid ? task_to_snap(raw_task_a_q) :
+  assign raw_timeline_a = req_q.side_a_valid ?
+                                               task_to_snap(raw_task_a_q,
+                                                            req_dec.start_a,
+                                                            req_dec.ntok_a) :
                                                base_timeline_a_i;
-  assign raw_timeline_b = req_q.side_b_valid ? task_to_snap(raw_task_b_q) :
+  assign raw_timeline_b = req_q.side_b_valid ?
+                                               task_to_snap(raw_task_b_q,
+                                                            req_dec.start_b,
+                                                            req_dec.ntok_b) :
                                                base_timeline_b_i;
   assign score_cache_a = req_q.side_a_valid ? empty_cache() : base_cache_a_i;
   assign score_cache_b = req_q.side_b_valid ? empty_cache() : base_cache_b_i;
   assign post_s2pf_a_timeline = apply_s2pf_patch_timeline(
-      raw_timeline_a, cand_patch.has_a, cand_patch.pf_start_a,
-      cand_patch.pf_end_a, cand_patch.task_end_a, shape_s3a_q);
+      raw_timeline_a, cand_patch.has_a, cand_patch.pf_start_a, shape_s3a_q);
   assign post_s2pf_b_timeline = apply_s2pf_patch_timeline(
-      raw_timeline_b, cand_patch.has_b, cand_patch.pf_start_b,
-      cand_patch.pf_end_b, cand_patch.task_end_b, shape_s3b_q);
+      raw_timeline_b, cand_patch.has_b, cand_patch.pf_start_b, shape_s3b_q);
 
   assign eval_candidate_ok = req_q.valid && cand_patch.ok &&
                              (req_q.side_a_valid || req_q.side_b_valid);
@@ -700,29 +732,28 @@ module sched_candidate_eval_lane (
       end
 
       EV_LATCH: begin
-          decode_token(cand_i, req_d);
+        req_d = '0;
+        req_d.valid        = cand_dec.valid;
+        req_d.token        = cand_i;
+        req_d.side_a_valid = cand_dec.side_a_valid;
+        req_d.side_b_valid = cand_dec.side_b_valid;
 
-          if (req_d.valid) begin
-            ev_st_d = EV_PICK;
-          end else begin
-            result_valid_d = 1'b0;
-            ev_st_d = EV_DONE;
-          end
-      end
-
-      EV_PICK: begin
-        shape_s1a_d = force_shape_a ? forced_s1a : pick_s1a;
-        shape_s3a_d = force_shape_a ? forced_s3a : pick_s3a;
-        shape_s1b_d = force_shape_b ? forced_s1b : pick_s1b;
-        shape_s3b_d = force_shape_b ? forced_s3b : pick_s3b;
-        ev_st_d = EV_MK_A;
+        if (cand_dec.valid) begin
+          shape_s1a_d = force_shape_a ? forced_s1a : pick_s1a;
+          shape_s3a_d = force_shape_a ? forced_s3a : pick_s3a;
+          shape_s1b_d = force_shape_b ? forced_s1b : pick_s1b;
+          shape_s3b_d = force_shape_b ? forced_s3b : pick_s3b;
+          ev_st_d = EV_MK_A;
+        end else begin
+          result_valid_d = 1'b0;
+          ev_st_d = EV_DONE;
+        end
       end
 
       EV_MK_A: begin
         raw_task_a_d = '0;
         if (req_q.side_a_valid) begin
           raw_task_a_d.valid      = 1'b1;
-          raw_task_a_d.task_start = mk_task_start;
           raw_task_a_d.task_end   = mk_task_end;
           raw_task_a_d.dma1_end   = mk_dma1_end;
           raw_task_a_d.s2_end     = mk_s2_end;
@@ -730,7 +761,6 @@ module sched_candidate_eval_lane (
           raw_task_a_d.s4_start   = mk_s4_start;
           raw_task_a_d.bw_s1      = mk_bw_s1;
           raw_task_a_d.bw_s3      = mk_bw_s3;
-          raw_task_a_d.ntok       = req_q.ntok_a;
         end
         ev_st_d = EV_MK_B;
       end
@@ -739,7 +769,6 @@ module sched_candidate_eval_lane (
         raw_task_b_d = '0;
         if (req_q.side_b_valid) begin
           raw_task_b_d.valid      = 1'b1;
-          raw_task_b_d.task_start = mk_task_start;
           raw_task_b_d.task_end   = mk_task_end;
           raw_task_b_d.dma1_end   = mk_dma1_end;
           raw_task_b_d.s2_end     = mk_s2_end;
@@ -747,7 +776,6 @@ module sched_candidate_eval_lane (
           raw_task_b_d.s4_start   = mk_s4_start;
           raw_task_b_d.bw_s1      = mk_bw_s1;
           raw_task_b_d.bw_s3      = mk_bw_s3;
-          raw_task_b_d.ntok       = req_q.ntok_b;
         end
         ev_st_d = EV_S2PF_START;
       end
@@ -832,13 +860,13 @@ module sched_candidate_eval_lane (
 
     winner_plan_o = '0;
     if (req_q.side_a_valid) begin
-      put_plan_slot(winner_plan_o, 1'b0, 1'b0, req_q.eid_a, req_q.ntok_a,
-                    req_q.tok_start_a, shape_s1a_q, shape_s3a_q,
+      put_plan_slot(winner_plan_o, 1'b0, 1'b0, req_dec.eid_a, req_dec.ntok_a,
+                    req_dec.tok_start_a, shape_s1a_q, shape_s3a_q,
                     post_s2pf_a_timeline);
     end
     if (req_q.side_b_valid) begin
-      put_plan_slot(winner_plan_o, req_q.side_a_valid, 1'b1, req_q.eid_b,
-                    req_q.ntok_b, req_q.tok_start_b, shape_s1b_q, shape_s3b_q,
+      put_plan_slot(winner_plan_o, req_q.side_a_valid, 1'b1, req_dec.eid_b,
+                    req_dec.ntok_b, req_dec.tok_start_b, shape_s1b_q, shape_s3b_q,
                     post_s2pf_b_timeline);
     end
     winner_plan_o.valid = (req_q.side_a_valid && req_q.side_b_valid) ? 2'b11 :

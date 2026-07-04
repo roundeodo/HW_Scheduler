@@ -328,8 +328,12 @@ module tb_schedule_core;
         start_i = 1'b0;
 
         cycles = 0;
-        while ((done_o !== 1'b1) && (cycles < ROUND_TIMEOUT)) begin
+        while (cycles < ROUND_TIMEOUT) begin
           @(posedge clk_i);
+          #1;
+          if (done_o === 1'b1) begin
+            break;
+          end
           cycles++;
         end
         if (done_o !== 1'b1) begin
@@ -339,7 +343,6 @@ module tb_schedule_core;
           return;
         end
 
-        @(negedge clk_i);
         if (remove_valid_o !== 1'b1) begin
           fail_msg("remove_valid_o not asserted", tid, round_idx);
         end
@@ -348,6 +351,12 @@ module tb_schedule_core;
         end
         if ((plan_count_o[0] == 2'd0) || (plan_count_o[0] > 2'd2)) begin
           fail_msg("illegal plan_count_o", tid, round_idx);
+        end
+        if ((remove_valid_o !== 1'b1) || (plan_valid_o !== 1'b1) ||
+            (plan_count_o[0] == 2'd0) || (plan_count_o[0] > 2'd2)) begin
+          $display("[FAIL] tid=%0d round=%0d aborting test after invalid core event active=%0d done=%0b busy=%0b",
+                   tid, round_idx, active_before, done_o, busy_o);
+          return;
         end
 
         exp_slot_valid = (plan_count_o[0] == 2'd2) ? 2'b11 :
@@ -476,6 +485,8 @@ module tb_schedule_core;
     int f_has_s2pf;
     int f_allow_s4pf;
     int before_fail;
+    int start_tid;
+    int stop_tid;
 
     total_tests = 0;
     total_pass = 0;
@@ -506,6 +517,10 @@ module tb_schedule_core;
     if ($fscanf(fd, "%d", n_tests) != 1) begin
       $fatal(1, "[FAIL] cannot read test count from %s", VEC_FILE);
     end
+    start_tid = 0;
+    stop_tid = n_tests;
+    void'($value$plusargs("START_TID=%d", start_tid));
+    void'($value$plusargs("STOP_TID=%d", stop_tid));
 
     for (int t = 0; t < n_tests; t++) begin
       before_fail = total_fail;
@@ -550,6 +565,10 @@ module tb_schedule_core;
         golden_plan[i].desc.skip_s3 = f_skip_s3[0];
         golden_plan[i].desc.has_s2pf = f_has_s2pf[0];
         golden_plan[i].allow_s4pf   = f_allow_s4pf[0];
+      end
+
+      if ((tid < start_tid) || (tid >= stop_tid)) begin
+        continue;
       end
 
       run_one_test(tid, n_experts, cache_c2, cache_c3, golden_n);

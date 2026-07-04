@@ -10,10 +10,10 @@
 //   2. 输入窗口管理：保存当前 top4 head 和 reserve[4]，每轮 commit 后 compact/refill。
 //   3. 自动连续运行：一轮 done 后，如果 head/reserve 足够，自动启动下一轮。
 //   4. 输出 FIFO 暴露：把 schedule_core 的 depth=4 plan queue 映射成 indexed MMIO entry。
-//   5. S4PF inline patch：CVA6 读 plan entry 时，为上一条 allow_s4pf task 补目标 task slot。
 //
-// 后续若要降低逻辑深度，优先优化第 4/5 项：把 read-time 推导改成 enqueue-time
-// 预计算，而不是继续增加 read mux 上的组合逻辑。
+// S4PF inline patch 已在 sched_schedule_core enqueue plan entry 时生成并写进
+// PLAN_ENTRY_DATAx[63:56]。wrapper read path 只做 indexed mux，不再做 read-time
+// walk 或 patch 推导。
 //
 // The SoC side is expected to use:
 //   soc_narrow_xbar.out_moe_scheduler -> atomic filter -> axi_to_reg -> this module
@@ -31,10 +31,6 @@
 //   0x10 CONFIG    R/W: bits[7:0] cache_eid_c2, bits[15:8] cache_eid_c3,
 //                       bits[16 +: NR_W] active_count, bits[32 +: T_W] total_conc
 //   0x68 ROUND_COMMIT W: bits[2:0] pop_count
-//   0x80 PLAN_FIFO_STATUS R: bit0 empty, bit1 full, bits[5:2] queue_count,
-//                            bits[9:8] head_plan_count,
-//                            bits[13:12] head_remove_count,
-//                            bits[17:16] head_slot_valid
 //   0xa8 HEAD_QUAD        W: compact head16 x4 for initial top4
 //   0xb0 RESERVE_QUAD     W: compact head16 x4 for initial reserve[4]
 //   0xb8 HEAD_PUSH_QUAD   W: compact head16 x4 appended to reserve[4]
@@ -80,7 +76,6 @@ module moe_scheduler_reg_wrapper
   localparam logic [5:0] REG_STATUS           = 6'h01;
   localparam logic [5:0] REG_CONFIG           = 6'h02;
   localparam logic [5:0] REG_ROUND_COMMIT     = 6'h0d;
-  localparam logic [5:0] REG_PLAN_FIFO_STATUS = 6'h10;
   localparam logic [5:0] REG_HEAD_QUAD        = 6'h15;
   localparam logic [5:0] REG_RESERVE_QUAD     = 6'h16;
   localparam logic [5:0] REG_HEAD_PUSH_QUAD   = 6'h17;
@@ -304,6 +299,8 @@ module moe_scheduler_reg_wrapper
         removed_conc    = {2'b0, head_bc_comb[2]} + {2'b0, head_bc_comb[3]};
       end
       default: begin
+        // 非法 remove mask。正常 fast path 只允许
+        // 0001/0011/0110/1100；这里仅保持组合默认值，避免 latch。
         compact_head = head_q;
         keep_count   = head_count_q;
         removed_conc = '0;
@@ -553,18 +550,6 @@ module moe_scheduler_reg_wrapper
         rd_data[16 +: NR_W]    = active_count_q;
         rd_data[32 +: T_W]     = total_conc_q;
       end
-      REG_PLAN_FIFO_STATUS: begin
-        // 旧版/调试用的 FIFO 状态摘要。当前 fast path 通常读 REG_STATUS 即可。
-        rd_data[0]      = !plan_valid;
-        rd_data[1]      = plan_queue_full;
-        rd_data[5:2]    = plan_fifo_count;
-        rd_data[9:8]    = plan_count[0];
-        rd_data[17:16]  = plan_slot_valid[0];
-        rd_data[21:18]  = {1'b0, reserve_count_q};
-        rd_data[22]     = refill_req;
-        rd_data[27:24]  = refill_count;
-        rd_data[28]     = (active_count_q == NR_W'(0));
-      end
       REG_ROUND_COMMIT, REG_HEAD_QUAD, REG_RESERVE_QUAD, REG_HEAD_PUSH_QUAD: begin
         // 这些是 write-only command/data register，读回 0。
         rd_data = '0;
@@ -587,6 +572,16 @@ module moe_scheduler_reg_wrapper
   assign reg_rsp_o.rdata = rd_data;
   assign reg_rsp_o.error = reg_req_i.valid && !addr_hit;
   assign reg_rsp_o.ready = 1'b1;
+
+`ifndef SYNTHESIS
+  always_ff @(posedge clk_i) begin
+    if (rst_ni && remove_ready_pulse) begin
+      assert (sched_candidate_pkg::cand_remove_mask_legal(remove_slot_mask))
+        else $error("moe_scheduler_reg_wrapper received illegal remove_slot_mask=%b",
+                    remove_slot_mask);
+    end
+  end
+`endif
 
   // ────────────────────────────────────────────────────────────────────────
   // 13. Scheduler datapath core

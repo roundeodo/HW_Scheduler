@@ -1,10 +1,10 @@
 # Makefile — scheduler RTL testbenches
 #
 # Workflow:
-#   make          → compile C generator, generate vectors, run QuestaSim
-#   make gen      → generate vectors only
-#   make compile  → vlog/vopt only
-#   make sim      → run simulation only (assumes compile + gen done)
+#   make                         → run schedule-core regression flow
+#   make verify-schedule-core    → generate schedule vectors, compile core TB, run
+#   make verify-scheduler-reg-wrapper
+#                                → generate schedule vectors, compile wrapper TB, run
 #   make clean    → remove build artefacts
 #
 # Prerequisites on the server:
@@ -21,23 +21,8 @@ CFLAGS  := -std=c99 -O2 -Wall -Wextra
 
 VLOG    := vlog
 VSIM    := vsim
+VSIM_PLUSARGS ?=
 
-# RTL source list (order: package first, then primitives, then top)
-RTL_SRCS := \
-    $(RTL_DIR)/sched_pkg.sv          \
-    $(RTL_DIR)/sched_candidate_pkg.sv \
-    $(RTL_DIR)/sched_bw_ok_seq.sv    \
-    $(RTL_DIR)/sched_mk_timeline.sv      \
-    $(RTL_DIR)/sched_pick_shapes.sv  \
-    $(RTL_DIR)/sched_s2pf_pair.sv    \
-    $(RTL_DIR)/sched_score_unit.sv   \
-    $(RTL_DIR)/sched_candidate_eval_lane.sv
-
-TB_SRCS := $(TB_DIR)/tb_eval_lane.sv
-
-VEC_FILE  := eval_vectors.txt
-GEN_BIN   := gen_eval_vectors
-GEN_SRC   := $(TB_DIR)/gen_eval_vectors.c
 VERIFY_BIN := verify_compact_lowering
 VERIFY_SRC := $(TB_DIR)/verify_compact_lowering.c
 SCHED_VEC_FILE := schedule_vectors.txt
@@ -64,34 +49,9 @@ SCHED_TB_SRCS := $(TB_DIR)/tb_schedule_core.sv
 WRAPPER_RTL_SRCS := $(CORE_RTL_SRCS) $(RTL_DIR)/moe_scheduler_reg_wrapper.sv
 WRAPPER_TB_SRCS := $(TB_DIR)/tb_scheduler_reg_wrapper.sv
 
-.PHONY: all gen compile sim verify-lowering schedule-gen schedule-compile schedule-sim verify-schedule-core wrapper-compile wrapper-sim verify-scheduler-reg-wrapper clean
+.PHONY: all verify-lowering schedule-gen schedule-compile schedule-sim verify-schedule-core wrapper-compile wrapper-sim verify-scheduler-reg-wrapper clean
 
-all: gen compile sim
-
-# ── Step 1: build C generator ────────────────────────────────────────────────
-$(GEN_BIN): $(GEN_SRC)
-	$(CC) $(CFLAGS) -o $@ $<
-
-# ── Step 2: run generator → produce eval_vectors.txt ────────────────────────
-gen: $(GEN_BIN)
-	./$(GEN_BIN) > $(VEC_FILE)
-	@echo "[GEN] $(VEC_FILE) ready ($$(wc -l < $(VEC_FILE)) vectors)"
-
-# ── Step 3: compile RTL + TB with QuestaSim ──────────────────────────────────
-compile: $(RTL_SRCS) $(TB_SRCS)
-	$(VLOG) -work $(WORK) -sv \
-	    +acc \
-	    $(RTL_SRCS) $(TB_SRCS)
-
-# ── Step 4: run simulation ────────────────────────────────────────────────────
-sim:
-	$(VSIM) -batch \
-	    -work $(WORK) \
-	    tb_eval_lane \
-	    -do "run -all; quit -f" \
-	    -logfile sim.log
-	@echo ""
-	@grep -E "PASS|FAIL|RESULT|══" sim.log || true
+all: verify-schedule-core
 
 verify-lowering: $(VERIFY_SRC) $(SCHED_C)
 	$(CC) $(CFLAGS) -DMOE_SCHEDULER_ENABLE_LEGACY_CHECK \
@@ -114,7 +74,7 @@ schedule-compile: $(CORE_RTL_SRCS) $(SCHED_TB_SRCS)
 schedule-sim:
 	$(VSIM) -batch \
 	    -work $(WORK) \
-	    tb_schedule_core \
+	    tb_schedule_core $(VSIM_PLUSARGS) \
 	    -do "run -all; quit -f" \
 	    -logfile schedule_core_sim.log
 	@echo ""
@@ -130,7 +90,7 @@ wrapper-compile: $(WRAPPER_RTL_SRCS) $(WRAPPER_TB_SRCS)
 wrapper-sim:
 	$(VSIM) -batch \
 	    -work $(WORK) \
-	    tb_scheduler_reg_wrapper \
+	    tb_scheduler_reg_wrapper $(VSIM_PLUSARGS) \
 	    -do "run -all; quit -f" \
 	    -logfile scheduler_reg_wrapper_sim.log
 	@echo ""
@@ -140,7 +100,7 @@ verify-scheduler-reg-wrapper: schedule-gen wrapper-compile wrapper-sim
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
-	rm -rf $(WORK) $(GEN_BIN) $(VERIFY_BIN) $(SCHED_GEN_BIN) \
-	    $(VEC_FILE) $(SCHED_VEC_FILE) sim.log schedule_core_sim.log \
+	rm -rf $(WORK) $(VERIFY_BIN) $(SCHED_GEN_BIN) \
+	    $(SCHED_VEC_FILE) schedule_core_sim.log \
 	    scheduler_reg_wrapper_sim.log transcript
 	rm -f modelsim.ini

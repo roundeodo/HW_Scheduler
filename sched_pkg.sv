@@ -204,34 +204,30 @@ package sched_pkg;
     logic                 ok;
     logic                 has_a;
     time_t                pf_start_a;
-    time_t                pf_end_a;
-    time_t                task_end_a;
     logic                 has_b;
     time_t                pf_start_b;
-    time_t                pf_end_b;
-    time_t                task_end_b;
   } s2pf_patch_t;
 
   function automatic snap_timeline_t apply_s2pf_patch_timeline(
     input snap_timeline_t sn,
     input logic           has_pf,
     input time_t          pf_start,
-    input time_t          pf_end,
-    input time_t          task_end,
     input shape_t         shape_s3
   );
     snap_timeline_t ret;
+    time_t          pf_dur;
     begin
       ret = sn;
+      pf_dur = (shape_s3 == SHAPE_C) ? time_t'(1) : time_t'(2);
       if (has_pf) begin
         ret.s2pf_valid = 1'b1;
         ret.s2pf_start = pf_start;
-        ret.s2pf_end   = pf_end;
+        ret.s2pf_end   = pf_start + pf_dur;
         ret.s2pf_bw    = shape_bw(shape_s3);
         ret.dma3_end   = sn.s2_end;
         ret.s4_start   = sn.s2_end;
         ret.bw_s3      = BW_0;
-        ret.task_end   = task_end;
+        ret.task_end   = sn.s2_end + time_t'(best_s4_ticks(sn.ntok));
       end
       apply_s2pf_patch_timeline = ret;
     end

@@ -100,4 +100,11 @@ package sched_candidate_pkg;
     endcase
   endfunction
 
+  function automatic logic cand_remove_mask_legal(input logic [3:0] mask);
+    cand_remove_mask_legal = (mask == 4'b0001) ||
+                             (mask == 4'b0011) ||
+                             (mask == 4'b0110) ||
+                             (mask == 4'b1100);
+  endfunction
+
 endpackage

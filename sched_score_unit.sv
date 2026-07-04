@@ -197,9 +197,11 @@ module sched_score_unit (
   assign split_s2pf_snap_b_o = split_b_snap;
   assign split_s2pf_shape_s3_a_o = split_s3a;
   assign split_s2pf_shape_s3_b_o = split_s3b;
-  assign split_a_done = split_s2pf_patch_i.has_a ? split_s2pf_patch_i.task_end_a :
+  assign split_a_done = split_s2pf_patch_i.has_a ?
+                                                    (split_a_snap.s2_end + time_t'(best_s4_ticks(split_a_snap.ntok))) :
                                                     split_a_snap.task_end;
-  assign split_b_done = split_s2pf_patch_i.has_b ? split_s2pf_patch_i.task_end_b :
+  assign split_b_done = split_s2pf_patch_i.has_b ?
+                                                    (split_b_snap.s2_end + time_t'(best_s4_ticks(split_b_snap.ntok))) :
                                                     split_b_snap.task_end;
 
   function automatic logic [T_W-1:0] min_t(
