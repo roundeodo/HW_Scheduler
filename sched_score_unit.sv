@@ -34,11 +34,13 @@ module sched_score_unit (
   input  logic [NTOK_W-1:0]     rem1_ntok_i,
   input  logic [T_W-1:0]        total_conc_i,
   input  logic [T_W-1:0]        max_conc_i,
-  output logic                  bw_start_o,
-  output snap_timeline_t        bw_snap_a_o,
-  output snap_timeline_t        bw_snap_b_o,
-  input  logic                  bw_done_i,
-  input  logic                  bw_ok_i,
+  output logic                  split_s2pf_start_o,
+  output snap_timeline_t        split_s2pf_snap_a_o,
+  output snap_timeline_t        split_s2pf_snap_b_o,
+  output shape_t                split_s2pf_shape_s3_a_o,
+  output shape_t                split_s2pf_shape_s3_b_o,
+  input  logic                  split_s2pf_done_i,
+  input  s2pf_patch_t           split_s2pf_patch_i,
   output logic [T_W-1:0]        cost_o
 );
 
@@ -122,14 +124,9 @@ module sched_score_unit (
 
   snap_timeline_t split_a_snap;
   snap_timeline_t split_b_snap;
-  snap_timeline_t split_bw_snap_a;
-  snap_timeline_t split_bw_snap_b;
   logic [T_W-1:0] split_a_done;
   logic [T_W-1:0] split_b_done;
-  s2pf_patch_t split_patch;
   logic       split_s2pf_start;
-  logic       split_s2pf_bw_start;
-  logic       split_s2pf_done;
 
   sched_pick_shapes i_sim1_split_pick_shapes (
     .ntok_a_i (split_a_ntok),
@@ -195,32 +192,15 @@ module sched_score_unit (
     .bw_s3_o       (split_b_bw_s3)
   );
 
-  sched_s2pf_pair i_sim1_split_s2pf (
-    .clk_i                (clk_i),
-    .rst_ni               (rst_ni),
-    .start_i              (split_s2pf_start),
-    .busy_o               (),
-    .done_o               (split_s2pf_done),
-    .policy_i             (S2PF_SPLIT_LITE),
-    .side_a_active_i      (split_a_snap.valid),
-    .side_b_active_i      (split_b_snap.valid),
-    .shape_s3_a_i         (split_s3a),
-    .shape_s3_b_i         (split_s3b),
-    .snap_a_i             (split_a_snap),
-    .snap_b_i             (split_b_snap),
-    .bw_start_o           (split_s2pf_bw_start),
-    .bw_snap_a_o          (split_bw_snap_a),
-    .bw_snap_b_o          (split_bw_snap_b),
-    .bw_done_i            (bw_done_i),
-    .bw_ok_i              (bw_ok_i),
-    .patch_o              (split_patch)
-  );
-
-  assign bw_start_o = split_s2pf_bw_start;
-  assign bw_snap_a_o = split_bw_snap_a;
-  assign bw_snap_b_o = split_bw_snap_b;
-  assign split_a_done = split_patch.has_a ? split_patch.task_end_a : split_a_snap.task_end;
-  assign split_b_done = split_patch.has_b ? split_patch.task_end_b : split_b_snap.task_end;
+  assign split_s2pf_start_o = split_s2pf_start;
+  assign split_s2pf_snap_a_o = split_a_snap;
+  assign split_s2pf_snap_b_o = split_b_snap;
+  assign split_s2pf_shape_s3_a_o = split_s3a;
+  assign split_s2pf_shape_s3_b_o = split_s3b;
+  assign split_a_done = split_s2pf_patch_i.has_a ? split_s2pf_patch_i.task_end_a :
+                                                    split_a_snap.task_end;
+  assign split_b_done = split_s2pf_patch_i.has_b ? split_s2pf_patch_i.task_end_b :
+                                                    split_b_snap.task_end;
 
   function automatic logic [T_W-1:0] min_t(
     input logic [T_W-1:0] a,
@@ -411,9 +391,9 @@ module sched_score_unit (
         // split A/B timeline 由组合 mk_timeline 重算；这里只在 S2PF 搜索完成后读取结果。
         split_ms  = '0;
         next_best = best_cost_q;
-        if (split_s2pf_done) begin
+        if (split_s2pf_done_i) begin
           split_ms  = max_t(split_a_done, split_b_done);
-          if (split_patch.ok) begin
+          if (split_s2pf_patch_i.ok) begin
             next_best = min_t(best_cost_q, split_ms);
           end
           cost_d = (next_best == INF_T) ?

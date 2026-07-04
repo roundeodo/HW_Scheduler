@@ -244,15 +244,25 @@ module tb_scheduler_reg_wrapper;
     end
   endfunction
 
+  function automatic ntok_t tb_shape_mdim(input shape_t shape);
+    begin
+      unique case (shape)
+        SHAPE_A: tb_shape_mdim = ntok_t'(8);
+        SHAPE_B: tb_shape_mdim = ntok_t'(4);
+        default: tb_shape_mdim = ntok_t'(2);
+      endcase
+    end
+  endfunction
+
   function automatic tb_plan_scalar_t scalar_from_task(input task_desc_t t);
     tb_plan_scalar_t s;
     ntok_t tail_s2;
     ntok_t tail_s4;
     begin
       tail_s2 = t.skip_s1 ? t.ntok :
-                ((t.ntok > shape_mdim(t.s1)) ? (t.ntok - shape_mdim(t.s1)) : '0);
+                ((t.ntok > tb_shape_mdim(t.s1)) ? (t.ntok - tb_shape_mdim(t.s1)) : '0);
       tail_s4 = t.skip_s3 ? t.ntok :
-                ((t.ntok > shape_mdim(t.s3)) ? (t.ntok - shape_mdim(t.s3)) : '0);
+                ((t.ntok > tb_shape_mdim(t.s3)) ? (t.ntok - tb_shape_mdim(t.s3)) : '0);
       s.m_s2_exec = ceil_div2_ntok(tail_s2);
       s.m_s4_exec = ceil_div2_ntok(tail_s4);
       scalar_from_task = s;

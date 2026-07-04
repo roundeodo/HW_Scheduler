@@ -6,10 +6,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // 时间域选择：Tick 域（÷11264 cc）
 //
-// 算法中所有时序常数均是 11264 cc 的整数倍：
-//   shape_ts1[A]=90112, shape_ts1[B]=45056, shape_ts1[C]=22528, shape_td1[A]=45056,
-//   shape_td3[C]=11264, best_s2(r)=((r+1)/2)×22528, ...
-// 除以 11264 后全部成为小整数 {1,2,4,8}。
+// 算法中所有 stage 时序常数均是 11264 cc 的整数倍。除以 11264 后，
+// 当前 RTL 直接在各使用点以小整数 tick 实现 stage duration / DMA duration，
+// 不在 package 中保留通用 shape timing helper。
 //
 // task_end 累积上界（E≤16 expert，M_total≤256 token）：
 //   单任务最大 ≈ 399 ticks（约 4.5 M cc）
@@ -43,7 +42,6 @@ package sched_pkg;
   typedef logic [BW_W-1:0]   bw_t;
   typedef logic [NTOK_W-1:0] ntok_t;
   typedef logic [1:0]        shape_t;
-  typedef logic [3:0]        shape_ticks_t;
   typedef logic [NTOK_W:0]   best_ticks_t;
   typedef logic [EID_W-1:0]  pf_eid_t;
 
@@ -62,64 +60,13 @@ package sched_pkg;
   localparam logic [BW_W-1:0] BW_64  = 2'd1;   // 64  B/cc（IDMA 或 XDMA 单路）
   localparam logic [BW_W-1:0] BW_128 = 2'd2;   // 128 B/cc（IDMA+XDMA 合用）
 
-  // ── Dynamic args ctrl 中的 DMA binding 编码，与 moe_scheduler.h 保持一致 ──
-  localparam logic [1:0] DMA_NONE = 2'd0;
-  localparam logic [1:0] DMA_IDMA = 2'd1;
-  localparam logic [1:0] DMA_XDMA = 2'd2;
-  localparam logic [1:0] DMA_BOTH = 2'd3;
-
   // ── Shape 编码 ───────────────────────────────────────────────────────────
   localparam logic [1:0] SHAPE_A = 2'd0;  // M_dim=8, 64 B/cc DMA
   localparam logic [1:0] SHAPE_B = 2'd1;  // M_dim=4, 64 B/cc DMA
   localparam logic [1:0] SHAPE_C = 2'd2;  // M_dim=2, 128 B/cc DMA
 
-  // ── Shape 时序常量（tick 域，1 tick = 11264 cc）─────────────────────────
-  //   shape_ts1[A]=8, shape_ts1[B]=4, shape_ts1[C]=2  （S1 GEMM 完成时长）
-  //   shape_td1[A]=4, shape_td1[B]=4, shape_td1[C]=2  （S1 DMA 完成时长）
-  //   shape_ts3[A]=4, shape_ts3[B]=2, shape_ts3[C]=1  （S3 GEMM 完成时长）
-  //   shape_td3[A]=2, shape_td3[B]=2, shape_td3[C]=1  （S3 DMA 完成时长）
-  //   M_dim[A]=8, M_dim[B]=4, M_dim[C]=2
-
-  function automatic shape_ticks_t shape_ts1(input shape_t sh);
-    unique case (sh)
-      SHAPE_A: shape_ts1 = shape_ticks_t'(8);
-      SHAPE_B: shape_ts1 = shape_ticks_t'(4);
-      default: shape_ts1 = shape_ticks_t'(2);
-    endcase
-  endfunction
-
-  function automatic shape_ticks_t shape_td1(input shape_t sh);
-    unique case (sh)
-      SHAPE_A: shape_td1 = shape_ticks_t'(4);
-      SHAPE_B: shape_td1 = shape_ticks_t'(4);
-      default: shape_td1 = shape_ticks_t'(2);
-    endcase
-  endfunction
-
-  function automatic shape_ticks_t shape_ts3(input shape_t sh);
-    unique case (sh)
-      SHAPE_A: shape_ts3 = shape_ticks_t'(4);
-      SHAPE_B: shape_ts3 = shape_ticks_t'(2);
-      default: shape_ts3 = shape_ticks_t'(1);
-    endcase
-  endfunction
-
-  function automatic shape_ticks_t shape_td3(input shape_t sh);
-    unique case (sh)
-      SHAPE_A: shape_td3 = shape_ticks_t'(2);
-      SHAPE_B: shape_td3 = shape_ticks_t'(2);
-      default: shape_td3 = shape_ticks_t'(1);
-    endcase
-  endfunction
-
-  function automatic ntok_t shape_mdim(input shape_t sh);
-    unique case (sh)
-      SHAPE_A: shape_mdim = ntok_t'(8);
-      SHAPE_B: shape_mdim = ntok_t'(4);
-      default: shape_mdim = ntok_t'(2);
-    endcase
-  endfunction
-
+  // 当前综合路径只需要根据 shape 判断 DMA BW；shape 的时序/mdim 解码
+  // 已下沉到使用点，避免 package helper 在多个模块中被重复展开。
   function automatic bw_t shape_bw(input shape_t sh);
     shape_bw = (sh == SHAPE_C) ? BW_128 : BW_64;
   endfunction

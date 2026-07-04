@@ -41,22 +41,79 @@ module sched_mk_timeline (
   output logic [BW_W-1:0]  bw_s3_o
 );
 
+  typedef struct packed {
+    ntok_t mdim;
+    time_t compute_dur;
+    time_t dma_dur;
+    bw_t   bw;
+  } shape_attr_t;
+
+  function automatic shape_attr_t s1_attr(input shape_t sh);
+    shape_attr_t a;
+    begin
+      a = '0;
+      unique case (sh)
+        SHAPE_A: begin
+          a.mdim        = ntok_t'(8);
+          a.compute_dur = time_t'(8);
+          a.dma_dur     = time_t'(4);
+          a.bw          = BW_64;
+        end
+        SHAPE_B: begin
+          a.mdim        = ntok_t'(4);
+          a.compute_dur = time_t'(4);
+          a.dma_dur     = time_t'(4);
+          a.bw          = BW_64;
+        end
+        default: begin
+          a.mdim        = ntok_t'(2);
+          a.compute_dur = time_t'(2);
+          a.dma_dur     = time_t'(2);
+          a.bw          = BW_128;
+        end
+      endcase
+      s1_attr = a;
+    end
+  endfunction
+
+  function automatic shape_attr_t s3_attr(input shape_t sh);
+    shape_attr_t a;
+    begin
+      a = '0;
+      unique case (sh)
+        SHAPE_A: begin
+          a.mdim        = ntok_t'(8);
+          a.compute_dur = time_t'(4);
+          a.dma_dur     = time_t'(2);
+          a.bw          = BW_64;
+        end
+        SHAPE_B: begin
+          a.mdim        = ntok_t'(4);
+          a.compute_dur = time_t'(2);
+          a.dma_dur     = time_t'(2);
+          a.bw          = BW_64;
+        end
+        default: begin
+          a.mdim        = ntok_t'(2);
+          a.compute_dur = time_t'(1);
+          a.dma_dur     = time_t'(1);
+          a.bw          = BW_128;
+        end
+      endcase
+      s3_attr = a;
+    end
+  endfunction
+
   // ── 中间信号 ──────────────────────────────────────────────────────────────
   logic [NTOK_W-1:0] s1_tail;
   logic [NTOK_W-1:0] s3_tail;
-  logic [NTOK_W-1:0] s1_mdim;
-  logic [NTOK_W-1:0] s3_mdim;
   logic [NTOK_W-1:0] ceil_ntok;
   logic [NTOK_W-1:0] ceil_s1t;
   logic [NTOK_W-1:0] ceil_s3t;
   logic [T_W-1:0]    bs2_ntok, bs4_ntok;  // full ntok 的 best_s2/best_s4
   logic [T_W-1:0]    bs2_s1t,  bs4_s3t;   // tail ntok 的 best_s2/best_s4
-  logic [T_W-1:0]    s1_ts;
-  logic [T_W-1:0]    s1_td;
-  logic [T_W-1:0]    s3_ts;
-  logic [T_W-1:0]    s3_td;
-  logic [BW_W-1:0]   s1_bw;
-  logic [BW_W-1:0]   s3_bw;
+  shape_attr_t        s1_attr_w;
+  shape_attr_t        s3_attr_w;
   logic [T_W-1:0]    s1_compute_off;
   logic [T_W-1:0]    dma1_end_off;
   logic [T_W-1:0]    s2_dur;
@@ -80,21 +137,16 @@ module sched_mk_timeline (
   assign bs2_s1t   = time_t'({ceil_s1t, 1'b0});
   assign bs4_s3t   = time_t'(ceil_s3t);
 
-  // Shape 解码集中在这里，避免在 tail/timing/DMA 选择里重复实例化同一组
-  // case/mux。后续组合路径只使用这些小 fanout 的预解码信号。
-  assign s1_mdim = shape_mdim(shape_s1_i);
-  assign s3_mdim = shape_mdim(shape_s3_i);
-  assign s1_ts   = shape_ts1(shape_s1_i);
-  assign s1_td   = shape_td1(shape_s1_i);
-  assign s3_ts   = shape_ts3(shape_s3_i);
-  assign s3_td   = shape_td3(shape_s3_i);
-  assign s1_bw   = shape_bw(shape_s1_i);
-  assign s3_bw   = shape_bw(shape_s3_i);
+  // Shape 解码集中成 stage-local attribute。对同一个 shape 只做一次
+  // case，直接产出 mdim/compute/DMA/BW，避免 shape_mdim/shape_ts*/shape_td*
+  // 分散展开成多套等价 mux。
+  assign s1_attr_w = s1_attr(shape_s1_i);
+  assign s3_attr_w = s3_attr(shape_s3_i);
 
   // ── tail 计算 ─────────────────────────────────────────────────────────────
   always_comb begin
-    s1_tail = (ntok_i > s1_mdim) ? (ntok_i - s1_mdim) : '0;
-    s3_tail = (ntok_i > s3_mdim) ? (ntok_i - s3_mdim) : '0;
+    s1_tail = (ntok_i > s1_attr_w.mdim) ? (ntok_i - s1_attr_w.mdim) : '0;
+    s3_tail = (ntok_i > s3_attr_w.mdim) ? (ntok_i - s3_attr_w.mdim) : '0;
   end
 
   // ── 时序计算（组合逻辑）─────────────────────────────────────────────────
@@ -113,10 +165,10 @@ module sched_mk_timeline (
       s2_dur       = bs2_ntok;
       bw_s1_o     = BW_0;
     end else begin
-      dma1_end_off = s1_td;
-      s1_compute_off = s1_ts;
+      dma1_end_off = s1_attr_w.dma_dur;
+      s1_compute_off = s1_attr_w.compute_dur;
       s2_dur       = bs2_s1t;
-      bw_s1_o     = s1_bw;
+      bw_s1_o     = s1_attr_w.bw;
     end
 
     // ── S3 / S4 阶段 ───────────────────────────────────────────────────────
@@ -126,10 +178,10 @@ module sched_mk_timeline (
       s4_dur      = bs4_ntok;
       bw_s3_o     = BW_0;
     end else begin
-      dma3_dur    = s3_td;
-      s3_dur      = s3_ts;
+      dma3_dur    = s3_attr_w.dma_dur;
+      s3_dur      = s3_attr_w.compute_dur;
       s4_dur      = bs4_s3t;
-      bw_s3_o     = s3_bw;
+      bw_s3_o     = s3_attr_w.bw;
     end
 
     front_off    = s1_compute_off + s2_dur;

@@ -39,13 +39,9 @@ module sched_candidate_generator (
   logic [CAND_ID_W-1:0] last_idx;
 
   logic both_idle;
-  logic idle_is_c3;
-  time_t idle_t;
   logic [1:0] ntpts;
 
   assign both_idle = (c2_task_end_i == c3_task_end_i);
-  assign idle_is_c3 = (c3_task_end_i < c2_task_end_i);
-  assign idle_t = idle_is_c3 ? c3_task_end_i : c2_task_end_i;
   assign ntpts = 2'(1 + early_i.count);
 
   function automatic logic candidate_id_possible(
@@ -181,5 +177,16 @@ module sched_candidate_generator (
   assign cand_valid_o = cand_o.valid;
   assign busy_o = (st_q == ST_EMIT);
   assign done_o = (st_q == ST_DONE);
+
+`ifndef SYNTHESIS
+  // generator 的输出契约：综合路径只发合法 token；非法 token 应在 TB/仿真中暴露。
+  always_ff @(posedge clk_i) begin
+    if (rst_ni && (st_q == ST_EMIT)) begin
+      assert (candidate_id_possible(mode_q, idx_q))
+        else $error("sched_candidate_generator emitted invalid token: mode=%0d id=%0d",
+                    mode_q, idx_q);
+    end
+  end
+`endif
 
 endmodule

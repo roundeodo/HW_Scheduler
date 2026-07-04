@@ -37,8 +37,10 @@ module sched_pick_shapes (
 
   assign hit_s1_any  = sw_a_i | sw_b_i;
   assign s1_shape    = hit_s1_any ? SHAPE_C : SHAPE_B;
-  assign s1_mdim_sel = shape_mdim(s1_shape);
-  assign s1_ts_sel   = time_t'(shape_ts1(s1_shape));
+  // pick_shapes 的 S1 只会在 ShapeB/ShapeC 间选择，不会产生 ShapeA。
+  // 直接用 hit_s1_any 选择 mdim/ts1，避免调用通用 shape helper 展开三路 case。
+  assign s1_mdim_sel = hit_s1_any ? ntok_t'(2) : ntok_t'(4);
+  assign s1_ts_sel   = hit_s1_any ? time_t'(2) : time_t'(4);
   assign abs_delta_ge_1 = (s2a_off != s2b_off);
 
   always_comb begin

@@ -3,11 +3,10 @@
 //
 // MoE Hardware Scheduler - sequential bw_ok checker
 //
-// This module keeps the BW segment semantics, but exploits the fact that each
-// side's fixed segment slots are time ordered and non-overlapping after local
-// S1/S2PF splitting.  It uses an interval sweep: each cycle compares the
-// current A/B segment pair, skips invalid slots, checks BW only when intervals
-// overlap, and advances the segment that ends first.
+// This module keeps the BW segment semantics, but does not store the whole
+// segment queue.  Callers must keep snap_a_i/snap_b_i stable while busy_o is
+// high.  The checker rebuilds the 4 fixed segment slots combinationally and
+// stores only two small pointers plus busy/done/ok state.
 
 import sched_pkg::*;
 
@@ -31,11 +30,10 @@ module sched_bw_ok_seq (
   } seg_t;
 
   localparam int unsigned N_SEG = 4;
+  localparam logic [2:0] PTR_NONE = 3'd4;
 
   seg_t seg_a_comb [N_SEG];
   seg_t seg_b_comb [N_SEG];
-  seg_t seg_a_q [N_SEG];
-  seg_t seg_b_q [N_SEG];
   logic seg_a_any_comb;
   logic seg_b_any_comb;
 
@@ -47,14 +45,18 @@ module sched_bw_ok_seq (
   logic       busy_q;
   logic       done_q;
   logic       ok_q;
+  logic [2:0] ptr_a_q;
+  logic [2:0] ptr_b_q;
+  logic [2:0] ptr_a_next;
+  logic [2:0] ptr_b_next;
+  logic [2:0] ptr_a_first;
+  logic [2:0] ptr_b_first;
   logic       adv_a;
   logic       adv_b;
   logic       sweep_done_next;
-  logic       cur_a_valid;
-  logic       cur_b_valid;
-  logic       a_last;
-  logic       b_last;
 
+  seg_t       cur_a;
+  seg_t       cur_b;
   logic       both_valid;
 
   function automatic seg_t pack_seg(
@@ -167,6 +169,73 @@ module sched_bw_ok_seq (
     end
   endtask
 
+  function automatic logic [2:0] first_valid_ptr(input seg_t seg_i [N_SEG]);
+    begin
+      if (seg_i[0].valid) begin
+        first_valid_ptr = 3'd0;
+      end else if (seg_i[1].valid) begin
+        first_valid_ptr = 3'd1;
+      end else if (seg_i[2].valid) begin
+        first_valid_ptr = 3'd2;
+      end else if (seg_i[3].valid) begin
+        first_valid_ptr = 3'd3;
+      end else begin
+        first_valid_ptr = PTR_NONE;
+      end
+    end
+  endfunction
+
+  function automatic logic [2:0] next_valid_ptr(
+    input logic [2:0] ptr,
+    input seg_t       seg_i [N_SEG]
+  );
+    begin
+      unique case (ptr)
+        3'd0: begin
+          if (seg_i[1].valid) begin
+            next_valid_ptr = 3'd1;
+          end else if (seg_i[2].valid) begin
+            next_valid_ptr = 3'd2;
+          end else if (seg_i[3].valid) begin
+            next_valid_ptr = 3'd3;
+          end else begin
+            next_valid_ptr = PTR_NONE;
+          end
+        end
+        3'd1: begin
+          if (seg_i[2].valid) begin
+            next_valid_ptr = 3'd2;
+          end else if (seg_i[3].valid) begin
+            next_valid_ptr = 3'd3;
+          end else begin
+            next_valid_ptr = PTR_NONE;
+          end
+        end
+        3'd2: begin
+          next_valid_ptr = seg_i[3].valid ? 3'd3 : PTR_NONE;
+        end
+        default: begin
+          next_valid_ptr = PTR_NONE;
+        end
+      endcase
+    end
+  endfunction
+
+  function automatic seg_t seg_at_ptr(
+    input logic [2:0] ptr,
+    input seg_t       seg_i [N_SEG]
+  );
+    begin
+      unique case (ptr)
+        3'd0: seg_at_ptr = seg_i[0];
+        3'd1: seg_at_ptr = seg_i[1];
+        3'd2: seg_at_ptr = seg_i[2];
+        3'd3: seg_at_ptr = seg_i[3];
+        default: seg_at_ptr = '0;
+      endcase
+    end
+  endfunction
+
   always_comb begin
     build_side_segments(snap_a_i, seg_a_comb, seg_a_any_comb, ok_single_a);
     build_side_segments(snap_b_i, seg_b_comb, seg_b_any_comb, ok_single_b);
@@ -174,37 +243,37 @@ module sched_bw_ok_seq (
 
   assign ok_single_comb = ok_single_a && ok_single_b;
   assign have_cross_comb = ok_single_comb && seg_a_any_comb && seg_b_any_comb;
+  assign ptr_a_first = first_valid_ptr(seg_a_comb);
+  assign ptr_b_first = first_valid_ptr(seg_b_comb);
+  assign cur_a = seg_at_ptr(ptr_a_q, seg_a_comb);
+  assign cur_b = seg_at_ptr(ptr_b_q, seg_b_comb);
 
-  assign cur_a_valid = seg_a_q[0].valid;
-  assign cur_b_valid = seg_b_q[0].valid;
-  assign both_valid = cur_a_valid && cur_b_valid;
-  assign a_last = !(seg_a_q[1].valid || seg_a_q[2].valid || seg_a_q[3].valid);
-  assign b_last = !(seg_b_q[1].valid || seg_b_q[2].valid || seg_b_q[3].valid);
+  assign both_valid = cur_a.valid && cur_b.valid;
   // Segment records store only the information needed by the global BW check:
   // whether this interval consumes 128 B/cc.  64+64 is legal; any overlapping
   // interval containing 128 B/cc is illegal.  No adder is required here.
   assign pair_bad = both_valid &&
-                    (seg_a_q[0].is_128 || seg_b_q[0].is_128) &&
-                    (seg_a_q[0].hi > seg_b_q[0].lo) &&
-                    (seg_b_q[0].hi > seg_a_q[0].lo);
+                    (cur_a.is_128 || cur_b.is_128) &&
+                    (cur_a.hi > cur_b.lo) &&
+                    (cur_b.hi > cur_a.lo);
 
   // Ordered interval sweep:
   //   - invalid side: advance that side
   //   - both valid: advance the interval ending first, independent of overlap
   // Equal end timestamps advance both sides.
-  assign adv_a = !cur_a_valid ||
-                 (both_valid && (seg_a_q[0].hi <= seg_b_q[0].hi));
-  assign adv_b = !cur_b_valid ||
-                 (both_valid && (seg_b_q[0].hi <= seg_a_q[0].hi));
-  assign sweep_done_next = (adv_a && a_last) || (adv_b && b_last);
+  assign adv_a = !cur_a.valid || (both_valid && (cur_a.hi <= cur_b.hi));
+  assign adv_b = !cur_b.valid || (both_valid && (cur_b.hi <= cur_a.hi));
+  assign ptr_a_next = adv_a ? next_valid_ptr(ptr_a_q, seg_a_comb) : ptr_a_q;
+  assign ptr_b_next = adv_b ? next_valid_ptr(ptr_b_q, seg_b_comb) : ptr_b_q;
+  assign sweep_done_next = (ptr_a_next == PTR_NONE) || (ptr_b_next == PTR_NONE);
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       busy_q   <= 1'b0;
       done_q   <= 1'b0;
       ok_q     <= 1'b0;
-      seg_a_q  <= '{default: '0};
-      seg_b_q  <= '{default: '0};
+      ptr_a_q  <= PTR_NONE;
+      ptr_b_q  <= PTR_NONE;
     end else begin
       done_q <= 1'b0;
 
@@ -214,28 +283,20 @@ module sched_bw_ok_seq (
           done_q <= 1'b1;
           busy_q <= 1'b0;
         end else begin
-          if (adv_a) begin
-            seg_a_q[0] <= seg_a_q[1];
-            seg_a_q[1] <= seg_a_q[2];
-            seg_a_q[2] <= seg_a_q[3];
-            seg_a_q[3] <= '0;
-          end
-          if (adv_b) begin
-            seg_b_q[0] <= seg_b_q[1];
-            seg_b_q[1] <= seg_b_q[2];
-            seg_b_q[2] <= seg_b_q[3];
-            seg_b_q[3] <= '0;
-          end
+          ptr_a_q <= ptr_a_next;
+          ptr_b_q <= ptr_b_next;
         end
       end else if (start_i) begin
-        seg_a_q       <= seg_a_comb;
-        seg_b_q       <= seg_b_comb;
         ok_q          <= ok_single_comb;
         if (have_cross_comb) begin
-          busy_q <= 1'b1;
+          ptr_a_q <= ptr_a_first;
+          ptr_b_q <= ptr_b_first;
+          busy_q  <= 1'b1;
         end else begin
-          done_q <= 1'b1;
-          busy_q <= 1'b0;
+          ptr_a_q <= PTR_NONE;
+          ptr_b_q <= PTR_NONE;
+          done_q  <= 1'b1;
+          busy_q  <= 1'b0;
         end
       end
     end
@@ -244,5 +305,18 @@ module sched_bw_ok_seq (
   assign busy_o = busy_q;
   assign done_o = done_q;
   assign ok_o   = ok_q;
+
+`ifndef SYNTHESIS
+  // Pointer-only sweep 不锁存完整 segment queue；busy 期间依赖调用者保持
+  // compact BW view 稳定。若输入变化，ptr_q 会指向不同的组合 segment。
+  always_ff @(posedge clk_i) begin
+    if (rst_ni && busy_q && $past(busy_q)) begin
+      assert ($stable(snap_a_i))
+        else $error("sched_bw_ok_seq snap_a_i changed while busy");
+      assert ($stable(snap_b_i))
+        else $error("sched_bw_ok_seq snap_b_i changed while busy");
+    end
+  end
+`endif
 
 endmodule

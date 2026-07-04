@@ -45,13 +45,11 @@ module sched_schedule_core (
   output logic [PLANQ_DEPTH-1:0][1:0]  plan_slot_valid_o,
   output logic [PLANQ_DEPTH-1:0][1:0][63:0] plan_data_o,
   output logic [PLANQ_DEPTH-1:0][1:0]  plan_count_o,
-  output logic [PLANQ_DEPTH-1:0][1:0]  plan_remove_count_o,
   output logic                         plan_queue_full_o,
   output logic [3:0]                   plan_queue_count_o,
 
   output logic                         busy_o,
-  output logic                         done_o,
-  output logic [T_W-1:0]               makespan_o
+  output logic                         done_o
 );
 
   typedef enum logic [3:0] {
@@ -99,7 +97,6 @@ module sched_schedule_core (
   logic [PLANQ_COUNT_W-1:0] planq_count_after_pop;
   logic [PLANQ_DEPTH-1:0][1:0][63:0] planq_data_q, planq_data_d;
   logic [1:0]               planq_plan_count_q [PLANQ_DEPTH], planq_plan_count_d [PLANQ_DEPTH];
-  logic [1:0]               planq_remove_count_q [PLANQ_DEPTH], planq_remove_count_d [PLANQ_DEPTH];
   logic [PLANQ_PTR_W-1:0]   planq_rd_idx [PLANQ_DEPTH];
   logic              planq_has_space_after_pop;
   logic              remove_free_after_ready;
@@ -179,58 +176,43 @@ module sched_schedule_core (
     end
   endfunction
 
-  logic       shared_bw_start;
-  snap_bw_view_t shared_bw_snap_a;
-  snap_bw_view_t shared_bw_snap_b;
-  logic       shared_bw_done;
-  logic       shared_bw_ok;
-
   logic       eval_bw_start;
-  snap_timeline_t eval_bw_snap_a;
-  snap_timeline_t eval_bw_snap_b;
+  snap_bw_view_t eval_bw_snap_a;
+  snap_bw_view_t eval_bw_snap_b;
+  logic       eval_bw_done;
+  logic       eval_bw_checker_ok;
 
   logic       commit_bw_start;
   snap_timeline_t commit_bw_snap_a;
   snap_timeline_t commit_bw_snap_b;
+  logic       commit_bw_done;
+  logic       commit_bw_ok;
 
-  sched_bw_ok_seq i_shared_bw_ok (
+  // Two pointer-only BW checkers keep the input-stability contract local:
+  // eval_lane holds its BW request stable while waiting, and the commit FSM
+  // drives the same commit request through START/WAIT.  This removes the old
+  // shared checker segment queues and avoids a wide shared snap mux.
+  sched_bw_ok_seq i_eval_bw_ok (
     .clk_i    (clk_i),
     .rst_ni   (rst_ni),
-    .start_i  (shared_bw_start),
+    .start_i  (eval_bw_start),
     .busy_o   (),
-    .done_o   (shared_bw_done),
-    .snap_a_i (shared_bw_snap_a),
-    .snap_b_i (shared_bw_snap_b),
-    .ok_o     (shared_bw_ok)
+    .done_o   (eval_bw_done),
+    .snap_a_i (eval_bw_snap_a),
+    .snap_b_i (eval_bw_snap_b),
+    .ok_o     (eval_bw_checker_ok)
   );
 
-  // One physical BW checker is shared by the whole scheduler datapath.  The
-  // core FSM guarantees these request sources are mutually exclusive, so this
-  // is a stage mux rather than a general arbiter.
-  always_comb begin
-    shared_bw_start  = 1'b0;
-    shared_bw_snap_a = '0;
-    shared_bw_snap_b = '0;
-
-    unique case (st_q)
-      ST_EVAL,
-      ST_REPLAY_WAIT: begin
-        shared_bw_start  = eval_bw_start;
-        shared_bw_snap_a = to_bw_view(eval_bw_snap_a);
-        shared_bw_snap_b = to_bw_view(eval_bw_snap_b);
-      end
-
-      ST_COMMIT_S4PF_A_START,
-      ST_COMMIT_S4PF_B_START: begin
-        shared_bw_start  = commit_bw_start;
-        shared_bw_snap_a = to_bw_view(commit_bw_snap_a);
-        shared_bw_snap_b = to_bw_view(commit_bw_snap_b);
-      end
-
-      default: begin
-      end
-    endcase
-  end
+  sched_bw_ok_seq i_commit_bw_ok (
+    .clk_i    (clk_i),
+    .rst_ni   (rst_ni),
+    .start_i  (commit_bw_start),
+    .busy_o   (),
+    .done_o   (commit_bw_done),
+    .snap_a_i (to_bw_view(commit_bw_snap_a)),
+    .snap_b_i (to_bw_view(commit_bw_snap_b)),
+    .ok_o     (commit_bw_ok)
+  );
 
   // ── Candidate generation ──────────────────────────────────────────────
   logic       gen_start;
@@ -277,8 +259,6 @@ module sched_schedule_core (
   logic       eval_start;
   logic       eval_busy;
   logic       eval_done;
-  logic       eval_bw_ok;
-  logic [T_W-1:0] unused_makespan;
   score_key_t eval_score;
   winner_plan_t eval_plan;
   snap_timeline_t eval_timeline_a;
@@ -304,31 +284,15 @@ module sched_schedule_core (
     .bw_start_o            (eval_bw_start),
     .bw_snap_a_o           (eval_bw_snap_a),
     .bw_snap_b_o           (eval_bw_snap_b),
-    .bw_done_i             (((st_q == ST_EVAL) || (st_q == ST_REPLAY_WAIT)) ? shared_bw_done : 1'b0),
-    .bw_ok_i               (shared_bw_ok),
+    .bw_done_i             (((st_q == ST_EVAL) || (st_q == ST_REPLAY_WAIT)) ? eval_bw_done : 1'b0),
+    .bw_ok_i               (eval_bw_checker_ok),
     .eval_valid_o          (eval_valid),
-    .bw_ok_o               (eval_bw_ok),
-    .makespan_o            (unused_makespan),
     .score_key_o           (eval_score),
     .winner_plan_o         (eval_plan),
     .snap_timeline_a_o     (eval_timeline_a),
     .snap_timeline_b_o     (eval_timeline_b),
     .snap_cache_a_o        (eval_cache_a),
-    .snap_cache_b_o        (eval_cache_b),
-    .shape_s1a_o           (),
-    .shape_s3a_o           (),
-    .shape_s1b_o           (),
-    .shape_s3b_o           (),
-    .task_end_a_o          (),
-    .task_end_b_o          (),
-    .s2_end_a_o            (),
-    .s2_end_b_o            (),
-    .s4_start_a_o          (),
-    .s4_start_b_o          (),
-    .bw_s1a_o              (),
-    .bw_s3a_o              (),
-    .bw_s1b_o              (),
-    .bw_s3b_o              ()
+    .snap_cache_b_o        (eval_cache_b)
   );
 
   // ── Best reducer: compact winner only ─────────────────────────────────
@@ -343,10 +307,8 @@ module sched_schedule_core (
     .cand_score_i         (eval_score),
     .best_valid_o         (best_valid),
     .best_token_o         (best_token),
-    .best_score_o         (),
     .best_remove_count_o  (best_remove_count),
-    .best_remove_slot_mask_o (best_remove_slot_mask),
-    .accepted_o           ()
+    .best_remove_slot_mask_o (best_remove_slot_mask)
   );
 
   // ── Fallback path matching scheduler.c semantics ──────────────────────
@@ -438,8 +400,6 @@ module sched_schedule_core (
   end
 
   // ── Commit mux and output-buffer producer ─────────────────────────────
-  logic commit_from_replay;
-  logic commit_from_fallback;
   logic commit_active_q, commit_active_d;
   logic commit_replay_q, commit_replay_d;
   logic allow_s4pf_a_q, allow_s4pf_a_d;
@@ -456,9 +416,6 @@ module sched_schedule_core (
   snap_timeline_t commit_timeline_a_after_s4pf;
   logic commit_s4pf_candidate_a;
   logic commit_s4pf_candidate_b;
-
-  assign commit_from_replay   = (st_q == ST_REPLAY_WAIT) && eval_done && eval_valid;
-  assign commit_from_fallback = (st_q == ST_FALLBACK) && fallback_valid;
 
   function automatic task_desc_t make_task_desc(
     input winner_token_t token,
@@ -678,7 +635,6 @@ module sched_schedule_core (
     for (int q = 0; q < PLANQ_DEPTH; q++) begin
       planq_data_d[q]       = planq_data_q[q];
       planq_plan_count_d[q] = planq_plan_count_q[q];
-      planq_remove_count_d[q] = planq_remove_count_q[q];
     end
 
     gen_start   = 1'b0;
@@ -732,7 +688,6 @@ module sched_schedule_core (
       for (int q = 0; q < PLANQ_DEPTH; q++) begin
         planq_data_d[q]       = '{default: '0};
         planq_plan_count_d[q] = '0;
-        planq_remove_count_d[q] = '0;
       end
       // Batch initialization and first-round start may arrive in the same
       // control write.  Init still clears all persistent round state first;
@@ -801,6 +756,10 @@ module sched_schedule_core (
         end
 
         ST_FALLBACK: begin
+          // Emergency path: for legal inputs the generator should normally
+          // produce at least one acceptable candidate.  This path only commits
+          // top0 with shape C/C when all candidate evaluations failed BW/valid
+          // checks, matching the C scheduler fallback semantics.
           commit_active_d = fallback_valid;
           commit_replay_d = 1'b0;
           allow_s4pf_a_d  = 1'b0;
@@ -822,8 +781,10 @@ module sched_schedule_core (
         end
 
         ST_COMMIT_S4PF_A_WAIT: begin
-          if (shared_bw_done) begin
-            allow_s4pf_a_d = shared_bw_ok;
+          commit_bw_snap_a = commit_s4pf_timeline_a;
+          commit_bw_snap_b = commit_timeline_b;
+          if (commit_bw_done) begin
+            allow_s4pf_a_d = commit_bw_ok;
             st_d = ST_COMMIT_S4PF_B_START;
           end
         end
@@ -843,8 +804,10 @@ module sched_schedule_core (
         end
 
         ST_COMMIT_S4PF_B_WAIT: begin
-          if (shared_bw_done) begin
-            allow_s4pf_b_d = shared_bw_ok;
+          commit_bw_snap_a = commit_timeline_a_after_s4pf;
+          commit_bw_snap_b = commit_s4pf_timeline_b;
+          if (commit_bw_done) begin
+            allow_s4pf_b_d = commit_bw_ok;
             st_d = ST_COMMIT_APPLY;
           end
         end
@@ -876,7 +839,6 @@ module sched_schedule_core (
               if (planq_count_d < PLANQ_COUNT_W'(PLANQ_DEPTH)) begin
                 planq_data_d[planq_tail_d] = commit_plan_data;
                 planq_plan_count_d[planq_tail_d] = commit_plan_count;
-              planq_remove_count_d[planq_tail_d] = commit_remove_count;
                 planq_tail_d = planq_tail_d + PLANQ_PTR_W'(1);
                 planq_count_d = planq_count_d + PLANQ_COUNT_W'(1);
               end
@@ -925,7 +887,6 @@ module sched_schedule_core (
       for (int q = 0; q < PLANQ_DEPTH; q++) begin
         planq_data_q[q]       <= '{default: '0};
         planq_plan_count_q[q] <= '0;
-        planq_remove_count_q[q] <= '0;
       end
     end else begin
       st_q                  <= st_d;
@@ -953,7 +914,6 @@ module sched_schedule_core (
       for (int q = 0; q < PLANQ_DEPTH; q++) begin
         planq_data_q[q]       <= planq_data_d[q];
         planq_plan_count_q[q] <= planq_plan_count_d[q];
-        planq_remove_count_q[q] <= planq_remove_count_d[q];
       end
     end
   end
@@ -976,8 +936,6 @@ module sched_schedule_core (
         (Q_COUNT >= planq_count_q) ? '{default: '0} : planq_data_q[planq_rd_idx[q]];
     assign plan_count_o[q] =
         (Q_COUNT >= planq_count_q) ? 2'd0 : planq_plan_count_q[planq_rd_idx[q]];
-    assign plan_remove_count_o[q] =
-        (Q_COUNT >= planq_count_q) ? 2'd0 : planq_remove_count_q[planq_rd_idx[q]];
   end
   assign plan_queue_full_o  = (planq_count_q == PLANQ_COUNT_W'(PLANQ_DEPTH));
   assign plan_queue_count_o = {{(4-PLANQ_COUNT_W){1'b0}}, planq_count_q};
@@ -987,7 +945,5 @@ module sched_schedule_core (
                   ((planq_count_q == PLANQ_COUNT_W'(PLANQ_DEPTH)) &&
                    (planq_pop_count_eff == PLANQ_COUNT_W'(0)));
   assign done_o = done_q;
-  assign makespan_o = (c2_timeline_q.task_end > c3_timeline_q.task_end) ?
-                      c2_timeline_q.task_end : c3_timeline_q.task_end;
 
 endmodule

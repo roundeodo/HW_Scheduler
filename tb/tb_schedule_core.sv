@@ -43,6 +43,16 @@ module tb_schedule_core;
     end
   endfunction
 
+  function automatic ntok_t tb_shape_mdim(input shape_t shape);
+    begin
+      unique case (shape)
+        SHAPE_A: tb_shape_mdim = ntok_t'(8);
+        SHAPE_B: tb_shape_mdim = ntok_t'(4);
+        default: tb_shape_mdim = ntok_t'(2);
+      endcase
+    end
+  endfunction
+
   function automatic logic [63:0] tb_pack_plan_entry_word(
     input task_desc_t t,
     input slot_id_t   local_slot,
@@ -54,9 +64,9 @@ module tb_schedule_core;
     ntok_t tail_s4;
     begin
       tail_s2 = t.skip_s1 ? t.ntok :
-                ((t.ntok > shape_mdim(t.s1)) ? (t.ntok - shape_mdim(t.s1)) : '0);
+                ((t.ntok > tb_shape_mdim(t.s1)) ? (t.ntok - tb_shape_mdim(t.s1)) : '0);
       tail_s4 = t.skip_s3 ? t.ntok :
-                ((t.ntok > shape_mdim(t.s3)) ? (t.ntok - shape_mdim(t.s3)) : '0);
+                ((t.ntok > tb_shape_mdim(t.s3)) ? (t.ntok - tb_shape_mdim(t.s3)) : '0);
 
       ctrl = '0;
       ctrl[0]    = t.skip_s1;
@@ -102,13 +112,11 @@ module tb_schedule_core;
   logic [PLANQ_DEPTH-1:0][1:0] plan_slot_valid_o;
   logic [PLANQ_DEPTH-1:0][1:0][63:0] plan_data_o;
   logic [PLANQ_DEPTH-1:0][1:0] plan_count_o;
-  logic [PLANQ_DEPTH-1:0][1:0] plan_remove_count_o;
   logic plan_queue_full_o;
   logic [3:0] plan_queue_count_o;
 
   logic busy_o;
   logic done_o;
-  logic [T_W-1:0] makespan_o;
 
   sched_schedule_core dut (
     .clk_i              (clk_i),
@@ -129,12 +137,10 @@ module tb_schedule_core;
     .plan_slot_valid_o  (plan_slot_valid_o),
     .plan_data_o        (plan_data_o),
     .plan_count_o       (plan_count_o),
-    .plan_remove_count_o(plan_remove_count_o),
     .plan_queue_full_o  (plan_queue_full_o),
     .plan_queue_count_o (plan_queue_count_o),
     .busy_o             (busy_o),
-    .done_o             (done_o),
-    .makespan_o         (makespan_o)
+    .done_o             (done_o)
   );
 
   logic [EID_RAW_W-1:0] rem_eid [MAX_N_LOCAL];

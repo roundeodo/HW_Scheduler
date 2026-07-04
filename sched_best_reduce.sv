@@ -23,20 +23,14 @@ module sched_best_reduce (
 
   output logic                         best_valid_o,
   output cand_token_t                  best_token_o,
-  output score_key_t                   best_score_o,
   output logic [1:0]                   best_remove_count_o,
-  output logic [3:0]                   best_remove_slot_mask_o,
-  output logic                         accepted_o
+  output logic [3:0]                   best_remove_slot_mask_o
 );
 
   logic                 best_valid_q;
   cand_token_t          best_token_q;
   score_key_t           best_score_q;
-  logic [1:0]           best_remove_count_q;
-  logic [3:0]           best_remove_slot_mask_q;
-
-  logic [1:0]      cand_remove_count_calc;
-  logic [3:0]      cand_remove_slot_mask;
+  logic                 accepted;
 
   // cand_better 对应 C 里的 cand_better() 比较规则。
   //
@@ -68,49 +62,38 @@ module sched_best_reduce (
     end
   endfunction
 
-  always_comb begin
-    cand_remove_slot_mask = cand_remove_mask(cand_token_i);
-    cand_remove_count_calc = cand_remove_count(cand_token_i);
-  end
-
   // 每 eval 完一个 candidate，eval_lane 会在结果有效的那个 cycle 拉高 cand_valid_i。
-  // accepted_o=1 表示当前 candidate 比 best_*_q 中缓存的 best 更好；
+  // accepted=1 表示当前 candidate 比 best_*_q 中缓存的 best 更好；
   // 下一拍 always_ff 会用当前 candidate 覆盖 best cache。
-  assign accepted_o = cand_valid_i &&
-                      (!best_valid_q ||
-                       cand_score_better(cand_score_i, cand_token_i,
-                                         best_score_q, best_token_q));
+  assign accepted = cand_valid_i &&
+                    (!best_valid_q ||
+                     cand_score_better(cand_score_i, cand_token_i,
+                                       best_score_q, best_token_q));
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       best_valid_q        <= 1'b0;
       best_token_q        <= '0;
       best_score_q        <= '0;
-      best_remove_count_q <= '0;
-      best_remove_slot_mask_q <= '0;
     end else if (clear_i) begin
       // 每个 scheduling round 开始时清空 best cache。
       // 第一条合法候选一定会被接受。
       best_valid_q        <= 1'b0;
       best_token_q        <= '0;
       best_score_q        <= '0;
-      best_remove_count_q <= '0;
-      best_remove_slot_mask_q <= '0;
-    end else if (accepted_o) begin
-      // 当前候选胜出：只缓存 token、score 和紧凑 remove 下标。
+    end else if (accepted) begin
+      // 当前候选胜出：只缓存 token 和 score。
+      // remove_count/mask 是 token 的纯函数，在输出端组合重算，避免派生 FF。
       // full plan/snap 在 round 结束后通过 replay(best_token_q) 重新计算。
       best_valid_q        <= 1'b1;
       best_token_q        <= cand_token_i;
       best_score_q        <= cand_score_i;
-      best_remove_count_q <= cand_remove_count_calc;
-      best_remove_slot_mask_q <= cand_remove_slot_mask;
     end
   end
 
   assign best_valid_o        = best_valid_q;
   assign best_token_o        = best_token_q;
-  assign best_score_o        = best_score_q;
-  assign best_remove_count_o = best_remove_count_q;
-  assign best_remove_slot_mask_o = best_remove_slot_mask_q;
+  assign best_remove_count_o = best_valid_q ? cand_remove_count(best_token_q) : 2'd0;
+  assign best_remove_slot_mask_o = best_valid_q ? cand_remove_mask(best_token_q) : 4'b0000;
 
 endmodule

@@ -7,7 +7,7 @@
 ```text
 moe_scheduler_reg_wrapper
   └── sched_schedule_core
-      ├── sched_bw_ok_seq                # single shared BW checker
+      ├── sched_bw_ok_seq x2             # pointer-only eval/commit BW checkers
       ├── sched_candidate_generator
       ├── sched_candidate_eval_lane
       │   ├── sched_pick_shapes
@@ -32,6 +32,7 @@ sched_candidate_generator
   -> EV_MK_B : raw_task_b_q
   -> EV_S2PF: sched_s2pf_pair
   -> EV_SCORE: sched_score_unit
+       -> optional SIM1 split request reuses the same sched_s2pf_pair
   -> EV_DONE
 ```
 
@@ -41,13 +42,21 @@ base timeline/cache 是 round-level 状态，由 `sched_schedule_core` 持有，
 candidate 评估期间保持稳定。A/B 两侧复用同一套 `sched_mk_timeline`，不再并行
 实例化两套 mk_timeline 组合逻辑。`EV_MK_A/B` 的寄存器边界不保存完整
 snap 结构，只保存当前 task 必需的 `task_start/task_end/dma1_end/s2_end/
-dma3_end/s4_start/bw_s1/bw_s3/ntok`。S2PF/BW 入口需要完整
-`snap_timeline_t` 时，由 eval lane 在本地组合展开；cache-hit 所需的
+dma3_end/s4_start/bw_s1/bw_s3/ntok`。S2PF 入口需要完整
+`snap_timeline_t` 时，由 eval lane 在本地组合展开；BW 请求跨模块只传
+`snap_bw_view_t`，避免把完整 timeline 继续广播给 core/BW checker。
+cache-hit 所需的
 `pf_eid/pf_end/pf_full` 不在 raw 阶段打拍，而是根据 side-valid 从 base cache
 或 empty cache 组合选择。
 
-`sched_s2pf_pair` 的模块边界也不再使用完整 snap，而是只传
-`snap_timeline_t`。它不接收、不保存、不透传 cache identity 字段；在
+`sched_score_unit` 不再私有例化 `sched_s2pf_pair`。当 `rem_len==1` 的 SIM1
+split replay 需要 S2PF 时，score_unit 只输出 split A/B snap、shape 和 start
+request；`sched_candidate_eval_lane` 复用本 lane 已有的唯一 `sched_s2pf_pair`，
+并把 patch 返回给 score_unit。为了防止 score split 覆盖当前 candidate 的 S2PF
+结果，eval lane 在 candidate S2PF 完成时保存一份 `s2pf_patch_t`。
+
+`sched_s2pf_pair` 输入仍接收当前 trial 所需的 `snap_timeline_t`，但 BW
+输出端口已经裁剪为 `snap_bw_view_t`。它不接收、不保存、不透传 cache identity 字段；在
 `start_i` 时只锁存 S2PF trial 需要的小标量：
 
 ```text
@@ -133,12 +142,14 @@ direction，以及 `SPLIT(top0)` 的 front_m4/front_m8/tail-side cuts。
 half_floor split；early-start 删除 idle_t，只保留忙侧 release endpoint。
 `not_both_idle` 的候选集合暂时保持不变。
 
-S2PF 仍使用 `sched_s2pf_pair` 的 lite policy，并由单个共享 `sched_bw_ok_seq`
-顺序检查 BW。`sched_bw_ok_seq` 内部使用有序 interval sweep：每拍只比较
-A/B 两侧 segment 队列的队头 `seg_q[0]`。推进时把对应队列左移一格，
-因此 pair check 路径不再经过 `row_q/col_q` 动态索引 mux。发现超带宽
-立即 early stop；正常完成时检查次数由有效 segment 数决定，避免固定扫描
-25 对 cross product。
+S2PF 仍使用 `sched_s2pf_pair` 的 lite policy，并由 `sched_bw_ok_seq`
+顺序检查 BW。当前 core 例化两组 pointer-only BW checker：一组服务
+eval/replay，一组服务 commit S4PF。`sched_bw_ok_seq` 内部使用有序 interval
+sweep：每拍只比较 A/B 当前 pointer 指向的 segment。它不再保存
+`seg_a_q[4]/seg_b_q[4]`，只保存 A/B pointer、busy/done/ok。调用者必须在
+checker busy 期间保持 `snap_a_i/snap_b_i` 稳定；eval lane 和 commit FSM
+分别满足这个约束。发现超带宽立即 early stop；正常完成时检查次数由有效
+segment 数决定，避免固定扫描 25 对 cross product。
 
 当前 S2PF placement 只由 `sched_s2pf_pair` 产生，且 `can_apply_s2pf`
 要求 `pf_start >= task_start`。因此 BW segment builder 明确删除了
@@ -196,10 +207,12 @@ commit 阶段如果某个 cluster 的 S4 window 合法且通过 BW 检查，core
 `sched_schedule_core` 内部保存 depth=4 的 completed-round FIFO。每个 FIFO entry 是一个 round packet：
 
 - `plan_count`：本轮输出 1 条还是 2 条 task。
-- `remove_count`：本轮消耗 1 个还是 2 个 expert。
-- `plan_task_desc[0..1]`：compact single-task descriptor。
-- `plan_allow_s4pf[0..1]`：对应 task 是否留下 S4 prefetch window。
-- `plan_local_slot[0..1]`：RTL 为该 task 分配的 per-cluster dynamic args slot。
+- `PLAN_ENTRY_DATA0/1`：已经 pack 好的 compact single-task plan word，
+  包含 task 描述、slot、执行 tile 数和 inline S4PF patch。
+
+`remove_count/remove_slot_mask` 不再作为 FIFO entry 的 shadow 字段保存。
+它们在 round commit 时通过 `ROUND_COMMIT` fast path 事件返回给 wrapper，
+用于 top4 compact/refill；plan FIFO 只保存 lowering/drain 真正需要的 payload。
 
 `STATUS` 是 fast path 的事件/metadata 入口：
 

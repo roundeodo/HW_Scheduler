@@ -38,37 +38,19 @@ module sched_candidate_eval_lane (
   input  snap_cache_t        base_cache_b_i,
 
   output logic               bw_start_o,
-  output snap_timeline_t     bw_snap_a_o,
-  output snap_timeline_t     bw_snap_b_o,
+  output snap_bw_view_t      bw_snap_a_o,
+  output snap_bw_view_t      bw_snap_b_o,
   input  logic               bw_done_i,
   input  logic               bw_ok_i,
 
   // ── 评估结果 ─────────────────────────────────────────────────────────────
   output logic               eval_valid_o,
-  output logic               bw_ok_o,
-  output logic [T_W-1:0]     makespan_o,
   output score_key_t         score_key_o,
   output winner_plan_t       winner_plan_o,
   output snap_timeline_t     snap_timeline_a_o,
   output snap_timeline_t     snap_timeline_b_o,
   output snap_cache_t        snap_cache_a_o,
-  output snap_cache_t        snap_cache_b_o,
-
-  // ── 调试标量输出 ────────────────────────────────────────────────────────
-  output logic [1:0]         shape_s1a_o,
-  output logic [1:0]         shape_s3a_o,
-  output logic [1:0]         shape_s1b_o,
-  output logic [1:0]         shape_s3b_o,
-  output logic [T_W-1:0]     task_end_a_o,
-  output logic [T_W-1:0]     task_end_b_o,
-  output logic [T_W-1:0]     s2_end_a_o,
-  output logic [T_W-1:0]     s2_end_b_o,
-  output logic [T_W-1:0]     s4_start_a_o,
-  output logic [T_W-1:0]     s4_start_b_o,
-  output logic [BW_W-1:0]    bw_s1a_o,
-  output logic [BW_W-1:0]    bw_s3a_o,
-  output logic [BW_W-1:0]    bw_s1b_o,
-  output logic [BW_W-1:0]    bw_s3b_o
+  output snap_cache_t        snap_cache_b_o
 );
 
   // ── shared mk_timeline scalar wires ────────────────────────────────────────
@@ -108,15 +90,19 @@ module sched_candidate_eval_lane (
   logic s2pf_busy;
   logic s2pf_done;
   logic s2pf_bw_start;
-  snap_timeline_t s2pf_bw_timeline_a;
-  snap_timeline_t s2pf_bw_timeline_b;
+  snap_bw_view_t  s2pf_bw_timeline_a;
+  snap_bw_view_t  s2pf_bw_timeline_b;
   s2pf_patch_t s2pf_patch;
+  s2pf_patch_t cand_s2pf_patch_q, cand_s2pf_patch_d;
   logic score_start;
   logic score_busy;
   logic score_done;
-  logic score_bw_start;
-  snap_timeline_t score_bw_snap_a;
-  snap_timeline_t score_bw_snap_b;
+  logic score_split_s2pf_start;
+  snap_timeline_t score_split_s2pf_snap_a;
+  snap_timeline_t score_split_s2pf_snap_b;
+  shape_t score_split_s2pf_shape_s3_a;
+  shape_t score_split_s2pf_shape_s3_b;
+  s2pf_patch_t cand_patch;
   logic eval_candidate_ok;
   logic [1:0] pick_s1a;
   logic [1:0] pick_s3a;
@@ -175,12 +161,23 @@ module sched_candidate_eval_lane (
 
   eval_req_t req_q, req_d;
 
+  logic s2pf_score_req_active;
+  s2pf_policy_t s2pf_policy_sel;
+  logic s2pf_side_a_sel;
+  logic s2pf_side_b_sel;
+  shape_t s2pf_shape_s3_a_sel;
+  shape_t s2pf_shape_s3_b_sel;
+  snap_timeline_t s2pf_snap_a_sel;
+  snap_timeline_t s2pf_snap_b_sel;
+
   time_t token_tnow;
   time_t token_idle_t;
   time_t token_tpts [3];
   logic token_both_idle;
   logic token_idle_is_c3;
   logic [1:0] token_ntpts;
+  time_t head_bc_comb [4];
+  time_t makespan;
 
   assign token_tnow = (base_timeline_a_i.task_end > base_timeline_b_i.task_end) ?
                       base_timeline_a_i.task_end : base_timeline_b_i.task_end;
@@ -192,6 +189,10 @@ module sched_candidate_eval_lane (
   assign token_tpts[1] = early_i.t0;
   assign token_tpts[2] = early_i.t1;
   assign token_ntpts = 2'(1 + early_i.count);
+  assign head_bc_comb[0] = best_conc_ticks(head_i[0].ntok);
+  assign head_bc_comb[1] = best_conc_ticks(head_i[1].ntok);
+  assign head_bc_comb[2] = best_conc_ticks(head_i[2].ntok);
+  assign head_bc_comb[3] = best_conc_ticks(head_i[3].ntok);
 
   function automatic snap_timeline_t task_to_snap(input task_timeline_t t);
     snap_timeline_t s;
@@ -248,17 +249,8 @@ module sched_candidate_eval_lane (
     output time_t                total_conc_after,
     output time_t                max_conc_after
   );
-    time_t bc0;
-    time_t bc1;
-    time_t bc2;
-    time_t bc3;
     time_t removed_conc;
     begin
-      bc0 = best_conc_ticks(head_i[0].ntok);
-      bc1 = best_conc_ticks(head_i[1].ntok);
-      bc2 = best_conc_ticks(head_i[2].ntok);
-      bc3 = best_conc_ticks(head_i[3].ntok);
-
       rem0_eid = '0;
       rem0_ntok = '0;
       rem1_ntok = '0;
@@ -267,32 +259,32 @@ module sched_candidate_eval_lane (
 
       unique case (remove_mask)
         4'b0001: begin
-          removed_conc = bc0;
+          removed_conc = head_bc_comb[0];
           rem0_eid = head_i[1].eid;
           rem0_ntok = head_i[1].ntok;
           rem1_ntok = head_i[2].ntok;
-          max_conc_after = bc1;
+          max_conc_after = head_bc_comb[1];
         end
         4'b0011: begin
-          removed_conc = bc0 + bc1;
+          removed_conc = head_bc_comb[0] + head_bc_comb[1];
           rem0_eid = head_i[2].eid;
           rem0_ntok = head_i[2].ntok;
           rem1_ntok = head_i[3].ntok;
-          max_conc_after = bc2;
+          max_conc_after = head_bc_comb[2];
         end
         4'b0110: begin
-          removed_conc = bc1 + bc2;
+          removed_conc = head_bc_comb[1] + head_bc_comb[2];
           rem0_eid = head_i[0].eid;
           rem0_ntok = head_i[0].ntok;
           rem1_ntok = head_i[3].ntok;
-          max_conc_after = bc0;
+          max_conc_after = head_bc_comb[0];
         end
         4'b1100: begin
-          removed_conc = bc2 + bc3;
+          removed_conc = head_bc_comb[2] + head_bc_comb[3];
           rem0_eid = head_i[0].eid;
           rem0_ntok = head_i[0].ntok;
           rem1_ntok = head_i[1].ntok;
-          max_conc_after = bc0;
+          max_conc_after = head_bc_comb[0];
         end
         default: begin
           removed_conc = '0;
@@ -568,11 +560,6 @@ module sched_candidate_eval_lane (
     .s3b_o    (pick_s3b)
   );
 
-  assign shape_s1a_o = shape_s1a_q;
-  assign shape_s3a_o = shape_s3a_q;
-  assign shape_s1b_o = shape_s1b_q;
-  assign shape_s3b_o = shape_s3b_q;
-
   always_comb begin
     decode_shape_override(req_q.token, force_shape_a, forced_s1a, forced_s3a,
                           force_shape_b, forced_s1b, forced_s3b);
@@ -604,28 +591,45 @@ module sched_candidate_eval_lane (
     .bw_s3_o       (mk_bw_s3)
   );
 
+  assign s2pf_score_req_active = (ev_st_q == EV_WAIT_SCORE);
+  assign s2pf_policy_sel = s2pf_score_req_active ? S2PF_SPLIT_LITE :
+                                                   token_s2pf_policy(req_q.token);
+  assign s2pf_side_a_sel = s2pf_score_req_active ? score_split_s2pf_snap_a.valid :
+                                                   req_q.side_a_valid;
+  assign s2pf_side_b_sel = s2pf_score_req_active ? score_split_s2pf_snap_b.valid :
+                                                   req_q.side_b_valid;
+  assign s2pf_shape_s3_a_sel = s2pf_score_req_active ? score_split_s2pf_shape_s3_a :
+                                                       shape_s3a_q;
+  assign s2pf_shape_s3_b_sel = s2pf_score_req_active ? score_split_s2pf_shape_s3_b :
+                                                       shape_s3b_q;
+  assign s2pf_snap_a_sel = s2pf_score_req_active ? score_split_s2pf_snap_a :
+                                                   raw_timeline_a;
+  assign s2pf_snap_b_sel = s2pf_score_req_active ? score_split_s2pf_snap_b :
+                                                   raw_timeline_b;
+
   sched_s2pf_pair i_s2pf_pair (
     .clk_i                (clk_i),
     .rst_ni               (rst_ni),
     .start_i              (s2pf_start),
     .busy_o               (s2pf_busy),
     .done_o               (s2pf_done),
-    .policy_i             (token_s2pf_policy(req_q.token)),
-    .side_a_active_i      (req_q.side_a_valid),
-    .side_b_active_i      (req_q.side_b_valid),
-    .shape_s3_a_i         (shape_s3a_q),
-    .shape_s3_b_i         (shape_s3b_q),
-    .snap_a_i             (raw_timeline_a),
-    .snap_b_i             (raw_timeline_b),
+    .policy_i             (s2pf_policy_sel),
+    .side_a_active_i      (s2pf_side_a_sel),
+    .side_b_active_i      (s2pf_side_b_sel),
+    .shape_s3_a_i         (s2pf_shape_s3_a_sel),
+    .shape_s3_b_i         (s2pf_shape_s3_b_sel),
+    .snap_a_i             (s2pf_snap_a_sel),
+    .snap_b_i             (s2pf_snap_b_sel),
     .bw_start_o           (s2pf_bw_start),
     .bw_snap_a_o          (s2pf_bw_timeline_a),
     .bw_snap_b_o          (s2pf_bw_timeline_b),
-    .bw_done_i            ((ev_st_q == EV_WAIT_S2PF) ? bw_done_i : 1'b0),
+    .bw_done_i            (((ev_st_q == EV_WAIT_S2PF) ||
+                            (ev_st_q == EV_WAIT_SCORE)) ? bw_done_i : 1'b0),
     .bw_ok_i              (bw_ok_i),
     .patch_o              (s2pf_patch)
   );
 
-  assign bw_ok_o = s2pf_patch.ok;
+  assign cand_patch = (ev_st_q == EV_WAIT_S2PF) ? s2pf_patch : cand_s2pf_patch_q;
   assign raw_timeline_a = req_q.side_a_valid ? task_to_snap(raw_task_a_q) :
                                                base_timeline_a_i;
   assign raw_timeline_b = req_q.side_b_valid ? task_to_snap(raw_task_b_q) :
@@ -633,13 +637,13 @@ module sched_candidate_eval_lane (
   assign score_cache_a = req_q.side_a_valid ? empty_cache() : base_cache_a_i;
   assign score_cache_b = req_q.side_b_valid ? empty_cache() : base_cache_b_i;
   assign post_s2pf_a_timeline = apply_s2pf_patch_timeline(
-      raw_timeline_a, s2pf_patch.has_a, s2pf_patch.pf_start_a,
-      s2pf_patch.pf_end_a, s2pf_patch.task_end_a, shape_s3a_q);
+      raw_timeline_a, cand_patch.has_a, cand_patch.pf_start_a,
+      cand_patch.pf_end_a, cand_patch.task_end_a, shape_s3a_q);
   assign post_s2pf_b_timeline = apply_s2pf_patch_timeline(
-      raw_timeline_b, s2pf_patch.has_b, s2pf_patch.pf_start_b,
-      s2pf_patch.pf_end_b, s2pf_patch.task_end_b, shape_s3b_q);
+      raw_timeline_b, cand_patch.has_b, cand_patch.pf_start_b,
+      cand_patch.pf_end_b, cand_patch.task_end_b, shape_s3b_q);
 
-  assign eval_candidate_ok = req_q.valid && s2pf_patch.ok &&
+  assign eval_candidate_ok = req_q.valid && cand_patch.ok &&
                              (req_q.side_a_valid || req_q.side_b_valid);
 
   sched_score_unit i_score (
@@ -658,23 +662,26 @@ module sched_candidate_eval_lane (
     .rem1_ntok_i        (score_rem1_ntok),
     .total_conc_i       (score_total_conc_after),
     .max_conc_i         (score_max_conc_after),
-    .bw_start_o         (score_bw_start),
-    .bw_snap_a_o        (score_bw_snap_a),
-    .bw_snap_b_o        (score_bw_snap_b),
-    .bw_done_i          ((ev_st_q == EV_WAIT_SCORE) ? bw_done_i : 1'b0),
-    .bw_ok_i            (bw_ok_i),
+    .split_s2pf_start_o      (score_split_s2pf_start),
+    .split_s2pf_snap_a_o     (score_split_s2pf_snap_a),
+    .split_s2pf_snap_b_o     (score_split_s2pf_snap_b),
+    .split_s2pf_shape_s3_a_o (score_split_s2pf_shape_s3_a),
+    .split_s2pf_shape_s3_b_o (score_split_s2pf_shape_s3_b),
+    .split_s2pf_done_i       ((ev_st_q == EV_WAIT_SCORE) ? s2pf_done : 1'b0),
+    .split_s2pf_patch_i      (s2pf_patch),
     .cost_o             (cont_cost)
   );
 
-  assign bw_start_o = (ev_st_q == EV_WAIT_SCORE) ? score_bw_start : s2pf_bw_start;
-  assign bw_snap_a_o = (ev_st_q == EV_WAIT_SCORE) ? score_bw_snap_a : s2pf_bw_timeline_a;
-  assign bw_snap_b_o = (ev_st_q == EV_WAIT_SCORE) ? score_bw_snap_b : s2pf_bw_timeline_b;
+  assign bw_start_o = s2pf_bw_start;
+  assign bw_snap_a_o = s2pf_bw_timeline_a;
+  assign bw_snap_b_o = s2pf_bw_timeline_b;
 
   always_comb begin
     ev_st_d    = ev_st_q;
     req_d      = req_q;
     raw_task_a_d = raw_task_a_q;
     raw_task_b_d = raw_task_b_q;
+    cand_s2pf_patch_d = cand_s2pf_patch_q;
     shape_s1a_d = shape_s1a_q;
     shape_s3a_d = shape_s3a_q;
     shape_s1b_d = shape_s1b_q;
@@ -687,6 +694,7 @@ module sched_candidate_eval_lane (
       EV_IDLE: begin
         if (start_i) begin
           result_valid_d = 1'b0;
+          cand_s2pf_patch_d = '0;
           ev_st_d = EV_LATCH;
         end
       end
@@ -751,6 +759,7 @@ module sched_candidate_eval_lane (
 
       EV_WAIT_S2PF: begin
         if (s2pf_done) begin
+          cand_s2pf_patch_d = s2pf_patch;
           if (eval_candidate_ok) begin
             score_start = 1'b1;
             ev_st_d     = EV_WAIT_SCORE;
@@ -762,6 +771,7 @@ module sched_candidate_eval_lane (
       end
 
       EV_WAIT_SCORE: begin
+        s2pf_start = score_split_s2pf_start;
         if (score_done) begin
           result_valid_d = eval_candidate_ok;
           ev_st_d = EV_DONE;
@@ -782,6 +792,7 @@ module sched_candidate_eval_lane (
       req_q   <= '0;
       raw_task_a_q <= '0;
       raw_task_b_q <= '0;
+      cand_s2pf_patch_q <= '0;
       shape_s1a_q <= '0;
       shape_s3a_q <= '0;
       shape_s1b_q <= '0;
@@ -792,6 +803,7 @@ module sched_candidate_eval_lane (
       req_q   <= req_d;
       raw_task_a_q <= raw_task_a_d;
       raw_task_b_q <= raw_task_b_d;
+      cand_s2pf_patch_q <= cand_s2pf_patch_d;
       shape_s1a_q <= shape_s1a_d;
       shape_s3a_q <= shape_s3a_d;
       shape_s1b_q <= shape_s1b_d;
@@ -809,21 +821,14 @@ module sched_candidate_eval_lane (
     snap_cache_a_o    = score_cache_a;
     snap_cache_b_o    = score_cache_b;
 
-    task_end_a_o  = post_s2pf_a_timeline.task_end;
-    task_end_b_o  = post_s2pf_b_timeline.task_end;
-    s2_end_a_o    = post_s2pf_a_timeline.s2_end;
-    s2_end_b_o    = post_s2pf_b_timeline.s2_end;
-    s4_start_a_o  = post_s2pf_a_timeline.s4_start;
-    s4_start_b_o  = post_s2pf_b_timeline.s4_start;
-
-    makespan_o = (post_s2pf_a_timeline.task_end > post_s2pf_b_timeline.task_end) ?
-                 post_s2pf_a_timeline.task_end : post_s2pf_b_timeline.task_end;
+    makespan = (post_s2pf_a_timeline.task_end > post_s2pf_b_timeline.task_end) ?
+               post_s2pf_a_timeline.task_end : post_s2pf_b_timeline.task_end;
 
     eval_valid_o = (ev_st_q == EV_DONE) && result_valid_q;
 
-    score_key_o.cost     = token_score_makespan_only(req_q.token) ? makespan_o : cont_cost;
+    score_key_o.cost     = token_score_makespan_only(req_q.token) ? makespan : cont_cost;
     score_key_o.rem_len  = score_rem_len_after;
-    score_key_o.snap_max = makespan_o;
+    score_key_o.snap_max = makespan;
 
     winner_plan_o = '0;
     if (req_q.side_a_valid) begin
@@ -840,10 +845,5 @@ module sched_candidate_eval_lane (
                           (req_q.side_a_valid || req_q.side_b_valid) ? 2'b01 :
                           2'b00;
   end
-
-  assign bw_s1a_o = raw_timeline_a.bw_s1;
-  assign bw_s3a_o = raw_timeline_a.bw_s3;
-  assign bw_s1b_o = raw_timeline_b.bw_s1;
-  assign bw_s3b_o = raw_timeline_b.bw_s3;
 
 endmodule

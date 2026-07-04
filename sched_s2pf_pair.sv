@@ -33,8 +33,8 @@ module sched_s2pf_pair (
   input  snap_timeline_t snap_b_i,
 
   output logic         bw_start_o,
-  output snap_timeline_t bw_snap_a_o,
-  output snap_timeline_t bw_snap_b_o,
+  output snap_bw_view_t  bw_snap_a_o,
+  output snap_bw_view_t  bw_snap_b_o,
   input  logic         bw_done_i,
   input  logic         bw_ok_i,
 
@@ -64,7 +64,6 @@ module sched_s2pf_pair (
 
   logic         best_valid_q, best_valid_d;
   logic [1:0]   best_class_q, best_class_d;
-  logic [T_W:0] best_start_sum_q, best_start_sum_d;
   logic         best_a_pf_q, best_a_pf_d;
   logic         best_b_pf_q, best_b_pf_d;
   logic [T_W-1:0] best_a_start_q, best_a_start_d;
@@ -82,7 +81,6 @@ module sched_s2pf_pair (
   snap_timeline_t try_b;
   logic       try_valid;
   logic [1:0] try_class;
-  logic [T_W:0] try_start_sum;
   logic       try_a_pf;
   logic       try_b_pf;
   logic [1:0] try_a_sel;
@@ -220,7 +218,6 @@ module sched_s2pf_pair (
     try_b         = snap_b_i;
     try_valid     = 1'b0;
     try_class     = 2'd0;
-    try_start_sum = '0;
     try_a_pf      = 1'b0;
     try_b_pf      = 1'b0;
     try_a_sel     = SEL_TASK_START;
@@ -309,14 +306,6 @@ module sched_s2pf_pair (
         if (try_b_pf) begin
           try_b_start = start_from_sel(SIDE_B, try_b_sel);
         end
-        if (try_a_pf && try_b_pf) begin
-          try_start_sum = {1'b0, try_a_start} + {1'b0, try_b_start};
-        end else if (try_a_pf) begin
-          try_start_sum = {1'b0, try_a_start};
-        end else if (try_b_pf) begin
-          try_start_sum = {1'b0, try_b_start};
-        end
-
         if (try_a_pf) begin
           try_a = apply_s2pf(snap_a_i, dur_trial[SIDE_A], pf_bw_trial[SIDE_A],
                              best_s4_q[SIDE_A], try_a_start);
@@ -339,7 +328,6 @@ module sched_s2pf_pair (
     side_d           = side_q;
     best_valid_d     = best_valid_q;
     best_class_d     = best_class_q;
-    best_start_sum_d = best_start_sum_q;
     best_a_pf_d      = best_a_pf_q;
     best_b_pf_d      = best_b_pf_q;
     best_a_start_d   = best_a_start_q;
@@ -361,7 +349,6 @@ module sched_s2pf_pair (
           scan_idx_d        = '0;
           best_valid_d      = 1'b0;
           best_class_d      = '0;
-          best_start_sum_d  = '0;
           best_a_pf_d       = 1'b0;
           best_b_pf_d       = 1'b0;
           best_a_start_d    = '0;
@@ -387,7 +374,6 @@ module sched_s2pf_pair (
         if (bw_done_i) begin
           best_valid_d     = try_valid && bw_ok_i;
           best_class_d     = 2'd0;
-          best_start_sum_d = '0;
           best_a_pf_d      = 1'b0;
           best_b_pf_d      = 1'b0;
           best_a_start_d   = '0;
@@ -413,13 +399,14 @@ module sched_s2pf_pair (
       ST_TRIAL_WAIT: begin
         if (bw_done_i) begin
           if (try_valid && bw_ok_i) begin
-            if (!best_valid_d ||
-                (try_class > best_class_d) ||
-                ((try_class == best_class_d) &&
-                 (try_start_sum < best_start_sum_d))) begin
+            // Trial order is already sorted by policy priority:
+            //   - class is the main priority: both-side S2PF > one-side > raw
+            //   - within the same class, scan_idx order is earliest/smallest
+            //     start placement first.  Keep the first accepted same-class
+            //     trial instead of storing and comparing start_sum.
+            if (!best_valid_d || (try_class > best_class_d)) begin
               best_valid_d     = 1'b1;
               best_class_d     = try_class;
-              best_start_sum_d = try_start_sum;
               best_a_pf_d      = try_a_pf;
               best_b_pf_d      = try_b_pf;
               best_a_start_d   = try_a_start;
@@ -452,7 +439,6 @@ module sched_s2pf_pair (
       side_q           <= '0;
       best_valid_q     <= 1'b0;
       best_class_q     <= '0;
-      best_start_sum_q <= '0;
       best_a_pf_q      <= 1'b0;
       best_b_pf_q      <= 1'b0;
       best_a_start_q   <= '0;
@@ -471,7 +457,6 @@ module sched_s2pf_pair (
       side_q           <= side_d;
       best_valid_q     <= best_valid_d;
       best_class_q     <= best_class_d;
-      best_start_sum_q <= best_start_sum_d;
       best_a_pf_q      <= best_a_pf_d;
       best_b_pf_q      <= best_b_pf_d;
       best_a_start_q   <= best_a_start_d;
@@ -503,9 +488,24 @@ module sched_s2pf_pair (
     end
   end
 
-  assign bw_snap_a_o = try_a;
-  assign bw_snap_b_o = try_b;
+  // BW checker只需要valid/time/bw字段，不能把完整timeline继续向外广播。
+  assign bw_snap_a_o = to_bw_view(try_a);
+  assign bw_snap_b_o = to_bw_view(try_b);
   assign busy_o = (st_q != ST_IDLE) && (st_q != ST_DONE);
   assign done_o = (st_q == ST_DONE);
+
+`ifndef SYNTHESIS
+  // 本模块只锁存 policy/side/hi/can/duration 等小标量，完整 snap 由调用者
+  // 在 busy 期间保持稳定。若调用方破坏该协议，trial BW 请求和最终 patch
+  // 会基于不同 snap，仿真必须直接报错。
+  always_ff @(posedge clk_i) begin
+    if (rst_ni && busy_o && $past(busy_o)) begin
+      assert ($stable(snap_a_i))
+        else $error("sched_s2pf_pair snap_a_i changed while busy");
+      assert ($stable(snap_b_i))
+        else $error("sched_s2pf_pair snap_b_i changed while busy");
+    end
+  end
+`endif
 
 endmodule
