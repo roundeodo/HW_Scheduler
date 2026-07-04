@@ -128,11 +128,12 @@ module moe_scheduler_reg_wrapper
   // 8'hff 表示 invalid/no cache；低 EID_RAW_W bit 是 raw expert id。
   logic [7:0]      cache_eid_c2_q;
   logic [7:0]      cache_eid_c3_q;
-  // head/reserve are consumed by compact/refill control, status reads, and the
-  // schedule core.  Limit physical fanout by allowing synthesis to replicate
-  // these small 16-bit entries when placement requires it.
-  (* max_fanout = 64 *) head_ctx_t [3:0] head_q;
-  (* max_fanout = 64 *) head_ctx_t [3:0] reserve_q;
+  // head/reserve 是 wrapper 持久 top window。fanout 通过窄 token datapath、
+  // fixed-case compact/refill 和预计算 best_conc 结构性降低。
+  head_ctx_t [3:0] head_q;
+  head_ctx_t [3:0] reserve_q;
+  time_t           head_bc_q [3:0];
+  time_t           reserve_bc_q [3:0];
   // compact_head / commit_head_next / push_head 都是组合中间结果：
   //   compact_head      = remove 后保序压缩出来的 top window；
   //   commit_head_next  = compact 后再从 reserve tail refill 的下一轮 head；
@@ -141,6 +142,8 @@ module moe_scheduler_reg_wrapper
   head_ctx_t [3:0] compact_head;
   head_ctx_t [3:0] commit_head_next;
   head_ctx_t [3:0] push_head;
+  time_t           compact_head_bc [3:0];
+  time_t           commit_head_bc_next [3:0];
   // active_count_q: 当前 batch 还未被 scheduler 消耗的 active expert 数。
   // total_conc_q: 这些 active expert 的 best_conc 总和，用于 continuation cost。
   logic [NR_W-1:0] active_count_q;
@@ -148,13 +151,10 @@ module moe_scheduler_reg_wrapper
   logic [2:0]      head_count_q;
   logic [2:0]      reserve_count_q;
   logic [2:0]      push_count;
+  logic [3:0]      reserve_count_after_push;
   // remove/compact/refill 的组合控制信号。
   // removed_conc 用于从 total_conc_q 中扣掉本轮被消耗 expert 的 best_conc。
   logic [T_W+1:0]  removed_conc;
-  logic [T_W-1:0]  bc0;
-  logic [T_W-1:0]  bc1;
-  logic [T_W-1:0]  bc2;
-  logic [T_W-1:0]  bc3;
   logic [2:0]      keep_count;
   logic [2:0]      reserve_pop_count;
   logic [2:0]      target_head_count;
@@ -204,7 +204,13 @@ module moe_scheduler_reg_wrapper
   endfunction
 
   function automatic logic [2:0] popcount4(input logic [3:0] v);
-    popcount4 = {2'b0, v[0]} + {2'b0, v[1]} + {2'b0, v[2]} + {2'b0, v[3]};
+    logic [1:0] cnt01;
+    logic [1:0] cnt23;
+    begin
+      cnt01 = {1'b0, v[0]} + {1'b0, v[1]};
+      cnt23 = {1'b0, v[2]} + {1'b0, v[3]};
+      popcount4 = {1'b0, cnt01} + {1'b0, cnt23};
+    end
   endfunction
 
   // ────────────────────────────────────────────────────────────────────────
@@ -244,11 +250,7 @@ module moe_scheduler_reg_wrapper
   assign push_head[3]       = unpack_head16(wr_data[63:48]);
   assign push_count         = popcount4({push_head[3].valid, push_head[2].valid,
                                          push_head[1].valid, push_head[0].valid});
-
-  assign bc0 = best_conc_ticks(head_q[0].ntok);
-  assign bc1 = best_conc_ticks(head_q[1].ntok);
-  assign bc2 = best_conc_ticks(head_q[2].ntok);
-  assign bc3 = best_conc_ticks(head_q[3].ntok);
+  assign reserve_count_after_push = {1'b0, reserve_count_q} + {1'b0, push_count};
 
   // ────────────────────────────────────────────────────────────────────────
   // 8. Top4 compact/refill control
@@ -258,7 +260,9 @@ module moe_scheduler_reg_wrapper
   // writes.  This maps to small muxes on the normal path and reduces fanout.
   always_comb begin
     compact_head = '{default: '0};
+    compact_head_bc = '{default: '0};
     commit_head_next = head_q;
+    commit_head_bc_next = head_bc_q;
     removed_conc = '0;
     keep_count = '0;
     reserve_pop_count = '0;
@@ -273,6 +277,7 @@ module moe_scheduler_reg_wrapper
     unique case (remove_slot_mask)
       4'b0000: begin
         compact_head = head_q;
+        compact_head_bc = head_bc_q;
         keep_count   = head_count_q;
         removed_conc = '0;
       end
@@ -280,29 +285,39 @@ module moe_scheduler_reg_wrapper
         compact_head[0] = head_q[1];
         compact_head[1] = head_q[2];
         compact_head[2] = head_q[3];
+        compact_head_bc[0] = head_bc_q[1];
+        compact_head_bc[1] = head_bc_q[2];
+        compact_head_bc[2] = head_bc_q[3];
         keep_count      = head_count_q - 3'd1;
-        removed_conc    = {2'b0, bc0};
+        removed_conc    = {2'b0, head_bc_q[0]};
       end
       4'b0011: begin
         compact_head[0] = head_q[2];
         compact_head[1] = head_q[3];
+        compact_head_bc[0] = head_bc_q[2];
+        compact_head_bc[1] = head_bc_q[3];
         keep_count      = head_count_q - 3'd2;
-        removed_conc    = {2'b0, bc0} + {2'b0, bc1};
+        removed_conc    = {2'b0, head_bc_q[0]} + {2'b0, head_bc_q[1]};
       end
       4'b0110: begin
         compact_head[0] = head_q[0];
         compact_head[1] = head_q[3];
+        compact_head_bc[0] = head_bc_q[0];
+        compact_head_bc[1] = head_bc_q[3];
         keep_count      = head_count_q - 3'd2;
-        removed_conc    = {2'b0, bc1} + {2'b0, bc2};
+        removed_conc    = {2'b0, head_bc_q[1]} + {2'b0, head_bc_q[2]};
       end
       4'b1100: begin
         compact_head[0] = head_q[0];
         compact_head[1] = head_q[1];
+        compact_head_bc[0] = head_bc_q[0];
+        compact_head_bc[1] = head_bc_q[1];
         keep_count      = head_count_q - 3'd2;
-        removed_conc    = {2'b0, bc2} + {2'b0, bc3};
+        removed_conc    = {2'b0, head_bc_q[2]} + {2'b0, head_bc_q[3]};
       end
       default: begin
         compact_head = head_q;
+        compact_head_bc = head_bc_q;
         keep_count   = head_count_q;
         removed_conc = '0;
       end
@@ -310,6 +325,7 @@ module moe_scheduler_reg_wrapper
 
     // 没有 remove 时，下一轮 head 保持不变；有 remove 时，先使用 compact 结果。
     commit_head_next = remove_ready_pulse ? compact_head : head_q;
+    commit_head_bc_next = remove_ready_pulse ? compact_head_bc : head_bc_q;
 
     if (remove_ready_pulse) begin
       // remove 后更新 active 数，并计算下一轮理论上应该持有多少 head：
@@ -321,11 +337,26 @@ module moe_scheduler_reg_wrapper
                   (target_head_count - keep_count) : 3'd0;
       // reserve_pop_count 表示这次从 reserve 队头搬几个 expert 到 compact 后的 head 尾部。
       reserve_pop_count = (fill_need > reserve_count_q) ? reserve_count_q : fill_need;
-      for (int p = 0; p < 4; p++) begin
-        if (p < int'(reserve_pop_count)) begin
-          commit_head_next[keep_count + p[2:0]] = reserve_q[p];
+      unique case (remove_slot_mask)
+        4'b0001: begin
+          if (reserve_pop_count != 3'd0) begin
+            commit_head_next[3] = reserve_q[0];
+            commit_head_bc_next[3] = reserve_bc_q[0];
+          end
         end
-      end
+        4'b0011, 4'b0110, 4'b1100: begin
+          if (reserve_pop_count >= 3'd1) begin
+            commit_head_next[2] = reserve_q[0];
+            commit_head_bc_next[2] = reserve_bc_q[0];
+          end
+          if (reserve_pop_count >= 3'd2) begin
+            commit_head_next[3] = reserve_q[1];
+            commit_head_bc_next[3] = reserve_bc_q[1];
+          end
+        end
+        default: begin
+        end
+      endcase
     end else begin
       active_after_remove = active_count_q;
       target_head_count = (active_count_q > NR_W'(4)) ? 3'd4 : active_count_q[2:0];
@@ -380,19 +411,21 @@ module moe_scheduler_reg_wrapper
   // schedule_core 内部 plan FIFO 不在这里保存，它通过输出端口暴露给 wrapper。
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-	      cache_eid_c2_q <= 8'hff;
-	      cache_eid_c3_q <= 8'hff;
-	      head_q         <= '{default: '0};
-	      reserve_q      <= '{default: '0};
-	      active_count_q <= '0;
-	      total_conc_q   <= '0;
-	      head_count_q   <= '0;
-	      reserve_count_q <= '0;
-	      done_seen_q    <= 1'b0;
-	      auto_run_q     <= 1'b0;
-	    end else begin
-	      if (write_req) begin
-	        unique case (word_addr)
+      cache_eid_c2_q <= 8'hff;
+      cache_eid_c3_q <= 8'hff;
+      head_q         <= '{default: '0};
+      reserve_q      <= '{default: '0};
+      head_bc_q      <= '{default: '0};
+      reserve_bc_q   <= '{default: '0};
+      active_count_q <= '0;
+      total_conc_q   <= '0;
+      head_count_q   <= '0;
+      reserve_count_q <= '0;
+      done_seen_q    <= 1'b0;
+      auto_run_q     <= 1'b0;
+    end else begin
+      if (write_req) begin
+        unique case (word_addr)
           REG_CONFIG: begin
             // Batch/init 配置：cache 初始驻留 expert、active_count 和 total_conc。
             cache_eid_c2_q <= wr_data[7:0];
@@ -403,74 +436,123 @@ module moe_scheduler_reg_wrapper
           REG_HEAD_QUAD: begin
             // 初始 top4 window。CVA6 一次写 4 个 compact head16。
             for (int h = 0; h < 4; h++) begin
-              head_q[h] <= unpack_head16(wr_data[h * 16 +: 16]);
+              head_q[h]    <= push_head[h];
+              head_bc_q[h] <= best_conc_ticks(push_head[h].ntok);
             end
             head_count_q <= popcount4({wr_data[63], wr_data[47],
                                        wr_data[31], wr_data[15]});
           end
           REG_HEAD_PUSH_QUAD: begin
-            // 后续 refill。新 expert 追加到 reserve 的第一个空位之后。
-		            int wr_pos;
-		            wr_pos = int'(reserve_count_q);
-		            for (int p = 0; p < 4; p++) begin
-		              if (push_head[p].valid && (wr_pos < 4)) begin
-		                reserve_q[wr_pos] <= push_head[p];
-		                wr_pos++;
-		              end
-		            end
-		            reserve_count_q <= (reserve_count_q + push_count > 3'd4) ?
-		                               3'd4 : reserve_count_q + push_count;
+            // 后续 refill。协议要求 push_head 是 compact quad；append 位置只由
+            // reserve_count_q 决定，用 fixed case 避免 variable-index write。
+            unique case (reserve_count_q)
+              3'd0: begin
+                reserve_q[0] <= push_head[0];
+                reserve_q[1] <= push_head[1];
+                reserve_q[2] <= push_head[2];
+                reserve_q[3] <= push_head[3];
+                reserve_bc_q[0] <= best_conc_ticks(push_head[0].ntok);
+                reserve_bc_q[1] <= best_conc_ticks(push_head[1].ntok);
+                reserve_bc_q[2] <= best_conc_ticks(push_head[2].ntok);
+                reserve_bc_q[3] <= best_conc_ticks(push_head[3].ntok);
+              end
+              3'd1: begin
+                reserve_q[1] <= push_head[0];
+                reserve_q[2] <= push_head[1];
+                reserve_q[3] <= push_head[2];
+                reserve_bc_q[1] <= best_conc_ticks(push_head[0].ntok);
+                reserve_bc_q[2] <= best_conc_ticks(push_head[1].ntok);
+                reserve_bc_q[3] <= best_conc_ticks(push_head[2].ntok);
+              end
+              3'd2: begin
+                reserve_q[2] <= push_head[0];
+                reserve_q[3] <= push_head[1];
+                reserve_bc_q[2] <= best_conc_ticks(push_head[0].ntok);
+                reserve_bc_q[3] <= best_conc_ticks(push_head[1].ntok);
+              end
+              3'd3: begin
+                reserve_q[3] <= push_head[0];
+                reserve_bc_q[3] <= best_conc_ticks(push_head[0].ntok);
+              end
+              default: begin
+              end
+            endcase
+            reserve_count_q <= (reserve_count_after_push > 4'd4) ?
+                               3'd4 : reserve_count_after_push[2:0];
           end
           REG_RESERVE_QUAD: begin
             // 初始化 reserve[4]，通常 batch 开始时写入 top4 之后的后续 expert。
             for (int r = 0; r < 4; r++) begin
-              reserve_q[r] <= unpack_head16(wr_data[r * 16 +: 16]);
+              reserve_q[r]    <= push_head[r];
+              reserve_bc_q[r] <= best_conc_ticks(push_head[r].ntok);
             end
             reserve_count_q <= popcount4({wr_data[63], wr_data[47],
                                           wr_data[31], wr_data[15]});
           end
-	          default: ;
-	        endcase
-	      end
+          default: ;
+        endcase
+      end
 
-	      if (remove_ready_pulse) begin
-	        // 一轮 commit 后，wrapper 接收 core 的 remove metadata：
-	        //   1. compact/refill head；
-	        //   2. active_count 扣掉 remove_count；
-	        //   3. total_conc 扣掉被消耗 expert 的 best_conc；
-	        //   4. reserve 队头左移 reserve_pop_count。
-	        head_q <= commit_head_next;
-	        head_count_q <= keep_count + reserve_pop_count;
-	        active_count_q <= active_count_q - NR_W'(remove_count);
-	        total_conc_q <= total_conc_q - T_W'(removed_conc);
-	        reserve_count_q <= reserve_count_q - reserve_pop_count;
-	        for (int r = 0; r < 4; r++) begin
-	          if ((r + int'(reserve_pop_count)) < 4) begin
-	            reserve_q[r] <= reserve_q[r + int'(reserve_pop_count)];
-	          end else begin
-	            reserve_q[r] <= '0;
-	          end
-	        end
-	      end
+      if (remove_ready_pulse) begin
+        // 一轮 commit 后，wrapper 接收 core 的 remove metadata：
+        //   1. compact/refill head；
+        //   2. active_count 扣掉 remove_count；
+        //   3. total_conc 扣掉被消耗 expert 的 best_conc；
+        //   4. reserve 队头左移 reserve_pop_count。
+        head_q          <= commit_head_next;
+        head_bc_q       <= commit_head_bc_next;
+        head_count_q    <= keep_count + reserve_pop_count;
+        active_count_q  <= active_count_q - NR_W'(remove_count);
+        total_conc_q    <= total_conc_q - T_W'(removed_conc);
+        reserve_count_q <= reserve_count_q - reserve_pop_count;
+        unique case (reserve_pop_count)
+          3'd0: begin
+          end
+          3'd1: begin
+            reserve_q[0] <= reserve_q[1];
+            reserve_q[1] <= reserve_q[2];
+            reserve_q[2] <= reserve_q[3];
+            reserve_q[3] <= '0;
+            reserve_bc_q[0] <= reserve_bc_q[1];
+            reserve_bc_q[1] <= reserve_bc_q[2];
+            reserve_bc_q[2] <= reserve_bc_q[3];
+            reserve_bc_q[3] <= '0;
+          end
+          3'd2: begin
+            reserve_q[0] <= reserve_q[2];
+            reserve_q[1] <= reserve_q[3];
+            reserve_q[2] <= '0;
+            reserve_q[3] <= '0;
+            reserve_bc_q[0] <= reserve_bc_q[2];
+            reserve_bc_q[1] <= reserve_bc_q[3];
+            reserve_bc_q[2] <= '0;
+            reserve_bc_q[3] <= '0;
+          end
+          default: begin
+            reserve_q    <= '{default: '0};
+            reserve_bc_q <= '{default: '0};
+          end
+        endcase
+      end
 
-	      // done_seen_q 是 sticky done。新 init/start 清零，core done 后置位。
-	      if (init_pulse || start_pulse) begin
-	        done_seen_q <= 1'b0;
-	      end else if (done) begin
-	        done_seen_q <= 1'b1;
-	      end
+      // done_seen_q 是 sticky done。新 init/start 清零，core done 后置位。
+      if (init_pulse || start_pulse) begin
+        done_seen_q <= 1'b0;
+      end else if (done) begin
+        done_seen_q <= 1'b1;
+      end
 
-	      // auto_run_q 控制 wrapper 是否在每轮 done 后自动 remove/start。
-	      if (init_pulse) begin
-	        auto_run_q <= ctrl_start_pulse;
-	      end else if (ctrl_start_pulse) begin
-	        auto_run_q <= 1'b1;
-	      end else if (remove_ready_pulse &&
-	                   ((active_count_q - NR_W'(remove_count)) == NR_W'(0))) begin
-	        auto_run_q <= 1'b0;
-	      end
-	    end
-	  end
+      // auto_run_q 控制 wrapper 是否在每轮 done 后自动 remove/start。
+      if (init_pulse) begin
+        auto_run_q <= ctrl_start_pulse;
+      end else if (ctrl_start_pulse) begin
+        auto_run_q <= 1'b1;
+      end else if (remove_ready_pulse &&
+                   ((active_count_q - NR_W'(remove_count)) == NR_W'(0))) begin
+        auto_run_q <= 1'b0;
+      end
+    end
+  end
 
   // ────────────────────────────────────────────────────────────────────────
   // 11. MMIO read mux

@@ -4,7 +4,7 @@
 // MoE Hardware Scheduler — pick_shapes primitive（Tick 域版本）
 //
 // 等价于 moe_scheduler.c::pick_shapes()，时间量已全部转换为 Tick 域
-//（1 Tick = 11264 cc），t0_i 和比较阈值均以 ticks 表示。
+//（1 Tick = 11264 cc）。shape 选择只依赖两侧 S2 完成 offset 的差值。
 //
 // S3 形状决策阈值：|S2a_end - S2b_end| ≥ shape_td3[C] = 1 tick（= ShapeC S3 DMA 持续时长）
 // delta ≥ 1：两侧 S3 DMA 时间错开，不重叠，各用 ShapeC（128 B/cc）总峰值仍为 128 B/cc
@@ -19,7 +19,6 @@ module sched_pick_shapes (
   input  logic               dn_a_i,   // down hit（S1+S3 full hit）
   input  logic               sw_b_i,
   input  logic               dn_b_i,
-  input  logic [T_W-1:0]    t0_i,     // 两 cluster 共同基准时刻（ticks）
 
   output logic [1:0]  s1a_o,
   output logic [1:0]  s3a_o,
@@ -31,9 +30,6 @@ module sched_pick_shapes (
   logic [NTOK_W-1:0] tail_a, tail_b;
   logic [T_W-1:0]    s2a_off, s2b_off;
   logic [T_W-1:0]    delta;
-  logic              unused_t0;
-
-  assign unused_t0 = ^t0_i;
 
   always_comb begin
     tail_a = '0;
@@ -50,9 +46,8 @@ module sched_pick_shapes (
     end
 
     // ── 估算两侧 S2 完成偏移（用于 S3 形状决策）──────────────────────────
-    // 两侧都从同一个 t0_i 出发，S3 选择只需要 |S2a-S2b|。公共项 t0_i
-    // 会在差值中抵消，因此这里只计算 offset，避免两条 T_W 宽的
-    // "t0 + offset" 加法再进入 abs-diff 比较路径。
+    // 两侧公共 start time 会在差值中抵消，因此这里只计算 offset，避免
+    // 两条 T_W 宽的 "t0 + offset" 加法再进入 abs-diff 比较路径。
     if (sw_a_i) begin
       // S1 跳过：S2 直接从 t0 开始，所有 ntok 进 S2。
       s2a_off = best_s2_ticks(ntok_a_i);

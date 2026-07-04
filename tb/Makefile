@@ -27,7 +27,7 @@ RTL_SRCS := \
     $(RTL_DIR)/sched_pkg.sv          \
     $(RTL_DIR)/sched_candidate_pkg.sv \
     $(RTL_DIR)/sched_bw_ok_seq.sv    \
-    $(RTL_DIR)/sched_mk_snap.sv      \
+    $(RTL_DIR)/sched_mk_timeline.sv      \
     $(RTL_DIR)/sched_pick_shapes.sv  \
     $(RTL_DIR)/sched_s2pf_pair.sv    \
     $(RTL_DIR)/sched_score_unit.sv   \
@@ -50,7 +50,7 @@ CORE_RTL_SRCS := \
     $(RTL_DIR)/sched_pkg.sv                  \
     $(RTL_DIR)/sched_candidate_pkg.sv        \
     $(RTL_DIR)/sched_bw_ok_seq.sv            \
-    $(RTL_DIR)/sched_mk_snap.sv              \
+    $(RTL_DIR)/sched_mk_timeline.sv              \
     $(RTL_DIR)/sched_pick_shapes.sv          \
     $(RTL_DIR)/sched_s2pf_pair.sv            \
     $(RTL_DIR)/sched_score_unit.sv           \
@@ -58,7 +58,6 @@ CORE_RTL_SRCS := \
     $(RTL_DIR)/sched_candidate_generator.sv  \
     $(RTL_DIR)/sched_best_reduce.sv          \
     $(RTL_DIR)/sched_commit_unit.sv          \
-    $(RTL_DIR)/sched_ghost_inject_unit.sv    \
     $(RTL_DIR)/sched_plan_pack.sv            \
     $(RTL_DIR)/sched_schedule_core.sv
 

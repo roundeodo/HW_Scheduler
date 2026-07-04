@@ -38,9 +38,7 @@ module sched_s2pf_pair (
   input  logic         bw_done_i,
   input  logic         bw_ok_i,
 
-  output logic         ok_o,
-  output snap_timeline_t snap_a_o,
-  output snap_timeline_t snap_b_o
+  output s2pf_patch_t patch_o
 );
 
   typedef enum logic [2:0] {
@@ -530,13 +528,22 @@ module sched_s2pf_pair (
   end
 
   always_comb begin
-    snap_a_o = best_a_pf_q ? apply_s2pf(snap_a_i, dur_a_trial, pf_bw_a_trial,
-                                        best_s4_a_q, best_a_start_q) : snap_a_i;
-    snap_b_o = best_b_pf_q ? apply_s2pf(snap_b_i, dur_b_trial, pf_bw_b_trial,
-                                        best_s4_b_q, best_b_start_q) : snap_b_i;
+    patch_o = '0;
+    patch_o.ok = best_valid_q;
+    patch_o.has_a = best_a_pf_q;
+    patch_o.has_b = best_b_pf_q;
+    if (best_a_pf_q) begin
+      patch_o.pf_start_a = best_a_start_q;
+      patch_o.pf_end_a   = best_a_start_q + dur_a_trial;
+      patch_o.task_end_a = snap_a_i.s2_end + best_s4_a_q;
+    end
+    if (best_b_pf_q) begin
+      patch_o.pf_start_b = best_b_start_q;
+      patch_o.pf_end_b   = best_b_start_q + dur_b_trial;
+      patch_o.task_end_b = snap_b_i.s2_end + best_s4_b_q;
+    end
   end
 
-  assign ok_o   = best_valid_q;
   assign bw_snap_a_o = try_a;
   assign bw_snap_b_o = try_b;
   assign busy_o = (st_q != ST_IDLE) && (st_q != ST_DONE);

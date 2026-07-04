@@ -29,7 +29,7 @@ package sched_pkg;
                                       (E_MAX <= 64) ? 16 : 17;
   localparam int unsigned BW_W      = 2;  // 带宽档位宽度（0/1/2 → 0/64/128 B/cc）
   localparam int unsigned NTOK_W    = 9;  // token 数宽度（≤511）
-  localparam int unsigned CAND_ID_W = 6;  // 单轮候选 ID（覆盖 ≤64 个候选）
+  localparam int unsigned CAND_ID_W = 4;  // 单轮候选 ID（当前最大 id=12）
   localparam int unsigned SLOT_W    = 6;  // dynamic args slot_id ABI: ctrl[19:14], 0..63
   localparam int unsigned PLANQ_DEPTH = 4; // wrapper-visible completed-round FIFO depth
 
@@ -192,26 +192,13 @@ package sched_pkg;
     end
   endfunction
 
-  // ── 候选分数键（比较顺序：cost > rem_len > snap_max > snap_min）────────
-  // 总宽度：3*T_W + NR_W；E_MAX=64 时为 55 bit。
+  // ── 候选分数键（比较顺序：cost > rem_len > snap_max > candidate_id）──────
+  // 稳定性由 candidate_id 决定，score path 只保留会参与当前 policy 的字段。
   typedef struct packed {
     logic [T_W-1:0]  cost;      // continuation_cost 返回值（ticks）
     logic [NR_W-1:0] rem_len;   // 本轮消化后剩余 expert 数
     logic [T_W-1:0]  snap_max;  // max(sa.task_end, sb.task_end)
-    logic [T_W-1:0]  snap_min;  // min(sa.task_end, sb.task_end)
-  } score_key_t;                // 55 bits when E_MAX=64
-
-  // ── stable top4 selector 输出项 ─────────────────────────────────────────
-  //
-  // rem_index 指向 CVA6/L3 sorted rem stream 中的物理项；input_order 保留
-  // C insertion sort 的稳定性：ntok 相等时，较小 input_order 胜出。
-  typedef struct packed {
-    logic                  valid;
-    logic [NR_W-1:0]       rem_index;
-    logic [EID_RAW_W-1:0]  eid;
-    logic [NTOK_W-1:0]     ntok;
-    logic [NR_W-1:0]       input_order;
-  } rem_head_t;
+  } score_key_t;
 
   // RTL 内部 top4 工作项。MMIO 使用 compact head16 ABI，只把调度 datapath
   // 真正需要的字段落到 FF，避免保存 rem_index/input_order/best_conc。
@@ -249,28 +236,91 @@ package sched_pkg;
   } snap_timeline_t;
 
   typedef struct packed {
+    logic                 valid;
+    time_t                task_start;
+    time_t                dma1_end;
+    time_t                s2_end;
+    time_t                dma3_end;
+    bw_t                  bw_s1;
+    bw_t                  bw_s3;
+    logic                 s2pf_valid;
+    time_t                s2pf_start;
+    time_t                s2pf_end;
+    bw_t                  s2pf_bw;
+    logic                 s4pf_valid;
+    time_t                s4pf_start;
+  } snap_bw_view_t;
+
+  // S2PF search output is a patch, not a full timeline.  The caller owns the
+  // original snap_timeline_t and locally applies these few changed fields.
+  typedef struct packed {
+    logic                 ok;
+    logic                 has_a;
+    time_t                pf_start_a;
+    time_t                pf_end_a;
+    time_t                task_end_a;
+    logic                 has_b;
+    time_t                pf_start_b;
+    time_t                pf_end_b;
+    time_t                task_end_b;
+  } s2pf_patch_t;
+
+  function automatic snap_timeline_t apply_s2pf_patch_timeline(
+    input snap_timeline_t sn,
+    input logic           has_pf,
+    input time_t          pf_start,
+    input time_t          pf_end,
+    input time_t          task_end,
+    input shape_t         shape_s3
+  );
+    snap_timeline_t ret;
+    begin
+      ret = sn;
+      if (has_pf) begin
+        ret.s2pf_valid = 1'b1;
+        ret.s2pf_start = pf_start;
+        ret.s2pf_end   = pf_end;
+        ret.s2pf_bw    = shape_bw(shape_s3);
+        ret.dma3_end   = sn.s2_end;
+        ret.s4_start   = sn.s2_end;
+        ret.bw_s3      = BW_0;
+        ret.task_end   = task_end;
+      end
+      apply_s2pf_patch_timeline = ret;
+    end
+  endfunction
+
+  function automatic snap_bw_view_t to_bw_view(input snap_timeline_t sn);
+    snap_bw_view_t v;
+    begin
+      v.valid       = sn.valid;
+      v.task_start  = sn.task_start;
+      v.dma1_end    = sn.dma1_end;
+      v.s2_end      = sn.s2_end;
+      v.dma3_end    = sn.dma3_end;
+      v.bw_s1       = sn.bw_s1;
+      v.bw_s3       = sn.bw_s3;
+      v.s2pf_valid  = sn.s2pf_valid;
+      v.s2pf_start  = sn.s2pf_start;
+      v.s2pf_end    = sn.s2pf_end;
+      v.s2pf_bw     = sn.s2pf_bw;
+      v.s4pf_valid  = sn.s4pf_valid;
+      v.s4pf_start  = sn.s4pf_start;
+      to_bw_view = v;
+    end
+  endfunction
+
+  typedef struct packed {
     pf_eid_t              pf_eid;
     time_t                pf_end;
     logic                 pf_full;
   } snap_cache_t;
 
-  // ── Candidate-generator view of a snap ─────────────────────────────────
-  //
-  // candidate_generator 不需要完整 timeline/cache 状态。它只关心：
-  //   - task_end：判断 both_idle / idle cluster / candidate start time；
-  //   - pf_*：为候选标注 swiglu/down cache hit；
-  //   - release_valid/t：not-both-idle early-start 候选的少数 DMA release 点。
-  //
-  // 把这个 view 单独传入，可以避免完整 timeline 的 DMA/S4 等字段跨模块边界
-  // 扇出到 candidate generation 逻辑。
   typedef struct packed {
-    time_t             task_end;
-    pf_eid_t           pf_eid;
-    time_t             pf_end;
-    logic              pf_full;
-    logic [3:0]        release_valid;
-    time_t [3:0]       release_t;
-  } cand_gen_snap_t;
+    logic [1:0] count;  // 0..2 extra release starts after idle_t
+    time_t      t0;
+    time_t      t1;
+  } early_start_ctx_t;
 
   function automatic pf_eid_t encode_eid(input logic [EID_RAW_W-1:0] eid);
     encode_eid = {1'b1, eid};
@@ -298,54 +348,40 @@ package sched_pkg;
     down_hit_t = swiglu_hit_t(eid, pf_eid, pf_end, t) && pf_full;
   endfunction
 
-  // ── 获胜候选描述符（提交到 plan 和状态更新用）──────────────────────────
+  // ── Normalized winning plan ────────────────────────────────────────────
   //
-  // 设计原则：只存"控制选择"，不存"时序输出"。
+  // eval/replay 后直接输出 normalized physical cluster task。每个输出项是
+  // 单个 task 的 token/control 对，commit_unit 只做 task_desc_t 组装。
   //
-  // ● 时序字段（est_start/est_end/est_s2_end/est_dma1_end/est_s4_start）
-  //   均可在 commit 时以此结构体中的控制字段重跑 mk_snap 得到，无需存储。
-  //   重跑开销：mk_snap 是纯组合逻辑，1 cycle re-evaluate 即可。
-  //   节约：省去 10 × T_W bits 的寄存器。
-  //
-  // ● has_s2pf_a / has_s2pf_b：try_s2pf_pair() 的选择结果。
-  //   S2PF 是把当前 task 自己的 S3/down DMA 提前到 S2 窗口，不是预取
-  //   另一个 expert；PAIR/SPLIT 两侧可能同时命中，因此必须按侧存储。
-  //   s2pf 的时序（dma_start / dma_end）由 evaluator 输出 snap 或 commit 重跑
-  //   s2pf 选择得到，不需要保存额外 eid。
-  //
-  // 位宽汇总（E_MAX=64, EID_RAW_W=6）：
-  //   基础控制字段：2+1+2×(6+9+9+2+2+1+1) = 63 bits
-  //   s2pf 扩展：2 bits
-  //   合计：65 bits
+  // 位宽（E_MAX=64）：
+  //   winner_token_t  = eid6 + ntok9 + tok_start9 = 24 bits
+  //   task_control_t  = cluster1 + s1/s3 4 + skip2 + has_s2pf1 = 8 bits
+  //   winner_plan_t   = valid2 + 2*(24+8) = 66 bits
   typedef struct packed {
-    logic [1:0]       plan_type;      // 2'b00=PAIR, 2'b01=SPLIT, 2'b10=SOLO
-    logic             cluster_a;      // task A 所在 cluster（0=C2, 1=C3）
-    // Task A
-    logic [EID_RAW_W-1:0] eid_a;
-    logic [NTOK_W-1:0]    ntok_a;
-    logic [NTOK_W-1:0] tok_start_a;  // SPLIT 时 task A 的 token 起始偏移
-    logic [1:0]       s1a;
-    logic [1:0]       s3a;
-    logic             skip_s1_a;
-    logic             skip_s3_a;
-    // Task B（SOLO 时无效，字段保留 0）
-    logic [EID_RAW_W-1:0] eid_b;
-    logic [NTOK_W-1:0]    ntok_b;
-    logic [NTOK_W-1:0] tok_start_b;
-    logic [1:0]       s1b;
-    logic [1:0]       s3b;
-    logic             skip_s1_b;
-    logic             skip_s3_b;
-    // S2 预取（try_s2pf_pair 选择结果）
-    logic             has_s2pf_a;
-    logic             has_s2pf_b;
-  } plan_desc_t;                      // 65 bits when E_MAX=64
+    logic [EID_RAW_W-1:0] eid;
+    ntok_t                 ntok;
+    ntok_t                 tok_start;
+  } winner_token_t;
+
+  typedef struct packed {
+    logic                  cluster;     // 0=C2, 1=C3
+    shape_t                s1;
+    shape_t                s3;
+    logic                  skip_s1;
+    logic                  skip_s3;
+    logic                  has_s2pf;
+  } task_control_t;
+
+  typedef struct packed {
+    logic [1:0]            valid;
+    winner_token_t [1:0]   token;
+    task_control_t [1:0]   ctrl;
+  } winner_plan_t;
 
   // ── Commit 后的单 task descriptor ──────────────────────────────────────
   //
-  // plan_desc_t 用于 evaluator/best/replay 阶段，能表达 PAIR/SPLIT/SOLO
-  // candidate。commit 后进入 wrapper FIFO 的每个 entry 已经规范化成
-  // 单个 cluster task，因此只需要保存 A 侧字段对应的信息。
+  // winner_plan_t 用于 evaluator/replay 到 commit 阶段。commit 后进入
+  // wrapper FIFO 的每个 entry 已经规范化成单个 cluster task。
   //
   // 位宽（E_MAX=64, EID_RAW_W=6）：
   //   cluster + eid + ntok + tok_start + s1 + s3 + skip_s1 + skip_s3 + has_s2pf
@@ -395,7 +431,7 @@ package sched_pkg;
   // ── 1-lane 架构存储原则 ────────────────────────────────────────────────
   // E_MAX=64 时，完整 rem_eid/ntok/order 和完整 plan list 放在 L3/CVA6
   // 软件内存；scheduler 寄存器侧只保留本轮 top4、两个 cluster snap、
-  // compact best_id/best_score、depth=4 round FIFO 和 FSM。
+  // compact best_token/best_score、depth=4 round FIFO 和 FSM。
   // 时序字段仍使用 tick 域，不回退到 32-bit raw-CC。
 
 endpackage

@@ -18,8 +18,8 @@ module sched_bw_ok_seq (
   output logic       busy_o,
   output logic       done_o,
 
-  input  snap_timeline_t snap_a_i,
-  input  snap_timeline_t snap_b_i,
+  input  snap_bw_view_t snap_a_i,
+  input  snap_bw_view_t snap_b_i,
   output logic       ok_o
 );
 
@@ -74,7 +74,7 @@ module sched_bw_ok_seq (
   endfunction
 
   task automatic build_side_segments(
-    input  snap_timeline_t sn,
+    input  snap_bw_view_t sn,
     output seg_t           seg_o [N_SEG],
     output logic           any_o,
     output logic           ok_single_o

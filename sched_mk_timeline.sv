@@ -1,9 +1,9 @@
 // Copyright KU Leuven / MiCAS Lab
 // SPDX-License-Identifier: SHL-0.51
 //
-// MoE Hardware Scheduler — generic mk_snap primitive（Tick 域版本）
+// MoE Hardware Scheduler — timing-only mk_timeline primitive（Tick 域版本）
 //
-// 本模块等价于 moe_scheduler.c::mk_snap()，但所有时间量均以 Tick 为单位
+// 本模块等价于软件 snap timing builder，但所有时间量均以 Tick 为单位
 // （1 Tick = 11264 clock cycles），使每个时间字段从 32 bit 压缩到 T_W bit。
 //
 // 时序常量（tick 域，原始值 ÷ 11264）：
@@ -19,7 +19,7 @@
 
 import sched_pkg::*;
 
-module sched_mk_snap (
+module sched_mk_timeline (
   // ── 输入 ─────────────────────────────────────────────────────────────────
   input  logic [T_W-1:0]   start_t_i,   // cluster 当前可用时刻（ticks）
   input  logic [NTOK_W-1:0] ntok_i,     // 本 expert 的 token 数（≤511）
@@ -38,21 +38,8 @@ module sched_mk_snap (
 
   // ── 带宽档位输出（2-bit：0/1/2 → 0/64/128 B/cc）────────────────────────
   output logic [BW_W-1:0]  bw_s1_o,
-  output logic [BW_W-1:0]  bw_s3_o,
-
-  // ── 执行参数输出 ─────────────────────────────────────────────────────────
-  output logic [NTOK_W-1:0] m_s2_exec_o,
-  output logic [NTOK_W-1:0] m_s4_exec_o,
-  output logic              skip_s2_o,
-  output logic              skip_s4_o,
-  output logic [1:0]        dma_s1_o,   // 0=NONE, 1=IDMA, 2=XDMA, 3=BOTH
-  output logic [1:0]        dma_s3_o
+  output logic [BW_W-1:0]  bw_s3_o
 );
-
-  localparam logic [1:0] DMA_NONE = 2'd0;
-  localparam logic [1:0] DMA_IDMA = 2'd1;
-  localparam logic [1:0] DMA_XDMA = 2'd2;
-  localparam logic [1:0] DMA_BOTH = 2'd3;
 
   // ── 中间信号 ──────────────────────────────────────────────────────────────
   logic [NTOK_W-1:0] s1_tail;
@@ -117,17 +104,11 @@ module sched_mk_snap (
       s1_compute_off = '0;
       s2_dur       = bs2_ntok;
       bw_s1_o     = BW_0;
-      m_s2_exec_o = ntok_i;
-      skip_s2_o   = 1'b0;
-      dma_s1_o    = DMA_NONE;
     end else begin
       dma1_end_off = s1_td;
       s1_compute_off = s1_ts;
       s2_dur       = bs2_s1t;
       bw_s1_o     = s1_bw;
-      m_s2_exec_o = s1_tail;
-      skip_s2_o   = (s1_tail == '0);
-      dma_s1_o    = (s1_bw == BW_128) ? DMA_BOTH : DMA_IDMA;
     end
 
     // ── S3 / S4 阶段 ───────────────────────────────────────────────────────
@@ -136,17 +117,11 @@ module sched_mk_snap (
       s3_dur      = '0;
       s4_dur      = bs4_ntok;
       bw_s3_o     = BW_0;
-      m_s4_exec_o = ntok_i;
-      skip_s4_o   = 1'b0;
-      dma_s3_o    = DMA_NONE;
     end else begin
       dma3_dur    = s3_td;
       s3_dur      = s3_ts;
       s4_dur      = bs4_s3t;
       bw_s3_o     = s3_bw;
-      m_s4_exec_o = s3_tail;
-      skip_s4_o   = (s3_tail == '0);
-      dma_s3_o    = (s3_bw == BW_128) ? DMA_BOTH : DMA_XDMA;
     end
 
     front_off    = s1_compute_off + s2_dur;

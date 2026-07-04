@@ -96,6 +96,15 @@ module tb_scheduler_reg_wrapper;
   logic [EID_RAW_W-1:0] rem_eid [MAX_N_LOCAL];
   logic [NTOK_W-1:0]    rem_ntok [MAX_N_LOCAL];
   logic                 rem_active [MAX_N_LOCAL];
+
+  typedef struct packed {
+    logic                 valid;
+    logic [NR_W-1:0]      rem_index;
+    logic [EID_RAW_W-1:0] eid;
+    logic [NTOK_W-1:0]    ntok;
+    logic [NR_W-1:0]      input_order;
+  } rem_head_t;
+
   rem_head_t            sw_head [3:0];
   rem_head_t            sw_reserve [3:0];
   logic [1:0]           sw_s4pf_pending_valid;

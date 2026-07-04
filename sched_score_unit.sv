@@ -11,7 +11,7 @@
 //
 // The old reference implementation instantiated all sim1 solo cases in
 // parallel.  This version only enters the sim1 FSM when rem_len_i==1 and
-// reuses one mk_snap datapath for the solo cases.  The split case is replayed
+// reuses one mk_timeline datapath for the solo cases.  The split case is replayed
 // combinationally in its final state instead of storing two snap records.
 
 import sched_pkg::*;
@@ -91,7 +91,7 @@ module sched_score_unit (
   logic              solo_shape_b;
   logic              solo_valid;
 
-  // 复用的 mk_snap 输入。当前版本只用它枚举 solo cases。
+  // 复用的 mk_timeline 输入。当前版本只用它枚举 solo cases。
   logic [T_W-1:0]    mk_start;
   logic [NTOK_W-1:0] mk_ntok;
   logic [1:0]        mk_shape_s1;
@@ -107,29 +107,17 @@ module sched_score_unit (
   logic [T_W-1:0]    mk_s4_start;
   logic [BW_W-1:0]   mk_bw_s1;
   logic [BW_W-1:0]   mk_bw_s3;
-  logic [NTOK_W-1:0] unused_m_s2;
-  logic [NTOK_W-1:0] unused_m_s4;
-  logic              unused_skip_s2;
-  logic              unused_skip_s4;
-  logic [1:0]        unused_dma_s1;
-  logic [1:0]        unused_dma_s3;
 
   // split replay 使用两套组合 mk_snap 直接生成 A/B 两侧，不写 full snap FF。
   logic [T_W-1:0] split_a_task_start, split_a_task_end, split_a_dma1_end;
   logic [T_W-1:0] split_a_s2_end, split_a_dma3_end;
   logic [T_W-1:0] split_a_s4_start;
   logic [BW_W-1:0] split_a_bw_s1, split_a_bw_s3;
-  logic [NTOK_W-1:0] split_a_unused_m_s2, split_a_unused_m_s4;
-  logic split_a_unused_skip_s2, split_a_unused_skip_s4;
-  logic [1:0] split_a_unused_dma_s1, split_a_unused_dma_s3;
 
   logic [T_W-1:0] split_b_task_start, split_b_task_end, split_b_dma1_end;
   logic [T_W-1:0] split_b_s2_end, split_b_dma3_end;
   logic [T_W-1:0] split_b_s4_start;
   logic [BW_W-1:0] split_b_bw_s1, split_b_bw_s3;
-  logic [NTOK_W-1:0] split_b_unused_m_s2, split_b_unused_m_s4;
-  logic split_b_unused_skip_s2, split_b_unused_skip_s4;
-  logic [1:0] split_b_unused_dma_s1, split_b_unused_dma_s3;
 
   snap_timeline_t split_a_snap;
   snap_timeline_t split_b_snap;
@@ -137,7 +125,7 @@ module sched_score_unit (
   snap_timeline_t split_pf_b;
   snap_timeline_t split_bw_snap_a;
   snap_timeline_t split_bw_snap_b;
-  logic       split_ok;
+  s2pf_patch_t split_patch;
   logic       split_s2pf_start;
   logic       split_s2pf_bw_start;
   logic       split_s2pf_done;
@@ -149,14 +137,13 @@ module sched_score_unit (
     .dn_a_i   (dn_c2),
     .sw_b_i   (sw_c3),
     .dn_b_i   (dn_c3),
-    .t0_i     (t_now),
     .s1a_o    (split_s1a),
     .s3a_o    (split_s3a),
     .s1b_o    (split_s1b),
     .s3b_o    (split_s3b)
   );
 
-  sched_mk_snap i_reused_mk_snap (
+  sched_mk_timeline i_reused_mk_timeline (
     .start_t_i     (mk_start),
     .ntok_i        (mk_ntok),
     .shape_s1_i    (mk_shape_s1),
@@ -170,16 +157,10 @@ module sched_score_unit (
     .dma3_end_o    (mk_dma3_end),
     .s4_start_o    (mk_s4_start),
     .bw_s1_o       (mk_bw_s1),
-    .bw_s3_o       (mk_bw_s3),
-    .m_s2_exec_o   (unused_m_s2),
-    .m_s4_exec_o   (unused_m_s4),
-    .skip_s2_o     (unused_skip_s2),
-    .skip_s4_o     (unused_skip_s4),
-    .dma_s1_o      (unused_dma_s1),
-    .dma_s3_o      (unused_dma_s3)
+    .bw_s3_o       (mk_bw_s3)
   );
 
-  sched_mk_snap i_split_mk_snap_a (
+  sched_mk_timeline i_split_mk_timeline_a (
     .start_t_i     (t_now),
     .ntok_i        (split_a_ntok),
     .shape_s1_i    (split_s1a),
@@ -193,16 +174,10 @@ module sched_score_unit (
     .dma3_end_o    (split_a_dma3_end),
     .s4_start_o    (split_a_s4_start),
     .bw_s1_o       (split_a_bw_s1),
-    .bw_s3_o       (split_a_bw_s3),
-    .m_s2_exec_o   (split_a_unused_m_s2),
-    .m_s4_exec_o   (split_a_unused_m_s4),
-    .skip_s2_o     (split_a_unused_skip_s2),
-    .skip_s4_o     (split_a_unused_skip_s4),
-    .dma_s1_o      (split_a_unused_dma_s1),
-    .dma_s3_o      (split_a_unused_dma_s3)
+    .bw_s3_o       (split_a_bw_s3)
   );
 
-  sched_mk_snap i_split_mk_snap_b (
+  sched_mk_timeline i_split_mk_timeline_b (
     .start_t_i     (t_now),
     .ntok_i        (split_b_ntok),
     .shape_s1_i    (split_s1b),
@@ -216,13 +191,7 @@ module sched_score_unit (
     .dma3_end_o    (split_b_dma3_end),
     .s4_start_o    (split_b_s4_start),
     .bw_s1_o       (split_b_bw_s1),
-    .bw_s3_o       (split_b_bw_s3),
-    .m_s2_exec_o   (split_b_unused_m_s2),
-    .m_s4_exec_o   (split_b_unused_m_s4),
-    .skip_s2_o     (split_b_unused_skip_s2),
-    .skip_s4_o     (split_b_unused_skip_s4),
-    .dma_s1_o      (split_b_unused_dma_s1),
-    .dma_s3_o      (split_b_unused_dma_s3)
+    .bw_s3_o       (split_b_bw_s3)
   );
 
   sched_s2pf_pair i_sim1_split_s2pf (
@@ -243,14 +212,22 @@ module sched_score_unit (
     .bw_snap_b_o          (split_bw_snap_b),
     .bw_done_i            (bw_done_i),
     .bw_ok_i              (bw_ok_i),
-    .ok_o                 (split_ok),
-    .snap_a_o             (split_pf_a),
-    .snap_b_o             (split_pf_b)
+    .patch_o              (split_patch)
   );
 
   assign bw_start_o = split_s2pf_bw_start;
   assign bw_snap_a_o = split_bw_snap_a;
   assign bw_snap_b_o = split_bw_snap_b;
+  assign split_pf_a = apply_s2pf_patch_timeline(split_a_snap, split_patch.has_a,
+                                                split_patch.pf_start_a,
+                                                split_patch.pf_end_a,
+                                                split_patch.task_end_a,
+                                                split_s3a);
+  assign split_pf_b = apply_s2pf_patch_timeline(split_b_snap, split_patch.has_b,
+                                                split_patch.pf_start_b,
+                                                split_patch.pf_end_b,
+                                                split_patch.task_end_b,
+                                                split_s3b);
 
   function automatic logic [T_W-1:0] min_t(
     input logic [T_W-1:0] a,
@@ -346,7 +323,7 @@ module sched_score_unit (
     split_a_ntok = NTOK_W'(split_tmp >> 1);
     split_b_ntok = rem0_ntok_i - split_a_ntok;
 
-    // 默认把复用 mk_snap 接到当前 solo_idx 对应的 solo case。
+    // 默认把复用 mk_timeline 接到当前 solo_idx 对应的 solo case。
     solo_to_c3    = solo_idx_q[1];
     solo_shape_b  = solo_idx_q[0];
     solo_valid    = !solo_shape_b || !(solo_to_c3 ? sw_c3 : sw_c2);
@@ -413,7 +390,7 @@ module sched_score_unit (
       ST_SIM1_SOLO: begin
         logic [T_W-1:0] next_best;
         next_best = best_cost_q;
-        // 当前 solo_idx 的 mk_snap 输出已经在组合路径上给出；
+        // 当前 solo_idx 的 mk_timeline 输出已经在组合路径上给出；
         // 如果该 solo case 合法，就用 task_end 更新 best_cost。
         if (solo_valid) begin
           next_best = min_t(best_cost_q, mk_task_end);
@@ -444,7 +421,7 @@ module sched_score_unit (
         next_best = best_cost_q;
         if (split_s2pf_done) begin
           split_ms  = max_t(split_pf_a.task_end, split_pf_b.task_end);
-          if (split_ok) begin
+          if (split_patch.ok) begin
             next_best = min_t(best_cost_q, split_ms);
           end
           cost_d = (next_best == INF_T) ?

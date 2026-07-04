@@ -7,12 +7,11 @@
 ```text
 moe_scheduler_reg_wrapper
   └── sched_schedule_core
-      ├── sched_ghost_inject_unit x2
       ├── sched_bw_ok_seq                # single shared BW checker
       ├── sched_candidate_generator
       ├── sched_candidate_eval_lane
       │   ├── sched_pick_shapes
-      │   ├── sched_mk_snap              # shared by EV_MK_A/EV_MK_B
+      │   ├── sched_mk_timeline              # shared by EV_MK_A/EV_MK_B
       │   ├── sched_s2pf_pair            # BW client
       │   └── sched_score_unit
       ├── sched_best_reduce
@@ -40,8 +39,8 @@ sched_candidate_generator
 `eval_req_q` 只保存评估当前 candidate 必需的 task、shape、cache-hit 和
 rem-after 摘要字段；不保存完整 `cand_issue_t`，也不保存 base timeline/cache。
 base timeline/cache 是 round-level 状态，由 `sched_schedule_core` 持有，在当前
-candidate 评估期间保持稳定。A/B 两侧复用同一套 `sched_mk_snap`，不再并行
-实例化两套 mk_snap 组合逻辑。`EV_MK_A/B` 的寄存器边界不保存完整
+candidate 评估期间保持稳定。A/B 两侧复用同一套 `sched_mk_timeline`，不再并行
+实例化两套 mk_timeline 组合逻辑。`EV_MK_A/B` 的寄存器边界不保存完整
 snap 结构：S2PF/BW 只接收 `snap_timeline_t`，cache-hit 所需的
 `pf_eid/pf_end/pf_full` 单独保存在 `snap_cache_t`，只在进入 score/cache
 hit 逻辑时组合使用。

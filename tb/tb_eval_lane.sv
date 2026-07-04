@@ -21,8 +21,6 @@ module tb_eval_lane;
   logic               busy_o;
   logic               done_o;
   logic               cand_valid_i;
-  logic [1:0]         plan_type_i;
-  logic               cluster_a_i;
   s2pf_policy_t       s2pf_policy_i;
   logic               force_shape_a_i;
   logic               force_shape_b_i;
@@ -66,7 +64,7 @@ module tb_eval_lane;
   logic           bw_ok_o;
   logic [T_W-1:0] makespan_o;
   score_key_t     score_key_o;
-  plan_desc_t     plan_desc_o;
+  winner_plan_t   winner_plan_o;
   snap_timeline_t snap_timeline_a_o;
   snap_timeline_t snap_timeline_b_o;
   snap_cache_t    snap_cache_a_o;
@@ -93,8 +91,6 @@ module tb_eval_lane;
     .busy_o                (busy_o),
     .done_o                (done_o),
     .cand_valid_i          (cand_valid_i),
-    .plan_type_i           (plan_type_i),
-    .cluster_a_i           (cluster_a_i),
     .s2pf_policy_i         (s2pf_policy_i),
     .force_shape_a_i       (force_shape_a_i),
     .force_shape_b_i       (force_shape_b_i),
@@ -138,7 +134,7 @@ module tb_eval_lane;
     .bw_ok_o               (bw_ok_o),
     .makespan_o            (makespan_o),
     .score_key_o           (score_key_o),
-    .plan_desc_o           (plan_desc_o),
+    .winner_plan_o         (winner_plan_o),
     .snap_timeline_a_o     (snap_timeline_a_o),
     .snap_timeline_b_o     (snap_timeline_b_o),
     .snap_cache_a_o        (snap_cache_a_o),
@@ -392,8 +388,6 @@ module tb_eval_lane;
         exp_cost, exp_makespan, exp_eval_valid);
 
       // ── Drive DUT inputs ──────────────────────────────────────────────
-      plan_type_i          = 2'(f_plan_type);
-      cluster_a_i          = f_cluster_a[0];
       s2pf_policy_i        = s2pf_policy_t'(f_s2pf_policy[1:0]);
       force_shape_a_i      = f_force_a[0];
       force_shape_b_i      = f_force_b[0];
@@ -497,21 +491,48 @@ module tb_eval_lane;
 
 `undef CHK
 
-      // plan_desc pass-through checks (always, independent of bw_ok)
-      if (int'(plan_desc_o.plan_type) !== f_plan_type) begin
-        $display("[FAIL] tid=%0d  plan_type  got=%0d exp=%0d",
-                 tid, int'(plan_desc_o.plan_type), f_plan_type);
-        fail_this = 1;
-      end
-      if (int'(plan_desc_o.ntok_a) !== f_ntok_a && f_side_a_valid) begin
-        $display("[FAIL] tid=%0d  ntok_a in plan_desc  got=%0d exp=%0d",
-                 tid, int'(plan_desc_o.ntok_a), f_ntok_a);
-        fail_this = 1;
-      end
-      if (int'(plan_desc_o.ntok_b) !== f_ntok_b && f_side_b_valid) begin
-        $display("[FAIL] tid=%0d  ntok_b in plan_desc  got=%0d exp=%0d",
-                 tid, int'(plan_desc_o.ntok_b), f_ntok_b);
-        fail_this = 1;
+      // winner_plan is normalized to compact task order:
+      //   A+B -> entry0=C2/A, entry1=C3/B
+      //   A   -> entry0=C2/A
+      //   B   -> entry0=C3/B
+      if (f_side_a_valid && f_side_b_valid) begin
+        if (winner_plan_o.valid !== 2'b11) begin
+          $display("[FAIL] tid=%0d  winner_valid got=%b exp=11", tid,
+                   winner_plan_o.valid);
+          fail_this = 1;
+        end
+        if (int'(winner_plan_o.token[0].ntok) !== f_ntok_a) begin
+          $display("[FAIL] tid=%0d  winner ntok0 got=%0d exp=%0d",
+                   tid, int'(winner_plan_o.token[0].ntok), f_ntok_a);
+          fail_this = 1;
+        end
+        if (int'(winner_plan_o.token[1].ntok) !== f_ntok_b) begin
+          $display("[FAIL] tid=%0d  winner ntok1 got=%0d exp=%0d",
+                   tid, int'(winner_plan_o.token[1].ntok), f_ntok_b);
+          fail_this = 1;
+        end
+      end else if (f_side_a_valid) begin
+        if (winner_plan_o.valid !== 2'b01) begin
+          $display("[FAIL] tid=%0d  winner_valid got=%b exp=01", tid,
+                   winner_plan_o.valid);
+          fail_this = 1;
+        end
+        if (int'(winner_plan_o.token[0].ntok) !== f_ntok_a) begin
+          $display("[FAIL] tid=%0d  winner ntok0 got=%0d exp=%0d",
+                   tid, int'(winner_plan_o.token[0].ntok), f_ntok_a);
+          fail_this = 1;
+        end
+      end else if (f_side_b_valid) begin
+        if (winner_plan_o.valid !== 2'b01) begin
+          $display("[FAIL] tid=%0d  winner_valid got=%b exp=01", tid,
+                   winner_plan_o.valid);
+          fail_this = 1;
+        end
+        if (int'(winner_plan_o.token[0].ntok) !== f_ntok_b) begin
+          $display("[FAIL] tid=%0d  winner ntok0 got=%0d exp=%0d",
+                   tid, int'(winner_plan_o.token[0].ntok), f_ntok_b);
+          fail_this = 1;
+        end
       end
 
       if (fail_this) total_fail++;

@@ -8,7 +8,7 @@ sources:
       - sched_pkg.sv
       - sched_candidate_pkg.sv
       - sched_bw_ok_seq.sv
-      - sched_mk_snap.sv
+      - sched_mk_timeline.sv
       - sched_pick_shapes.sv
       - sched_s2pf_pair.sv
       - sched_score_unit.sv
@@ -16,7 +16,6 @@ sources:
       - sched_candidate_generator.sv
       - sched_best_reduce.sv
       - sched_commit_unit.sv
-      - sched_ghost_inject_unit.sv
       - sched_plan_pack.sv
       - sched_schedule_core.sv
       - moe_scheduler_reg_wrapper.sv

@@ -4,8 +4,8 @@
 // MoE Hardware Scheduler — one-round datapath core
 //
 // This is the datapath-only core under the MMIO wrapper:
-//   wrapper-maintained top4/reserve state -> top4 round context -> candidate_generator
-//   -> candidate_eval_lane -> compact best_reduce -> replay(best_id)
+//   wrapper-maintained top4/reserve state -> token candidate_generator
+//   -> token-decode candidate_eval_lane -> compact best_reduce -> replay(best_token)
 //   -> commit_unit -> remove metadata + depth-4 round FIFO
 //
 // There is intentionally no internal rem_sram, plan_sram, AXI master, or DMA
@@ -79,10 +79,6 @@ module sched_schedule_core (
   snap_timeline_t c3_timeline_q, c3_timeline_d;
   snap_cache_t    c2_cache_q, c2_cache_d;
   snap_cache_t    c3_cache_q, c3_cache_d;
-  (* max_fanout = 64 *) head_ctx_t [3:0] round_head_q;
-  head_ctx_t [3:0] round_head_d;
-  logic [NR_W-1:0] round_active_count_q, round_active_count_d;
-  logic [T_W-1:0]  round_total_conc_q, round_total_conc_d;
   slot_id_t   c2_slot_q, c2_slot_d;
   slot_id_t   c3_slot_q, c3_slot_d;
 
@@ -94,13 +90,17 @@ module sched_schedule_core (
   logic [3:0]        remove_slot_mask_q, remove_slot_mask_d;
 
   localparam int unsigned PLANQ_COUNT_W = $clog2(PLANQ_DEPTH + 1);
+  localparam int unsigned PLANQ_PTR_W   = $clog2(PLANQ_DEPTH);
 
   logic [PLANQ_COUNT_W-1:0] planq_count_q, planq_count_d;
+  logic [PLANQ_PTR_W-1:0]   planq_head_q, planq_head_d;
+  logic [PLANQ_PTR_W-1:0]   planq_tail_q, planq_tail_d;
   logic [PLANQ_COUNT_W-1:0] planq_pop_count_eff;
   logic [PLANQ_COUNT_W-1:0] planq_count_after_pop;
   logic [PLANQ_DEPTH-1:0][1:0][63:0] planq_data_q, planq_data_d;
   logic [1:0]               planq_plan_count_q [PLANQ_DEPTH], planq_plan_count_d [PLANQ_DEPTH];
   logic [1:0]               planq_remove_count_q [PLANQ_DEPTH], planq_remove_count_d [PLANQ_DEPTH];
+  logic [PLANQ_PTR_W-1:0]   planq_rd_idx [PLANQ_DEPTH];
   logic              planq_has_space_after_pop;
   logic              remove_free_after_ready;
   logic [1:0]        tail_pending_valid_q, tail_pending_valid_d;
@@ -137,85 +137,61 @@ module sched_schedule_core (
     make_initial_cache = s;
   endfunction
 
-  function automatic snap_cache_t apply_accepted_ghost_cache(
-    input snap_timeline_t timeline,
-    input snap_cache_t    cache,
-    input logic           accept
+  function automatic early_start_ctx_t make_early_start_ctx(
+    input snap_timeline_t busy_timeline,
+    input time_t          idle_t
   );
-    snap_cache_t s;
+    early_start_ctx_t e;
+    logic [3:0] rel_valid;
+    time_t rel_t [4];
+    logic dup;
     begin
-      s = cache;
-      if (accept) begin
-        s.pf_eid  = PF_EID_GHOST;
-        s.pf_end  = timeline.task_end;
-        s.pf_full = 1'b0;
+      e = '0;
+      rel_valid[0] = busy_timeline.valid && (busy_timeline.bw_s1 != BW_0) &&
+                     (busy_timeline.dma1_end > busy_timeline.task_start);
+      rel_t[0]     = busy_timeline.dma1_end;
+      rel_valid[1] = busy_timeline.valid && busy_timeline.s2pf_valid &&
+                     (busy_timeline.s2pf_bw != BW_0) &&
+                     (busy_timeline.s2pf_end > busy_timeline.s2pf_start);
+      rel_t[1]     = busy_timeline.s2pf_end;
+      rel_valid[2] = busy_timeline.valid && (busy_timeline.bw_s3 != BW_0) &&
+                     (busy_timeline.dma3_end > busy_timeline.s2_end);
+      rel_t[2]     = busy_timeline.dma3_end;
+      rel_valid[3] = busy_timeline.valid && busy_timeline.s4pf_valid;
+      rel_t[3]     = busy_timeline.s4pf_start + GHOST_WINDOW_TICKS;
+
+      for (int i = 0; i < 4; i++) begin
+        if (rel_valid[i] && (rel_t[i] > idle_t) && (e.count < 2'd2)) begin
+          dup = ((e.count >= 2'd1) && (e.t0 == rel_t[i])) ||
+                ((e.count >= 2'd2) && (e.t1 == rel_t[i]));
+          if (!dup) begin
+            if (e.count == 2'd0) begin
+              e.t0 = rel_t[i];
+            end else begin
+              e.t1 = rel_t[i];
+            end
+            e.count = e.count + 2'd1;
+          end
+        end
       end
-      apply_accepted_ghost_cache = s;
-    end
-  endfunction
 
-  function automatic snap_timeline_t apply_accepted_ghost_timeline(
-    input snap_timeline_t timeline,
-    input logic           accept
-  );
-    snap_timeline_t s;
-    begin
-      s = timeline;
-      if (accept) begin
-        s.s4pf_valid = 1'b1;
-        s.s4pf_start = timeline.s4_start;
-      end
-      apply_accepted_ghost_timeline = s;
-    end
-  endfunction
-
-  function automatic cand_gen_snap_t make_cand_gen_snap(
-    input snap_timeline_t timeline,
-    input snap_cache_t    cache
-  );
-    cand_gen_snap_t v;
-    begin
-      v = '0;
-      v.task_end = timeline.task_end;
-      v.pf_eid   = cache.pf_eid;
-      v.pf_end   = cache.pf_end;
-      v.pf_full  = cache.pf_full;
-
-      v.release_valid[0] = timeline.valid && (timeline.bw_s1 != BW_0) &&
-                           (timeline.dma1_end > timeline.task_start);
-      v.release_t[0]     = timeline.dma1_end;
-
-      v.release_valid[1] = timeline.valid && timeline.s2pf_valid &&
-                           (timeline.s2pf_bw != BW_0) &&
-                           (timeline.s2pf_end > timeline.s2pf_start);
-      v.release_t[1]     = timeline.s2pf_end;
-
-      v.release_valid[2] = timeline.valid && (timeline.bw_s3 != BW_0) &&
-                           (timeline.dma3_end > timeline.s2_end);
-      v.release_t[2]     = timeline.dma3_end;
-
-      v.release_valid[3] = timeline.valid && timeline.s4pf_valid;
-      v.release_t[3]     = timeline.s4pf_start + GHOST_WINDOW_TICKS;
-
-      make_cand_gen_snap = v;
+      make_early_start_ctx = e;
     end
   endfunction
 
   // ── Ghost injection ───────────────────────────────────────────────────
   snap_timeline_t c2_ghost_timeline_try;
   snap_timeline_t c3_ghost_timeline_try;
-  snap_cache_t    c2_ghost_cache_try;
-  snap_cache_t    c3_ghost_cache_try;
   logic       ghost_bw_start;
   snap_timeline_t ghost_bw_snap_a;
   snap_timeline_t ghost_bw_snap_b;
   logic       c2_ghost_bw_ok_q, c2_ghost_bw_ok_d;
-  logic       c2_new_ghost;
-  logic       c3_new_ghost;
+  logic       c2_ghost_valid;
+  logic       c3_ghost_valid;
 
   logic       shared_bw_start;
-  snap_timeline_t shared_bw_snap_a;
-  snap_timeline_t shared_bw_snap_b;
+  snap_bw_view_t shared_bw_snap_a;
+  snap_bw_view_t shared_bw_snap_b;
   logic       shared_bw_done;
   logic       shared_bw_ok;
 
@@ -227,19 +203,29 @@ module sched_schedule_core (
   snap_timeline_t commit_bw_snap_a;
   snap_timeline_t commit_bw_snap_b;
 
-  sched_ghost_inject_unit i_ghost_c2 (
-    .timeline_i (c2_timeline_q),
-    .cache_i    (c2_cache_q),
-    .timeline_o (c2_ghost_timeline_try),
-    .cache_o    (c2_ghost_cache_try)
-  );
+  assign c2_ghost_valid = c2_timeline_q.valid &&
+                          (c2_cache_q.pf_eid == PF_EID_NONE) &&
+                          (c2_timeline_q.dma1_end <= c2_timeline_q.s4_start) &&
+                          ((c2_timeline_q.s4_start + GHOST_WINDOW_TICKS) <=
+                           c2_timeline_q.task_end);
+  assign c3_ghost_valid = c3_timeline_q.valid &&
+                          (c3_cache_q.pf_eid == PF_EID_NONE) &&
+                          (c3_timeline_q.dma1_end <= c3_timeline_q.s4_start) &&
+                          ((c3_timeline_q.s4_start + GHOST_WINDOW_TICKS) <=
+                           c3_timeline_q.task_end);
 
-  sched_ghost_inject_unit i_ghost_c3 (
-    .timeline_i (c3_timeline_q),
-    .cache_i    (c3_cache_q),
-    .timeline_o (c3_ghost_timeline_try),
-    .cache_o    (c3_ghost_cache_try)
-  );
+  always_comb begin
+    c2_ghost_timeline_try = c2_timeline_q;
+    c3_ghost_timeline_try = c3_timeline_q;
+    if (c2_ghost_valid) begin
+      c2_ghost_timeline_try.s4pf_valid = 1'b1;
+      c2_ghost_timeline_try.s4pf_start = c2_timeline_q.s4_start;
+    end
+    if (c3_ghost_valid) begin
+      c3_ghost_timeline_try.s4pf_valid = 1'b1;
+      c3_ghost_timeline_try.s4pf_start = c3_timeline_q.s4_start;
+    end
+  end
 
   sched_bw_ok_seq i_shared_bw_ok (
     .clk_i    (clk_i),
@@ -264,21 +250,21 @@ module sched_schedule_core (
       ST_GHOST_C2_START,
       ST_GHOST_C3_START: begin
         shared_bw_start  = ghost_bw_start;
-        shared_bw_snap_a = ghost_bw_snap_a;
-        shared_bw_snap_b = ghost_bw_snap_b;
+        shared_bw_snap_a = to_bw_view(ghost_bw_snap_a);
+        shared_bw_snap_b = to_bw_view(ghost_bw_snap_b);
       end
 
       ST_EVAL,
       ST_REPLAY_WAIT: begin
         shared_bw_start  = eval_bw_start;
-        shared_bw_snap_a = eval_bw_snap_a;
-        shared_bw_snap_b = eval_bw_snap_b;
+        shared_bw_snap_a = to_bw_view(eval_bw_snap_a);
+        shared_bw_snap_b = to_bw_view(eval_bw_snap_b);
       end
 
       ST_COMMIT_WAIT: begin
         shared_bw_start  = commit_bw_start;
-        shared_bw_snap_a = commit_bw_snap_a;
-        shared_bw_snap_b = commit_bw_snap_b;
+        shared_bw_snap_a = to_bw_view(commit_bw_snap_a);
+        shared_bw_snap_b = to_bw_view(commit_bw_snap_b);
       end
 
       default: begin
@@ -286,45 +272,43 @@ module sched_schedule_core (
     endcase
   end
 
-  assign c2_new_ghost = (c2_cache_q.pf_eid == PF_EID_NONE) &&
-                        (c2_ghost_cache_try.pf_eid == PF_EID_GHOST);
-  assign c3_new_ghost = (c3_cache_q.pf_eid == PF_EID_NONE) &&
-                        (c3_ghost_cache_try.pf_eid == PF_EID_GHOST);
-
   // ── Candidate generation ──────────────────────────────────────────────
   logic       gen_start;
   logic       gen_advance;
-  logic       gen_replay;
   logic       gen_busy;
   logic       gen_done;
-  cand_issue_t cand;
+  cand_token_t cand_token;
+  cand_token_t eval_token;
+  cand_token_t best_token;
   logic       cand_valid;
-  cand_gen_snap_t c2_gen_snap;
-  cand_gen_snap_t c3_gen_snap;
+  early_start_ctx_t early_ctx;
+  time_t early_idle_t;
+  snap_timeline_t early_busy_timeline;
 
-  assign c2_gen_snap = make_cand_gen_snap(c2_timeline_q, c2_cache_q);
-  assign c3_gen_snap = make_cand_gen_snap(c3_timeline_q, c3_cache_q);
+  assign early_idle_t = (c3_timeline_q.task_end < c2_timeline_q.task_end) ?
+                        c3_timeline_q.task_end : c2_timeline_q.task_end;
+  assign early_busy_timeline = (c3_timeline_q.task_end < c2_timeline_q.task_end) ?
+                               c2_timeline_q : c3_timeline_q;
+  assign early_ctx = make_early_start_ctx(early_busy_timeline, early_idle_t);
 
   logic best_valid;
-  logic [CAND_ID_W-1:0] best_id;
   logic [1:0] best_remove_count;
   logic [3:0] best_remove_slot_mask;
+  assign eval_token = (st_q == ST_REPLAY_START) ? best_token : cand_token;
 
   sched_candidate_generator i_candidate_generator (
     .clk_i                 (clk_i),
     .rst_ni                (rst_ni),
     .start_i               (gen_start),
     .advance_i             (gen_advance),
-    .replay_i              (gen_replay),
-    .replay_candidate_id_i (best_id),
     .busy_o                (gen_busy),
     .done_o                (gen_done),
-    .c2_snap_i             (c2_gen_snap),
-    .c3_snap_i             (c3_gen_snap),
-    .head_i                (round_head_q),
-    .active_count_i        (round_active_count_q),
-    .total_conc_i          (round_total_conc_q),
-    .cand_o                (cand),
+    .c2_task_end_i         (c2_timeline_q.task_end),
+    .c3_task_end_i         (c3_timeline_q.task_end),
+    .early_i               (early_ctx),
+    .head_i                (head_i),
+    .active_count_i        (active_count_i),
+    .cand_o                (cand_token),
     .cand_valid_o          (cand_valid)
   );
 
@@ -336,7 +320,7 @@ module sched_schedule_core (
   logic       eval_bw_ok;
   logic [T_W-1:0] unused_makespan;
   score_key_t eval_score;
-  plan_desc_t eval_plan;
+  winner_plan_t eval_plan;
   snap_timeline_t eval_timeline_a;
   snap_timeline_t eval_timeline_b;
   snap_cache_t    eval_cache_a;
@@ -348,43 +332,15 @@ module sched_schedule_core (
     .start_i               (eval_start),
     .busy_o                (eval_busy),
     .done_o                (eval_done),
-    .cand_valid_i          (cand_valid),
-    .plan_type_i           (cand.plan_type),
-    .cluster_a_i           (cand.cluster_a),
-    .s2pf_policy_i         (cand.s2pf_policy),
-    .force_shape_a_i       (cand.force_shape_a),
-    .force_shape_b_i       (cand.force_shape_b),
-    .forced_s1a_i          (cand.forced_s1a),
-    .forced_s3a_i          (cand.forced_s3a),
-    .forced_s1b_i          (cand.forced_s1b),
-    .forced_s3b_i          (cand.forced_s3b),
-    .cost_only_tie_i       (cand.cost_only_tie),
-    .score_makespan_only_i (cand.score_makespan_only),
+    .cand_i                (eval_token),
+    .head_i                (head_i),
+    .active_count_i        (active_count_i),
+    .total_conc_i          (total_conc_i),
+    .early_i               (early_ctx),
     .base_timeline_a_i     (c2_timeline_q),
     .base_timeline_b_i     (c3_timeline_q),
     .base_cache_a_i        (c2_cache_q),
     .base_cache_b_i        (c3_cache_q),
-    .side_a_valid_i        (cand.side_a_valid),
-    .side_b_valid_i        (cand.side_b_valid),
-    .start_a_i             (cand.start_a),
-    .start_b_i             (cand.start_b),
-    .eid_a_i               (cand.eid_a),
-    .eid_b_i               (cand.eid_b),
-    .ntok_a_i              (cand.ntok_a),
-    .ntok_b_i              (cand.ntok_b),
-    .tok_start_a_i         (cand.tok_start_a),
-    .tok_start_b_i         (cand.tok_start_b),
-    .sw_a_i                (cand.sw_a),
-    .dn_a_i                (cand.dn_a),
-    .sw_b_i                (cand.sw_b),
-    .dn_b_i                (cand.dn_b),
-    .shape_t0_i            (cand.shape_t0),
-    .rem_len_after_i       (cand.rem_len_after),
-    .rem0_eid_i            (cand.rem0_eid),
-    .rem0_ntok_i           (cand.rem0_ntok),
-    .rem1_ntok_i           (cand.rem1_ntok),
-    .total_conc_after_i    (cand.total_conc_after),
-    .max_conc_after_i      (cand.max_conc_after),
     .bw_start_o            (eval_bw_start),
     .bw_snap_a_o           (eval_bw_snap_a),
     .bw_snap_b_o           (eval_bw_snap_b),
@@ -394,7 +350,7 @@ module sched_schedule_core (
     .bw_ok_o               (eval_bw_ok),
     .makespan_o            (unused_makespan),
     .score_key_o           (eval_score),
-    .plan_desc_o           (eval_plan),
+    .winner_plan_o         (eval_plan),
     .snap_timeline_a_o     (eval_timeline_a),
     .snap_timeline_b_o     (eval_timeline_b),
     .snap_cache_a_o        (eval_cache_a),
@@ -412,19 +368,7 @@ module sched_schedule_core (
     .bw_s1a_o              (),
     .bw_s3a_o              (),
     .bw_s1b_o              (),
-    .bw_s3b_o              (),
-    .m_s2_a_o              (),
-    .m_s4_a_o              (),
-    .m_s2_b_o              (),
-    .m_s4_b_o              (),
-    .skip_s2_a_o           (),
-    .skip_s4_a_o           (),
-    .skip_s2_b_o           (),
-    .skip_s4_b_o           (),
-    .dma_s1_a_o            (),
-    .dma_s3_a_o            (),
-    .dma_s1_b_o            (),
-    .dma_s3_b_o            ()
+    .bw_s3b_o              ()
   );
 
   // ── Best reducer: compact winner only ─────────────────────────────────
@@ -435,11 +379,10 @@ module sched_schedule_core (
     .rst_ni               (rst_ni),
     .clear_i              (best_clear),
     .cand_valid_i         ((st_q == ST_EVAL) && eval_valid),
-    .cand_id_i            (cand.candidate_id),
+    .cand_token_i         (cand_token),
     .cand_score_i         (eval_score),
-    .cand_remove_slot_mask_i (cand.remove_slot_mask),
     .best_valid_o         (best_valid),
-    .best_id_o            (best_id),
+    .best_token_o         (best_token),
     .best_score_o         (),
     .best_remove_count_o  (best_remove_count),
     .best_remove_slot_mask_o (best_remove_slot_mask),
@@ -463,19 +406,13 @@ module sched_schedule_core (
   logic [T_W-1:0] fallback_s4_start;
   logic [BW_W-1:0] fallback_bw_s1;
   logic [BW_W-1:0] fallback_bw_s3;
-  logic [NTOK_W-1:0] fallback_m_s2;
-  logic [NTOK_W-1:0] fallback_m_s4;
-  logic fallback_skip_s2;
-  logic fallback_skip_s4;
-  logic [1:0] fallback_dma_s1;
-  logic [1:0] fallback_dma_s3;
   snap_timeline_t fallback_timeline;
   snap_cache_t    fallback_cache;
-  plan_desc_t fallback_plan;
+  winner_plan_t fallback_plan;
 
-  sched_mk_snap i_fallback_mk_snap (
+  sched_mk_timeline i_fallback_mk_timeline (
     .start_t_i    (fallback_start),
-    .ntok_i       (round_head_q[0].ntok),
+    .ntok_i       (head_i[0].ntok),
     .shape_s1_i   (SHAPE_C),
     .shape_s3_i   (SHAPE_C),
     .skip_s1_i    (fallback_sw),
@@ -487,13 +424,7 @@ module sched_schedule_core (
     .dma3_end_o   (fallback_dma3_end),
     .s4_start_o   (fallback_s4_start),
     .bw_s1_o      (fallback_bw_s1),
-    .bw_s3_o      (fallback_bw_s3),
-    .m_s2_exec_o  (fallback_m_s2),
-    .m_s4_exec_o  (fallback_m_s4),
-    .skip_s2_o    (fallback_skip_s2),
-    .skip_s4_o    (fallback_skip_s4),
-    .dma_s1_o     (fallback_dma_s1),
-    .dma_s3_o     (fallback_dma_s3)
+    .bw_s3_o      (fallback_bw_s3)
   );
 
   always_comb begin
@@ -507,18 +438,18 @@ module sched_schedule_core (
 
     // Match C: not_both fallback reuses c2c0/c3c0 computed at tnow, not idle_t.
     fallback_sw = fallback_cluster ?
-                  swiglu_hit_t(round_head_q[0].eid, c3_cache_q.pf_eid, c3_cache_q.pf_end,
+                  swiglu_hit_t(head_i[0].eid, c3_cache_q.pf_eid, c3_cache_q.pf_end,
                                fallback_tnow) :
-                  swiglu_hit_t(round_head_q[0].eid, c2_cache_q.pf_eid, c2_cache_q.pf_end,
+                  swiglu_hit_t(head_i[0].eid, c2_cache_q.pf_eid, c2_cache_q.pf_end,
                                fallback_tnow);
     fallback_dn = fallback_cluster ?
-                  down_hit_t(round_head_q[0].eid, c3_cache_q.pf_eid, c3_cache_q.pf_end,
+                  down_hit_t(head_i[0].eid, c3_cache_q.pf_eid, c3_cache_q.pf_end,
                              c3_cache_q.pf_full, fallback_tnow) :
-                  down_hit_t(round_head_q[0].eid, c2_cache_q.pf_eid, c2_cache_q.pf_end,
+                  down_hit_t(head_i[0].eid, c2_cache_q.pf_eid, c2_cache_q.pf_end,
                              c2_cache_q.pf_full, fallback_tnow);
 
     fallback_timeline = '0;
-    fallback_timeline.valid      = round_head_q[0].valid;
+    fallback_timeline.valid      = head_i[0].valid;
     fallback_timeline.task_start = fallback_task_start;
     fallback_timeline.task_end   = fallback_task_end;
     fallback_timeline.dma1_end   = fallback_dma1_end;
@@ -527,30 +458,30 @@ module sched_schedule_core (
     fallback_timeline.s4_start   = fallback_s4_start;
     fallback_timeline.bw_s1      = fallback_bw_s1;
     fallback_timeline.bw_s3      = fallback_bw_s3;
-    fallback_timeline.ntok       = round_head_q[0].ntok;
+    fallback_timeline.ntok       = head_i[0].ntok;
     fallback_cache = '0;
     fallback_cache.pf_eid = PF_EID_NONE;
 
     fallback_plan = '0;
-    fallback_plan.plan_type   = 2'b10; // SOLO
-    fallback_plan.cluster_a   = fallback_cluster;
-    fallback_plan.eid_a       = round_head_q[0].eid;
-    fallback_plan.ntok_a      = round_head_q[0].ntok;
-    fallback_plan.tok_start_a = '0;
-    fallback_plan.s1a         = SHAPE_C;
-    fallback_plan.s3a         = SHAPE_C;
-    fallback_plan.skip_s1_a   = (fallback_bw_s1 == BW_0);
-    fallback_plan.skip_s3_a   = (fallback_bw_s3 == BW_0);
+    fallback_plan.valid[0]        = !best_valid && head_i[0].valid &&
+                                    (active_count_i != NR_W'(0));
+    fallback_plan.token[0].eid    = head_i[0].eid;
+    fallback_plan.token[0].ntok   = head_i[0].ntok;
+    fallback_plan.ctrl[0].cluster = fallback_cluster;
+    fallback_plan.ctrl[0].s1      = SHAPE_C;
+    fallback_plan.ctrl[0].s3      = SHAPE_C;
+    fallback_plan.ctrl[0].skip_s1 = (fallback_bw_s1 == BW_0);
+    fallback_plan.ctrl[0].skip_s3 = (fallback_bw_s3 == BW_0);
 
-    fallback_valid = !best_valid && round_head_q[0].valid &&
-                     (round_active_count_q != NR_W'(0));
+    fallback_valid = !best_valid && head_i[0].valid &&
+                     (active_count_i != NR_W'(0));
   end
 
   // ── Commit mux and output-buffer producer ─────────────────────────────
   logic commit_from_replay;
   logic commit_from_fallback;
   logic commit_fire;
-  plan_desc_t commit_plan;
+  winner_plan_t commit_plan;
   snap_timeline_t commit_timeline_a;
   snap_timeline_t commit_timeline_b;
   snap_cache_t    commit_cache_a;
@@ -733,9 +664,6 @@ module sched_schedule_core (
     c3_timeline_d        = c3_timeline_q;
     c2_cache_d           = c2_cache_q;
     c3_cache_d           = c3_cache_q;
-    round_head_d         = round_head_q;
-    round_active_count_d = round_active_count_q;
-    round_total_conc_d   = round_total_conc_q;
     c2_slot_d            = c2_slot_q;
     c3_slot_d            = c3_slot_q;
     eval_inflight_d      = eval_inflight_q;
@@ -747,6 +675,8 @@ module sched_schedule_core (
     remove_slot_mask_d    = remove_slot_mask_q;
 
     planq_count_d         = planq_count_q;
+    planq_head_d          = planq_head_q;
+    planq_tail_d          = planq_tail_q;
     for (int q = 0; q < PLANQ_DEPTH; q++) begin
       planq_data_d[q]       = planq_data_q[q];
       planq_plan_count_d[q] = planq_plan_count_q[q];
@@ -755,7 +685,6 @@ module sched_schedule_core (
 
     gen_start   = 1'b0;
     gen_advance = 1'b0;
-    gen_replay  = 1'b0;
     eval_start  = 1'b0;
     best_clear  = 1'b0;
     ghost_bw_start = 1'b0;
@@ -775,22 +704,12 @@ module sched_schedule_core (
       remove_slot_mask_d = '0;
     end
 
-    // CVA6 pops the oldest queued plan entry after reading it.  Pop is handled
-    // before an internal commit push, so pop+push in the same cycle is safe.
+    // CVA6 pops the oldest queued plan entries after reading them.  The FIFO is
+    // circular: pop only advances the head pointer and never shifts wide data.
+    // Pop is handled before an internal commit push, so pop+push in the same
+    // cycle is safe.
     if (planq_pop_count_eff != PLANQ_COUNT_W'(0)) begin
-      for (int q = 0; q < PLANQ_DEPTH; q++) begin
-        int src_idx;
-        src_idx = q + int'(planq_pop_count_eff);
-        if (src_idx < PLANQ_DEPTH) begin
-          planq_data_d[q]       = planq_data_q[src_idx];
-          planq_plan_count_d[q] = planq_plan_count_q[src_idx];
-          planq_remove_count_d[q] = planq_remove_count_q[src_idx];
-        end else begin
-          planq_data_d[q]       = '{default: '0};
-          planq_plan_count_d[q] = '0;
-          planq_remove_count_d[q] = '0;
-        end
-      end
+      planq_head_d  = planq_head_q + planq_pop_count_eff[PLANQ_PTR_W-1:0];
       planq_count_d = planq_count_after_pop;
     end
 
@@ -799,9 +718,6 @@ module sched_schedule_core (
       c3_timeline_d        = '0;
       c2_cache_d           = make_initial_cache(cache_eid_c2_i);
       c3_cache_d           = make_initial_cache(cache_eid_c3_i);
-      round_head_d         = '{default: '0};
-      round_active_count_d = '0;
-      round_total_conc_d   = '0;
       c2_slot_d            = '0;
       c3_slot_d            = '0;
       eval_inflight_d      = 1'b0;
@@ -810,6 +726,8 @@ module sched_schedule_core (
       remove_count_d       = '0;
       remove_slot_mask_d   = '0;
       planq_count_d        = '0;
+      planq_head_d         = '0;
+      planq_tail_d         = '0;
       for (int q = 0; q < PLANQ_DEPTH; q++) begin
         planq_data_d[q]       = '{default: '0};
         planq_plan_count_d[q] = '0;
@@ -829,13 +747,9 @@ module sched_schedule_core (
         end
 
         ST_ROUND_START: begin
-          // Latch the per-round context here rather than in ST_IDLE.  In the
-          // auto-run path the wrapper can compact/refill head_q on the same
-          // edge that raises start_i; one cycle later the updated head_i is
-          // stable and can safely drive this round.
-          round_head_d         = head_i;
-          round_active_count_d = active_count_i;
-          round_total_conc_d   = total_conc_i;
+          // ST_ROUND_START is only a one-cycle protocol boundary after wrapper
+          // compact/refill.  The core directly consumes wrapper-owned head_i /
+          // active_count_i / total_conc_i; duplicating them here would waste FF.
           if (active_count_i == NR_W'(0)) begin
             done_d = 1'b1;
             st_d   = ST_DONE_EMPTY;
@@ -867,14 +781,20 @@ module sched_schedule_core (
 
         ST_GHOST_C3_WAIT: begin
           if (shared_bw_done) begin
-            c2_timeline_d = apply_accepted_ghost_timeline(
-                c2_timeline_q, c2_new_ghost && c2_ghost_bw_ok_q);
-            c2_cache_d = apply_accepted_ghost_cache(
-                c2_timeline_q, c2_cache_q, c2_new_ghost && c2_ghost_bw_ok_q);
-            c3_timeline_d = apply_accepted_ghost_timeline(
-                c3_timeline_q, c3_new_ghost && shared_bw_ok);
-            c3_cache_d = apply_accepted_ghost_cache(
-                c3_timeline_q, c3_cache_q, c3_new_ghost && shared_bw_ok);
+            if (c2_ghost_valid && c2_ghost_bw_ok_q) begin
+              c2_timeline_d.s4pf_valid = 1'b1;
+              c2_timeline_d.s4pf_start = c2_timeline_q.s4_start;
+              c2_cache_d.pf_eid        = PF_EID_GHOST;
+              c2_cache_d.pf_end        = c2_timeline_q.task_end;
+              c2_cache_d.pf_full       = 1'b0;
+            end
+            if (c3_ghost_valid && shared_bw_ok) begin
+              c3_timeline_d.s4pf_valid = 1'b1;
+              c3_timeline_d.s4pf_start = c3_timeline_q.s4_start;
+              c3_cache_d.pf_eid        = PF_EID_GHOST;
+              c3_cache_d.pf_end        = c3_timeline_q.task_end;
+              c3_cache_d.pf_full       = 1'b0;
+            end
             c2_ghost_bw_ok_d = 1'b0;
             st_d      = ST_EVAL_START;
           end
@@ -902,17 +822,15 @@ module sched_schedule_core (
         end
 
         ST_REPLAY_START: begin
-          // Re-emit only best_id through candidate_generator and evaluate it
-          // once more.  This recovers full plan/snap without storing those
-          // large structs during the whole candidate sweep.
-          gen_replay       = 1'b1;
+          // Replay the compact best token directly through eval_lane.  The
+          // generator is not involved in replay, so no wide candidate payload
+          // or duplicate generator path is kept.
           eval_start       = 1'b1;
           eval_inflight_d  = 1'b1;
           st_d             = ST_REPLAY_WAIT;
         end
 
         ST_REPLAY_WAIT: begin
-          gen_replay = 1'b1;
           if (eval_inflight_q && eval_done) begin
             eval_inflight_d = 1'b0;
             st_d             = ST_COMMIT_WAIT;
@@ -926,22 +844,23 @@ module sched_schedule_core (
         ST_COMMIT_WAIT: begin
           if (commit_done) begin
             if (commit_valid) begin
-            c2_timeline_d         = commit_c2_timeline;
-            c3_timeline_d         = commit_c3_timeline;
-            c2_cache_d            = commit_c2_cache;
-            c3_cache_d            = commit_c3_cache;
-            c2_slot_d             = c2_slot_after_commit;
-            c3_slot_d             = c3_slot_after_commit;
-            remove_valid_d        = 1'b1;
-            remove_count_d        = commit_remove_count_o;
-            remove_slot_mask_d    = commit_remove_slot_mask_o;
-            if (planq_count_d < PLANQ_COUNT_W'(PLANQ_DEPTH)) begin
-              planq_data_d[planq_count_d] = commit_plan_data;
-              planq_plan_count_d[planq_count_d] = commit_plan_count;
-              planq_remove_count_d[planq_count_d] = commit_remove_count_o;
-              planq_count_d = planq_count_d + PLANQ_COUNT_W'(1);
+              c2_timeline_d         = commit_c2_timeline;
+              c3_timeline_d         = commit_c3_timeline;
+              c2_cache_d            = commit_c2_cache;
+              c3_cache_d            = commit_c3_cache;
+              c2_slot_d             = c2_slot_after_commit;
+              c3_slot_d             = c3_slot_after_commit;
+              remove_valid_d        = 1'b1;
+              remove_count_d        = commit_remove_count_o;
+              remove_slot_mask_d    = commit_remove_slot_mask_o;
+              if (planq_count_d < PLANQ_COUNT_W'(PLANQ_DEPTH)) begin
+                planq_data_d[planq_tail_d] = commit_plan_data;
+                planq_plan_count_d[planq_tail_d] = commit_plan_count;
+                planq_remove_count_d[planq_tail_d] = commit_remove_count_o;
+                planq_tail_d = planq_tail_d + PLANQ_PTR_W'(1);
+                planq_count_d = planq_count_d + PLANQ_COUNT_W'(1);
+              end
             end
-          end
             done_d = 1'b1;
             st_d   = ST_IDLE;
           end
@@ -963,9 +882,6 @@ module sched_schedule_core (
       c3_timeline_q         <= '0;
       c2_cache_q            <= '0;
       c3_cache_q            <= '0;
-      round_head_q          <= '{default: '0};
-      round_active_count_q  <= '0;
-      round_total_conc_q    <= '0;
       c2_slot_q             <= '0;
       c3_slot_q             <= '0;
       eval_inflight_q       <= 1'b0;
@@ -975,6 +891,8 @@ module sched_schedule_core (
       remove_count_q        <= '0;
       remove_slot_mask_q    <= '0;
       planq_count_q         <= '0;
+      planq_head_q          <= '0;
+      planq_tail_q          <= '0;
       tail_pending_valid_q   <= '0;
       tail_pending_skip_s1_q <= '0;
       tail_pending_slot_q    <= '{default: '0};
@@ -989,9 +907,6 @@ module sched_schedule_core (
       c3_timeline_q         <= c3_timeline_d;
       c2_cache_q            <= c2_cache_d;
       c3_cache_q            <= c3_cache_d;
-      round_head_q          <= round_head_d;
-      round_active_count_q  <= round_active_count_d;
-      round_total_conc_q    <= round_total_conc_d;
       c2_slot_q             <= c2_slot_d;
       c3_slot_q             <= c3_slot_d;
       eval_inflight_q       <= eval_inflight_d;
@@ -1001,6 +916,8 @@ module sched_schedule_core (
       remove_count_q        <= remove_count_d;
       remove_slot_mask_q    <= remove_slot_mask_d;
       planq_count_q         <= planq_count_d;
+      planq_head_q          <= planq_head_d;
+      planq_tail_q          <= planq_tail_d;
       tail_pending_valid_q   <= tail_pending_valid_d;
       tail_pending_skip_s1_q <= tail_pending_skip_s1_d;
       tail_pending_slot_q    <= tail_pending_slot_d;
@@ -1016,13 +933,22 @@ module sched_schedule_core (
   assign remove_count_o     = remove_count_q;
   assign remove_slot_mask_o = remove_slot_mask_q;
 
-  assign plan_valid_o       = (planq_count_q != 2'd0);
+  assign plan_valid_o       = (planq_count_q != PLANQ_COUNT_W'(0));
   for (genvar q = 0; q < PLANQ_DEPTH; q++) begin : gen_planq_out
-    assign plan_slot_valid_o[q] = (planq_plan_count_q[q] == 2'd0) ? 2'b00 :
-                                  (planq_plan_count_q[q] == 2'd1) ? 2'b01 : 2'b11;
-    assign plan_data_o[q] = planq_data_q[q];
-    assign plan_count_o[q] = planq_plan_count_q[q];
-    assign plan_remove_count_o[q] = planq_remove_count_q[q];
+    localparam logic [PLANQ_COUNT_W-1:0] Q_COUNT = PLANQ_COUNT_W'(q);
+    localparam logic [PLANQ_PTR_W-1:0]   Q_PTR   = PLANQ_PTR_W'(q);
+
+    assign planq_rd_idx[q] = planq_head_q + Q_PTR;
+    assign plan_slot_valid_o[q] =
+        (Q_COUNT >= planq_count_q) ? 2'b00 :
+        (planq_plan_count_q[planq_rd_idx[q]] == 2'd0) ? 2'b00 :
+        (planq_plan_count_q[planq_rd_idx[q]] == 2'd1) ? 2'b01 : 2'b11;
+    assign plan_data_o[q] =
+        (Q_COUNT >= planq_count_q) ? '{default: '0} : planq_data_q[planq_rd_idx[q]];
+    assign plan_count_o[q] =
+        (Q_COUNT >= planq_count_q) ? 2'd0 : planq_plan_count_q[planq_rd_idx[q]];
+    assign plan_remove_count_o[q] =
+        (Q_COUNT >= planq_count_q) ? 2'd0 : planq_remove_count_q[planq_rd_idx[q]];
   end
   assign plan_queue_full_o  = (planq_count_q == PLANQ_COUNT_W'(PLANQ_DEPTH));
   assign plan_queue_count_o = {{(4-PLANQ_COUNT_W){1'b0}}, planq_count_q};

@@ -15,7 +15,7 @@ module sched_commit_unit (
   input  logic                    rst_ni,
   input  logic                    commit_i,
   input  logic                    best_valid_i,
-  input  plan_desc_t              best_plan_i,
+  input  winner_plan_t            best_plan_i,
   input  snap_timeline_t          best_timeline_a_i,   // physical C2
   input  snap_timeline_t          best_timeline_b_i,   // physical C3
   input  snap_cache_t             best_cache_a_i,
@@ -46,10 +46,6 @@ module sched_commit_unit (
   input  logic                    bw_ok_i
 );
 
-  localparam logic [1:0] PLAN_PAIR  = 2'b00;
-  localparam logic [1:0] PLAN_SPLIT = 2'b01;
-  localparam logic [1:0] PLAN_SOLO  = 2'b10;
-
   typedef enum logic [2:0] {
     ST_IDLE,
     ST_BW_A_START,
@@ -62,7 +58,7 @@ module sched_commit_unit (
   state_t st_q, st_d;
 
   logic       valid_q, valid_d;
-  plan_desc_t plan_q, plan_d;
+  winner_plan_t plan_q, plan_d;
   snap_timeline_t timeline_a_q, timeline_a_d;
   snap_timeline_t timeline_b_q, timeline_b_d;
   snap_cache_t cache_a_q, cache_a_d;
@@ -79,34 +75,22 @@ module sched_commit_unit (
   logic       allow_s4pf_a;
   logic       allow_s4pf_b;
 
-  function automatic task_desc_t make_task_from_a(input plan_desc_t p, input logic cluster);
+  function automatic task_desc_t make_task(
+    input winner_token_t token,
+    input task_control_t ctrl
+  );
     task_desc_t d;
     d = '0;
-    d.cluster   = cluster;
-    d.eid       = p.eid_a;
-    d.ntok      = p.ntok_a;
-    d.tok_start = p.tok_start_a;
-    d.s1        = p.s1a;
-    d.s3        = p.s3a;
-    d.skip_s1   = p.skip_s1_a;
-    d.skip_s3   = p.skip_s3_a;
-    d.has_s2pf  = p.has_s2pf_a;
-    make_task_from_a = d;
-  endfunction
-
-  function automatic task_desc_t make_task_from_b(input plan_desc_t p, input logic cluster);
-    task_desc_t d;
-    d = '0;
-    d.cluster   = cluster;
-    d.eid       = p.eid_b;
-    d.ntok      = p.ntok_b;
-    d.tok_start = p.tok_start_b;
-    d.s1        = p.s1b;
-    d.s3        = p.s3b;
-    d.skip_s1   = p.skip_s1_b;
-    d.skip_s3   = p.skip_s3_b;
-    d.has_s2pf  = p.has_s2pf_b;
-    make_task_from_b = d;
+    d.cluster   = ctrl.cluster;
+    d.eid       = token.eid;
+    d.ntok      = token.ntok;
+    d.tok_start = token.tok_start;
+    d.s1        = ctrl.s1;
+    d.s3        = ctrl.s3;
+    d.skip_s1   = ctrl.skip_s1;
+    d.skip_s3   = ctrl.skip_s3;
+    d.has_s2pf  = ctrl.has_s2pf;
+    make_task = d;
   endfunction
 
   assign s4pf_candidate_a = timeline_a_q.valid &&
@@ -255,35 +239,14 @@ module sched_commit_unit (
     remove_slot_mask_o = commit_valid_o ? remove_mask_q : '0;
 
     if (commit_valid_o) begin
-      unique case (plan_q.plan_type)
-        PLAN_PAIR, PLAN_SPLIT: begin
-          plan_valid_o[0]       = 1'b1;
-          task_desc_o[0]        = make_task_from_a(plan_q, 1'b0);
-          plan_allow_s4pf_o[0]  = allow_s4pf_a;
-          plan_valid_o[1]       = 1'b1;
-          task_desc_o[1]        = make_task_from_b(plan_q, 1'b1);
-          plan_allow_s4pf_o[1]  = allow_s4pf_b;
-          plan_count_o          = 2'd2;
+      plan_valid_o = plan_q.valid;
+      for (int i = 0; i < 2; i++) begin
+        if (plan_q.valid[i]) begin
+          task_desc_o[i] = make_task(plan_q.token[i], plan_q.ctrl[i]);
+          plan_allow_s4pf_o[i] = plan_q.ctrl[i].cluster ? allow_s4pf_b : allow_s4pf_a;
         end
-
-        PLAN_SOLO: begin
-          plan_valid_o[0] = 1'b1;
-          if (plan_q.cluster_a == 1'b0) begin
-            task_desc_o[0]       = make_task_from_a(plan_q, 1'b0);
-            plan_allow_s4pf_o[0] = allow_s4pf_a;
-          end else if (plan_q.ntok_a != '0) begin
-            task_desc_o[0]       = make_task_from_a(plan_q, 1'b1);
-            plan_allow_s4pf_o[0] = allow_s4pf_b;
-          end else begin
-            task_desc_o[0]       = make_task_from_b(plan_q, 1'b1);
-            plan_allow_s4pf_o[0] = allow_s4pf_b;
-          end
-          plan_count_o = 2'd1;
-        end
-
-        default: begin
-        end
-      endcase
+      end
+      plan_count_o = {1'b0, plan_q.valid[0]} + {1'b0, plan_q.valid[1]};
     end
   end
 

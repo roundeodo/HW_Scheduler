@@ -27,10 +27,16 @@ module sched_plan_pack (
     input shape_t shape,
     input logic   skip
   );
-    ntok_t md;
     begin
-      md = shape_mdim(shape);
-      stage_tail = skip ? ntok : ((ntok > md) ? (ntok - md) : '0);
+      if (skip) begin
+        stage_tail = ntok;
+      end else begin
+        unique case (shape)
+          SHAPE_A: stage_tail = (ntok > ntok_t'(8)) ? (ntok - ntok_t'(8)) : '0;
+          SHAPE_B: stage_tail = (ntok > ntok_t'(4)) ? (ntok - ntok_t'(4)) : '0;
+          default: stage_tail = (ntok > ntok_t'(2)) ? (ntok - ntok_t'(2)) : '0;
+        endcase
+      end
     end
   endfunction
 
