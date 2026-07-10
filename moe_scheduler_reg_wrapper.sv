@@ -20,13 +20,8 @@
 //
 // Register map, 64-bit word addressed:
 //   0x00 CTRL      W: bit0 init, bit1 start
-//   0x08 STATUS    R: bit0 busy, bit1 done_sticky, bit2 remove_valid,
-//                     bit3 plan_valid, bit4 plan_queue_full,
-//                     bit5 active_empty, bit6 refill_req,
-//                     bits[9:8] remove_count, bits[17:16] plan_count,
-//                     bits[25:24] head plan_slot_valid,
-//                     bits[31:28] refill_count, bits[35:32] reserve_count,
-//                     bits[39:36] plan_fifo_count,
+//   0x08 STATUS    R: bit3 plan_valid, bit5 active_empty, bit6 refill_req,
+//                     bits[31:28] refill_count, bits[39:36] plan_fifo_count,
 //                     bits[47:40] plan_count for entries 0..3
 //   0x10 CONFIG    R/W: bits[7:0] cache_eid_c2, bits[15:8] cache_eid_c3,
 //                       bits[16 +: NR_W] active_count, bits[32 +: T_W] total_conc
@@ -108,8 +103,6 @@ module moe_scheduler_reg_wrapper
   logic start_pulse;
   logic remove_ready_pulse;
   logic [2:0] plan_pop_count;
-  logic [2:0] plan_pop_count_eff;
-  logic [2:0] plan_fifo_count_sat;
   logic auto_run_q;
   logic ctrl_init_pulse;
   logic ctrl_start_pulse;
@@ -159,6 +152,8 @@ module moe_scheduler_reg_wrapper
   logic            auto_resume_pulse;
   logic            refill_req;
   logic [3:0]      refill_count;
+  logic [2:0]      reserve_free_slots;
+  logic [NR_W-1:0] remaining_unloaded;
 
   // ────────────────────────────────────────────────────────────────────────
   // 5. schedule_core outputs exposed by this wrapper
@@ -169,14 +164,12 @@ module moe_scheduler_reg_wrapper
   logic [1:0]                   remove_count;
   logic [3:0]                   remove_slot_mask;
   logic                         plan_valid;
-  logic [PLANQ_DEPTH-1:0][1:0]  plan_slot_valid;
-  logic [PLANQ_DEPTH-1:0][1:0][63:0] plan_data;
+  logic [63:0]                  plan_rd_data;
   logic [PLANQ_DEPTH-1:0][1:0]  plan_count;
   logic [3:0]                   plan_fifo_count;
   logic                         plan_queue_full;
   logic                         busy;
   logic                         done;
-  logic                         done_seen_q;
 
   // ────────────────────────────────────────────────────────────────────────
   // 6. Small pack/unpack helpers
@@ -216,11 +209,8 @@ module moe_scheduler_reg_wrapper
   assign round_commit_req   = write_req && (word_addr == REG_ROUND_COMMIT);
   assign head_push_req      = write_req && (word_addr == REG_HEAD_PUSH_QUAD);
   // CVA6 通过 ROUND_COMMIT.pop_count 告诉 wrapper：已经读走 FIFO 前几个 entry。
-  // pop_count_eff 会被饱和到当前 FIFO count，避免非法 pop 影响内部状态。
+  // Fast ABI 要求软件只提交刚刚读取的合法 entry 数，不保留饱和兜底逻辑。
   assign plan_pop_count     = round_commit_req ? wr_data[2:0] : 3'd0;
-  assign plan_fifo_count_sat = (plan_fifo_count > 4'd4) ? 3'd4 : plan_fifo_count[2:0];
-  assign plan_pop_count_eff = (plan_pop_count > plan_fifo_count_sat) ?
-                              plan_fifo_count_sat : plan_pop_count;
   // PLAN_ENTRY_DATA0/1 的地址解析：
   //   plan_entry_idx = FIFO entry index, 0..3；
   //   plan_entry_sub = 0 表示 task0，1 表示 task1。
@@ -264,6 +254,8 @@ module moe_scheduler_reg_wrapper
     fill_need = '0;
     refill_req = 1'b0;
     refill_count = '0;
+    reserve_free_slots = 3'd4 - reserve_count_q;
+    remaining_unloaded = '0;
     head_complete_current = 1'b0;
     head_complete_after_remove = 1'b0;
 
@@ -352,14 +344,11 @@ module moe_scheduler_reg_wrapper
     // refill_req 告诉 CVA6：RTL 内部 head+reserve 已经装不满后续 active expert，
     // 需要从 L3 sorted expert stream 再 push 1..4 个到 reserve。
     if (active_count_q > NR_W'(head_count_q + reserve_count_q)) begin
-      logic [2:0] free_slots;
-      logic [NR_W-1:0] remaining_unloaded;
-      free_slots = 3'd4 - reserve_count_q;
       remaining_unloaded = active_count_q - NR_W'(head_count_q + reserve_count_q);
-      if (free_slots != 3'd0) begin
+      if (reserve_free_slots != 3'd0) begin
         refill_req = 1'b1;
-        refill_count = (remaining_unloaded > NR_W'(free_slots)) ?
-                       {1'b0, free_slots} : {1'b0, remaining_unloaded[2:0]};
+        refill_count = (remaining_unloaded > NR_W'(reserve_free_slots)) ?
+                       {1'b0, reserve_free_slots} : {1'b0, remaining_unloaded[2:0]};
       end
     end
   end
@@ -371,12 +360,12 @@ module moe_scheduler_reg_wrapper
   //   1. 自动 acknowledge/remove 当前 round；
   //   2. 如果 head/reserve 足够且 plan FIFO 未满，自动启动下一轮。
   // head_push_req 会阻止同拍 auto remove，避免 CVA6 正在补 reserve 时状态同时移动。
-  assign auto_remove_pulse = auto_run_q && done_seen_q && remove_valid && !head_push_req;
+  assign auto_remove_pulse = auto_run_q && remove_valid && !head_push_req;
   assign auto_start_after_remove = auto_remove_pulse &&
                                    (active_after_remove != NR_W'(0)) &&
                                    head_complete_after_remove &&
                                    !plan_queue_full;
-  assign auto_resume_pulse = auto_run_q && done_seen_q && !remove_valid && !head_push_req &&
+  assign auto_resume_pulse = auto_run_q && !busy && !remove_valid && !head_push_req &&
                              (active_count_q != NR_W'(0)) &&
                              head_complete_current &&
                              !plan_queue_full;
@@ -386,7 +375,6 @@ module moe_scheduler_reg_wrapper
   // ────────────────────────────────────────────────────────────────────────
   // 这个 always_ff 保存 wrapper 自己拥有的状态：
   //   - cache_eid / head / reserve / active_count / total_conc；
-  //   - done_seen sticky bit；
   //   - auto_run enable。
   // schedule_core 内部 plan FIFO 不在这里保存，它通过输出端口暴露给 wrapper。
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -399,7 +387,6 @@ module moe_scheduler_reg_wrapper
       total_conc_q   <= '0;
       head_count_q   <= '0;
       reserve_count_q <= '0;
-      done_seen_q    <= 1'b0;
       auto_run_q     <= 1'b0;
     end else begin
       if (write_req) begin
@@ -491,13 +478,6 @@ module moe_scheduler_reg_wrapper
         endcase
       end
 
-      // done_seen_q 是 sticky done。新 init/start 清零，core done 后置位。
-      if (init_pulse || start_pulse) begin
-        done_seen_q <= 1'b0;
-      end else if (done) begin
-        done_seen_q <= 1'b1;
-      end
-
       // auto_run_q 控制 wrapper 是否在每轮 done 后自动 remove/start。
       if (init_pulse) begin
         auto_run_q <= ctrl_start_pulse;
@@ -525,32 +505,20 @@ module moe_scheduler_reg_wrapper
         rd_data = '0;
       end
       REG_STATUS: begin
-        // 主状态寄存器：CVA6 用它判断 busy/done、FIFO 数量、是否需要 refill。
-        rd_data[0]      = busy;
-        rd_data[1]      = done_seen_q;
-        rd_data[2]      = remove_valid;
+        // Fast ABI only exposes fields consumed by the CVA6 drain/refill loop.
+        // Remove metadata is internal to wrapper compact/refill and is not
+        // associated with a later FIFO-head read.
         rd_data[3]      = plan_valid;
-        rd_data[4]      = plan_queue_full;
         rd_data[5]      = (active_count_q == NR_W'(0));
         rd_data[6]      = refill_req;
-        rd_data[9:8]    = remove_count;
-        rd_data[17:16]  = plan_count[0];
-        rd_data[25:24]  = plan_slot_valid[0];
         rd_data[31:28]  = refill_count;
-        rd_data[35:32]  = {1'b0, reserve_count_q};
         rd_data[39:36]  = plan_fifo_count;
         for (int q = 0; q < PLANQ_DEPTH; q++) begin
           rd_data[40 + q * 2 +: 2] = plan_count[q];
         end
       end
-      REG_CONFIG: begin
-        // 配置寄存器可读回，便于软件确认当前 batch 初始配置。
-        rd_data[7:0]           = cache_eid_c2_q;
-        rd_data[15:8]          = cache_eid_c3_q;
-        rd_data[16 +: NR_W]    = active_count_q;
-        rd_data[32 +: T_W]     = total_conc_q;
-      end
-      REG_ROUND_COMMIT, REG_HEAD_QUAD, REG_RESERVE_QUAD, REG_HEAD_PUSH_QUAD: begin
+      REG_CONFIG, REG_ROUND_COMMIT, REG_HEAD_QUAD,
+      REG_RESERVE_QUAD, REG_HEAD_PUSH_QUAD: begin
         // 这些是 write-only command/data register，读回 0。
         rd_data = '0;
       end
@@ -559,7 +527,7 @@ module moe_scheduler_reg_wrapper
             (plan_entry_sub <= 2'd1)) begin
           // Indexed FIFO read。CVA6 可以读 entry 0..3 的 DATA0/DATA1；
           // 真正 pop 由后续 ROUND_COMMIT.pop_count 完成。
-          rd_data = plan_data[plan_entry_idx][plan_entry_sub[0]];
+          rd_data = plan_rd_data;
         end else begin
           addr_hit = 1'b0;
         end
@@ -605,10 +573,11 @@ module moe_scheduler_reg_wrapper
     .remove_valid_o     (remove_valid),
     .remove_count_o     (remove_count),
     .remove_slot_mask_o (remove_slot_mask),
-    .plan_pop_count_i   (plan_pop_count_eff),
+    .plan_pop_count_i   (plan_pop_count),
+    .plan_rd_entry_i    (plan_entry_idx),
+    .plan_rd_slot_i     (plan_entry_sub[0]),
     .plan_valid_o       (plan_valid),
-    .plan_slot_valid_o  (plan_slot_valid),
-    .plan_data_o        (plan_data),
+    .plan_rd_data_o     (plan_rd_data),
     .plan_count_o       (plan_count),
     .plan_queue_full_o  (plan_queue_full),
     .plan_queue_count_o (plan_fifo_count),

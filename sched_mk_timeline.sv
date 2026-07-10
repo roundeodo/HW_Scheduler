@@ -42,7 +42,7 @@ module sched_mk_timeline (
 );
 
   typedef struct packed {
-    ntok_t mdim;
+    ntok_t half_mdim;
     time_t compute_dur;
     time_t dma_dur;
     bw_t   bw;
@@ -54,19 +54,19 @@ module sched_mk_timeline (
       a = '0;
       unique case (sh)
         SHAPE_A: begin
-          a.mdim        = ntok_t'(8);
+          a.half_mdim   = ntok_t'(4);
           a.compute_dur = time_t'(8);
           a.dma_dur     = time_t'(4);
           a.bw          = BW_64;
         end
         SHAPE_B: begin
-          a.mdim        = ntok_t'(4);
+          a.half_mdim   = ntok_t'(2);
           a.compute_dur = time_t'(4);
           a.dma_dur     = time_t'(4);
           a.bw          = BW_64;
         end
         default: begin
-          a.mdim        = ntok_t'(2);
+          a.half_mdim   = ntok_t'(1);
           a.compute_dur = time_t'(2);
           a.dma_dur     = time_t'(2);
           a.bw          = BW_128;
@@ -82,19 +82,19 @@ module sched_mk_timeline (
       a = '0;
       unique case (sh)
         SHAPE_A: begin
-          a.mdim        = ntok_t'(8);
+          a.half_mdim   = ntok_t'(4);
           a.compute_dur = time_t'(4);
           a.dma_dur     = time_t'(2);
           a.bw          = BW_64;
         end
         SHAPE_B: begin
-          a.mdim        = ntok_t'(4);
+          a.half_mdim   = ntok_t'(2);
           a.compute_dur = time_t'(2);
           a.dma_dur     = time_t'(2);
           a.bw          = BW_64;
         end
         default: begin
-          a.mdim        = ntok_t'(2);
+          a.half_mdim   = ntok_t'(1);
           a.compute_dur = time_t'(1);
           a.dma_dur     = time_t'(1);
           a.bw          = BW_128;
@@ -105,8 +105,6 @@ module sched_mk_timeline (
   endfunction
 
   // ── 中间信号 ──────────────────────────────────────────────────────────────
-  logic [NTOK_W-1:0] s1_tail;
-  logic [NTOK_W-1:0] s3_tail;
   logic [NTOK_W-1:0] ceil_ntok;
   logic [NTOK_W-1:0] ceil_s1t;
   logic [NTOK_W-1:0] ceil_s3t;
@@ -122,16 +120,33 @@ module sched_mk_timeline (
   logic [T_W-1:0]    s3_dur;
   logic [T_W-1:0]    dma3_dur;
   logic [T_W-1:0]    s4_dur;
-  logic [T_W-1:0]    s3_compute_off;
-  logic [T_W-1:0]    dma3_end_off;
-  logic [T_W-1:0]    task_end_off;
+  function automatic time_t csa3_time(
+    input time_t a,
+    input time_t b,
+    input time_t c
+  );
+    time_t        sum_bits;
+    time_t        carry_bits;
+    logic [T_W:0] final_sum;
+    begin
+      sum_bits   = a ^ b ^ c;
+      carry_bits = (a & b) | (a & c) | (b & c);
+      final_sum  = {1'b0, sum_bits} + {carry_bits, 1'b0};
+      csa3_time  = final_sum[T_W-1:0];
+    end
+  endfunction
 
   // best_s4(x)=ceil(x/2)，best_s2(x)=ceil(x/2)<<1。
   // 这里显式共享 ceil_div2 结果，避免 best_s2_ticks/best_s4_ticks
   // 对同一个 token 数重复展开小加法器。
   assign ceil_ntok = ceil_div2_ntok(ntok_i);
-  assign ceil_s1t  = ceil_div2_ntok(s1_tail);
-  assign ceil_s3t  = ceil_div2_ntok(s3_tail);
+  // M_dim is always even.  Therefore:
+  //   ceil(max(ntok-M,0)/2) = max(ceil(ntok/2)-M/2,0)
+  // Share one ceil unit and subtract small shape constants afterwards.
+  assign ceil_s1t  = (ceil_ntok > s1_attr_w.half_mdim) ?
+                     (ceil_ntok - s1_attr_w.half_mdim) : '0;
+  assign ceil_s3t  = (ceil_ntok > s3_attr_w.half_mdim) ?
+                     (ceil_ntok - s3_attr_w.half_mdim) : '0;
   assign bs4_ntok  = time_t'(ceil_ntok);
   assign bs2_ntok  = time_t'({ceil_ntok, 1'b0});
   assign bs2_s1t   = time_t'({ceil_s1t, 1'b0});
@@ -142,12 +157,6 @@ module sched_mk_timeline (
   // 分散展开成多套等价 mux。
   assign s1_attr_w = s1_attr(shape_s1_i);
   assign s3_attr_w = s3_attr(shape_s3_i);
-
-  // ── tail 计算 ─────────────────────────────────────────────────────────────
-  always_comb begin
-    s1_tail = (ntok_i > s1_attr_w.mdim) ? (ntok_i - s1_attr_w.mdim) : '0;
-    s3_tail = (ntok_i > s3_attr_w.mdim) ? (ntok_i - s3_attr_w.mdim) : '0;
-  end
 
   // ── 时序计算（组合逻辑）─────────────────────────────────────────────────
   // 用 offset 形式直接生成后续真正使用的 timestamp，避免暴露并传播
@@ -186,15 +195,13 @@ module sched_mk_timeline (
 
     front_off    = s1_compute_off + s2_dur;
     back_off     = s3_dur + s4_dur;
-    s3_compute_off = front_off + s3_dur;
-    dma3_end_off = front_off + dma3_dur;
-    task_end_off = front_off + back_off;
-
     dma1_end_o = start_t_i + dma1_end_off;
     s2_end_o   = start_t_i + front_off;
-    dma3_end_o = start_t_i + dma3_end_off;
-    s4_start_o = start_t_i + s3_compute_off;
-    task_end_o = start_t_i + task_end_off;
+    // These three endpoints each consume exactly one final visible sum.
+    // A 3:2 compressor removes one serial carry-propagate level.
+    dma3_end_o = csa3_time(start_t_i, front_off, dma3_dur);
+    s4_start_o = csa3_time(start_t_i, front_off, s3_dur);
+    task_end_o = csa3_time(start_t_i, front_off, back_off);
   end
 
 endmodule

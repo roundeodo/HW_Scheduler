@@ -21,13 +21,11 @@ module sched_best_reduce (
   input  cand_token_t                  cand_token_i,
   input  score_key_t                   cand_score_i,
 
-  output logic                         best_valid_o,
   output cand_token_t                  best_token_o,
   output logic [1:0]                   best_remove_count_o,
   output logic [3:0]                   best_remove_slot_mask_o
 );
 
-  logic                 best_valid_q;
   cand_token_t          best_token_q;
   score_key_t           best_score_q;
   logic                 accepted;
@@ -66,34 +64,30 @@ module sched_best_reduce (
   // accepted=1 表示当前 candidate 比 best_*_q 中缓存的 best 更好；
   // 下一拍 always_ff 会用当前 candidate 覆盖 best cache。
   assign accepted = cand_valid_i &&
-                    (!best_valid_q ||
+                    (!best_token_q.valid ||
                      cand_score_better(cand_score_i, cand_token_i,
                                        best_score_q, best_token_q));
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      best_valid_q        <= 1'b0;
       best_token_q        <= '0;
       best_score_q        <= '0;
     end else if (clear_i) begin
       // 每个 scheduling round 开始时清空 best cache。
       // 第一条合法候选一定会被接受。
-      best_valid_q        <= 1'b0;
       best_token_q        <= '0;
       best_score_q        <= '0;
     end else if (accepted) begin
       // 当前候选胜出：只缓存 token 和 score。
       // remove_count/mask 是 token 的纯函数，在输出端组合重算，避免派生 FF。
       // full plan/snap 在 round 结束后通过 replay(best_token_q) 重新计算。
-      best_valid_q        <= 1'b1;
       best_token_q        <= cand_token_i;
       best_score_q        <= cand_score_i;
     end
   end
 
-  assign best_valid_o        = best_valid_q;
   assign best_token_o        = best_token_q;
-  assign best_remove_count_o = best_valid_q ? cand_remove_count(best_token_q) : 2'd0;
-  assign best_remove_slot_mask_o = best_valid_q ? cand_remove_mask(best_token_q) : 4'b0000;
+  assign best_remove_count_o = best_token_q.valid ? cand_remove_count(best_token_q) : 2'd0;
+  assign best_remove_slot_mask_o = best_token_q.valid ? cand_remove_mask(best_token_q) : 4'b0000;
 
 endmodule

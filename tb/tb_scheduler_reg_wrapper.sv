@@ -629,8 +629,6 @@ module tb_scheduler_reg_wrapper;
 		    logic [63:0] plan_word [2];
 		    logic [1:0] remove_count;
 	    logic [1:0] plan_count;
-	    logic [1:0] plan_slot_valid;
-	    logic [1:0] exp_slot_valid;
 	    logic refill_req;
 		    int refill_count;
 		    task_desc_t got_task;
@@ -767,18 +765,6 @@ module tb_scheduler_reg_wrapper;
 		              fail_msg("illegal plan_count", tid, round_idx);
 		            end
 
-            if (entry == 0) begin
-              remove_count = status_word[9:8];
-              plan_slot_valid = status_word[25:24];
-              exp_slot_valid = (plan_count == 2'd2) ? 2'b11 :
-                               (plan_count == 2'd1) ? 2'b01 : 2'b00;
-		              if (plan_slot_valid !== exp_slot_valid) begin
-		                $display("[FAIL] tid=%0d round=%0d slot_valid got=%b exp=%b",
-		                         tid, round_idx, plan_slot_valid, exp_slot_valid);
-		                total_fail++;
-		              end
-		            end
-
 		            consumed_eids = '{default: '0};
 		            consumed_count = 0;
 		            if (plan_seen + int'(plan_count) > golden_n) begin
@@ -829,9 +815,10 @@ module tb_scheduler_reg_wrapper;
 		              end
 		            end
 
-		            if (entry != 0) begin
-		              remove_count = consumed_count[1:0];
-		            end
+		            // The fast ABI keeps remove/compact internal to the wrapper.
+		            // A FIFO entry is self-contained: one unique EID means solo
+		            // or split, two unique EIDs means pair.
+		            remove_count = consumed_count[1:0];
 		            if ((remove_count == 2'd0) || (remove_count > 2'd2) ||
 		                (int'(remove_count) > active_remaining)) begin
 		              fail_msg("illegal remove_count", tid, round_idx);

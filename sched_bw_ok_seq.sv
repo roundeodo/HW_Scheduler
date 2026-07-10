@@ -15,7 +15,6 @@ module sched_bw_ok_seq (
   input  logic       rst_ni,
   input  logic       clear_i,
   input  logic       start_i,
-  output logic       busy_o,
   output logic       done_o,
 
   input  snap_bw_view_t snap_a_i,
@@ -31,12 +30,9 @@ module sched_bw_ok_seq (
   } seg_t;
 
   localparam int unsigned N_SEG = 4;
-  localparam logic [2:0] PTR_NONE = 3'd4;
 
   seg_t seg_a_comb [N_SEG];
   seg_t seg_b_comb [N_SEG];
-  logic seg_a_any_comb;
-  logic seg_b_any_comb;
 
   logic ok_single_a;
   logic ok_single_b;
@@ -46,12 +42,12 @@ module sched_bw_ok_seq (
   logic       busy_q;
   logic       done_q;
   logic       ok_q;
-  logic [2:0] ptr_a_q;
-  logic [2:0] ptr_b_q;
-  logic [2:0] ptr_a_next;
-  logic [2:0] ptr_b_next;
-  logic [2:0] ptr_a_first;
-  logic [2:0] ptr_b_first;
+  logic [3:0] ptr_a_q;
+  logic [3:0] ptr_b_q;
+  logic [3:0] ptr_a_next;
+  logic [3:0] ptr_b_next;
+  logic [3:0] ptr_a_first;
+  logic [3:0] ptr_b_first;
   logic       adv_a;
   logic       adv_b;
   logic       sweep_done_next;
@@ -79,7 +75,6 @@ module sched_bw_ok_seq (
   task automatic build_side_segments(
     input  snap_bw_view_t sn,
     output seg_t           seg_o [N_SEG],
-    output logic           any_o,
     output logic           ok_single_o
   );
     logic has_s1;
@@ -166,86 +161,85 @@ module sched_bw_ok_seq (
       seg_o[3] = pack_seg(has_s4pf, sn.s4pf_start,
                            sn.s4pf_start + GHOST_WINDOW_TICKS, 1'b0);
 
-      any_o = has_s1 || has_s2pf || has_s3 || has_s4pf;
     end
   endtask
 
-  function automatic logic [2:0] first_valid_ptr(input seg_t seg_i [N_SEG]);
+  function automatic logic [3:0] first_valid_ptr(input seg_t seg_i [N_SEG]);
     begin
       if (seg_i[0].valid) begin
-        first_valid_ptr = 3'd0;
+        first_valid_ptr = 4'b0001;
       end else if (seg_i[1].valid) begin
-        first_valid_ptr = 3'd1;
+        first_valid_ptr = 4'b0010;
       end else if (seg_i[2].valid) begin
-        first_valid_ptr = 3'd2;
+        first_valid_ptr = 4'b0100;
       end else if (seg_i[3].valid) begin
-        first_valid_ptr = 3'd3;
+        first_valid_ptr = 4'b1000;
       end else begin
-        first_valid_ptr = PTR_NONE;
+        first_valid_ptr = 4'b0000;
       end
     end
   endfunction
 
-  function automatic logic [2:0] next_valid_ptr(
-    input logic [2:0] ptr,
+  function automatic logic [3:0] next_valid_ptr(
+    input logic [3:0] ptr,
     input seg_t       seg_i [N_SEG]
   );
     begin
       unique case (ptr)
-        3'd0: begin
+        4'b0001: begin
           if (seg_i[1].valid) begin
-            next_valid_ptr = 3'd1;
+            next_valid_ptr = 4'b0010;
           end else if (seg_i[2].valid) begin
-            next_valid_ptr = 3'd2;
+            next_valid_ptr = 4'b0100;
           end else if (seg_i[3].valid) begin
-            next_valid_ptr = 3'd3;
+            next_valid_ptr = 4'b1000;
           end else begin
-            next_valid_ptr = PTR_NONE;
+            next_valid_ptr = 4'b0000;
           end
         end
-        3'd1: begin
+        4'b0010: begin
           if (seg_i[2].valid) begin
-            next_valid_ptr = 3'd2;
+            next_valid_ptr = 4'b0100;
           end else if (seg_i[3].valid) begin
-            next_valid_ptr = 3'd3;
+            next_valid_ptr = 4'b1000;
           end else begin
-            next_valid_ptr = PTR_NONE;
+            next_valid_ptr = 4'b0000;
           end
         end
-        3'd2: begin
-          next_valid_ptr = seg_i[3].valid ? 3'd3 : PTR_NONE;
+        4'b0100: begin
+          next_valid_ptr = seg_i[3].valid ? 4'b1000 : 4'b0000;
         end
         default: begin
-          next_valid_ptr = PTR_NONE;
+          next_valid_ptr = 4'b0000;
         end
       endcase
     end
   endfunction
 
   function automatic seg_t seg_at_ptr(
-    input logic [2:0] ptr,
+    input logic [3:0] ptr,
     input seg_t       seg_i [N_SEG]
   );
     begin
       unique case (ptr)
-        3'd0: seg_at_ptr = seg_i[0];
-        3'd1: seg_at_ptr = seg_i[1];
-        3'd2: seg_at_ptr = seg_i[2];
-        3'd3: seg_at_ptr = seg_i[3];
+        4'b0001: seg_at_ptr = seg_i[0];
+        4'b0010: seg_at_ptr = seg_i[1];
+        4'b0100: seg_at_ptr = seg_i[2];
+        4'b1000: seg_at_ptr = seg_i[3];
         default: seg_at_ptr = '0;
       endcase
     end
   endfunction
 
   always_comb begin
-    build_side_segments(snap_a_i, seg_a_comb, seg_a_any_comb, ok_single_a);
-    build_side_segments(snap_b_i, seg_b_comb, seg_b_any_comb, ok_single_b);
+    build_side_segments(snap_a_i, seg_a_comb, ok_single_a);
+    build_side_segments(snap_b_i, seg_b_comb, ok_single_b);
   end
 
   assign ok_single_comb = ok_single_a && ok_single_b;
-  assign have_cross_comb = ok_single_comb && seg_a_any_comb && seg_b_any_comb;
   assign ptr_a_first = first_valid_ptr(seg_a_comb);
   assign ptr_b_first = first_valid_ptr(seg_b_comb);
+  assign have_cross_comb = ok_single_comb && (|ptr_a_first) && (|ptr_b_first);
   assign cur_a = seg_at_ptr(ptr_a_q, seg_a_comb);
   assign cur_b = seg_at_ptr(ptr_b_q, seg_b_comb);
 
@@ -266,27 +260,29 @@ module sched_bw_ok_seq (
   assign adv_b = !cur_b.valid || (both_valid && (cur_b.hi <= cur_a.hi));
   assign ptr_a_next = adv_a ? next_valid_ptr(ptr_a_q, seg_a_comb) : ptr_a_q;
   assign ptr_b_next = adv_b ? next_valid_ptr(ptr_b_q, seg_b_comb) : ptr_b_q;
-  assign sweep_done_next = (ptr_a_next == PTR_NONE) || (ptr_b_next == PTR_NONE);
+  assign sweep_done_next = !(|ptr_a_next) || !(|ptr_b_next);
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       busy_q   <= 1'b0;
       done_q   <= 1'b0;
       ok_q     <= 1'b0;
-      ptr_a_q  <= PTR_NONE;
-      ptr_b_q  <= PTR_NONE;
+      ptr_a_q  <= '0;
+      ptr_b_q  <= '0;
     end else if (clear_i) begin
       busy_q   <= 1'b0;
       done_q   <= 1'b0;
       ok_q     <= 1'b0;
-      ptr_a_q  <= PTR_NONE;
-      ptr_b_q  <= PTR_NONE;
+      ptr_a_q  <= '0;
+      ptr_b_q  <= '0;
     end else begin
       done_q <= 1'b0;
 
       if (busy_q) begin
-        ok_q <= ok_q && !pair_bad;
         if (pair_bad || sweep_done_next) begin
+          if (pair_bad) begin
+            ok_q <= 1'b0;
+          end
           done_q <= 1'b1;
           busy_q <= 1'b0;
         end else begin
@@ -300,8 +296,8 @@ module sched_bw_ok_seq (
           ptr_b_q <= ptr_b_first;
           busy_q  <= 1'b1;
         end else begin
-          ptr_a_q <= PTR_NONE;
-          ptr_b_q <= PTR_NONE;
+          ptr_a_q <= '0;
+          ptr_b_q <= '0;
           done_q  <= 1'b1;
           busy_q  <= 1'b0;
         end
@@ -309,7 +305,6 @@ module sched_bw_ok_seq (
     end
   end
 
-  assign busy_o = busy_q;
   assign done_o = done_q;
   assign ok_o   = ok_q;
 

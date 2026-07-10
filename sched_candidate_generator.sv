@@ -22,28 +22,25 @@ module sched_candidate_generator (
   output logic                 busy_o,
   output logic                 done_o,
 
-  input  time_t                c2_task_end_i,
-  input  time_t                c3_task_end_i,
-  input  early_start_ctx_t     early_i,
-  input  head_ctx_t [3:0]      head_i,
+  input  logic                 both_idle_i,
+  input  logic [1:0]           early_count_i,
+  input  logic [3:0]           head_valid_i,
+  input  ntok_t                head0_ntok_i,
   input  logic [NR_W-1:0]      active_count_i,
 
-  output cand_token_t          cand_o,
-  output logic                 cand_valid_o
+  output cand_token_t          cand_o
 );
 
   typedef enum logic [1:0] {ST_IDLE, ST_SEARCH, ST_EMIT, ST_DONE} state_t;
 
   state_t st_q, st_d;
-  cand_mode_t mode_q, mode_d;
   logic [CAND_ID_W-1:0] idx_q, idx_d;
   logic [CAND_ID_W-1:0] last_idx;
+  cand_mode_t mode_comb;
 
-  logic both_idle;
   logic [1:0] ntpts;
 
-  assign both_idle = (c2_task_end_i == c3_task_end_i);
-  assign ntpts = 2'(1 + early_i.count);
+  assign ntpts = 2'(1 + early_count_i);
 
   function automatic logic candidate_id_possible(
     input cand_mode_t mode,
@@ -59,13 +56,13 @@ module sched_candidate_generator (
       unique case (mode)
         CAND_MODE_SINGLE: begin
           if (id < CAND_ID_W'(SINGLE_SOLO_COUNT)) begin
-            candidate_id_possible = head_i[0].valid;
+            candidate_id_possible = head_valid_i[0];
           end else if (id == CAND_ID_W'(SINGLE_SPLIT_ID)) begin
-            candidate_id_possible = head_i[0].valid &&
-                                    cand_single_split_valid(head_i[0].ntok);
+            candidate_id_possible = head_valid_i[0] &&
+                                    cand_single_split_valid(head0_ntok_i);
           end else if (id <= CAND_ID_W'(SINGLE_LAST_ID)) begin
             early_tpt_idx = 2'(id - CAND_ID_W'(SINGLE_EARLY0_ID)) + 2'd1;
-            candidate_id_possible = head_i[0].valid && !both_idle &&
+            candidate_id_possible = head_valid_i[0] && !both_idle_i &&
                                     (early_tpt_idx < ntpts);
           end
         end
@@ -74,28 +71,28 @@ module sched_candidate_generator (
           unique case (id)
             CAND_ID_W'(0): begin
               candidate_id_possible = (active_count_i >= NR_W'(2)) &&
-                                      head_i[0].valid && head_i[1].valid;
+                                      head_valid_i[0] && head_valid_i[1];
             end
             CAND_ID_W'(1): begin
               candidate_id_possible = (active_count_i >= NR_W'(3)) &&
-                                      head_i[1].valid && head_i[2].valid;
+                                      head_valid_i[1] && head_valid_i[2];
             end
             CAND_ID_W'(2): begin
               candidate_id_possible = (active_count_i >= NR_W'(4)) &&
-                                      head_i[2].valid && head_i[3].valid;
+                                      head_valid_i[2] && head_valid_i[3];
             end
             CAND_ID_W'(3), CAND_ID_W'(4): begin
-              cut = cand_both_split_cut(head_i[0].ntok, id);
-              candidate_id_possible = head_i[0].valid &&
-                                      (cut > '0) && (cut < head_i[0].ntok) &&
-                                      cand_both_split_valid(head_i[0].ntok, id);
+              cut = cand_both_split_cut(head0_ntok_i, id);
+              candidate_id_possible = head_valid_i[0] &&
+                                      (cut > '0) && (cut < head0_ntok_i) &&
+                                      cand_both_split_valid(head0_ntok_i, id);
             end
             default: candidate_id_possible = 1'b0;
           endcase
         end
 
         CAND_MODE_NOT_BOTH: begin
-          candidate_id_possible = head_i[0].valid && (id < CAND_ID_W'(ntpts));
+          candidate_id_possible = head_valid_i[0] && (id < CAND_ID_W'(ntpts));
         end
 
         default: candidate_id_possible = 1'b0;
@@ -103,11 +100,12 @@ module sched_candidate_generator (
     end
   endfunction
 
-  assign last_idx = cand_mode_last_id(mode_q);
+  assign mode_comb = (active_count_i == NR_W'(1)) ? CAND_MODE_SINGLE :
+                     both_idle_i ? CAND_MODE_BOTH : CAND_MODE_NOT_BOTH;
+  assign last_idx = cand_mode_last_id(mode_comb);
 
   always_comb begin
     st_d = st_q;
-    mode_d = mode_q;
     idx_d = idx_q;
 
     unique case (st_q)
@@ -116,13 +114,6 @@ module sched_candidate_generator (
           if (active_count_i == NR_W'(0)) begin
             st_d = ST_DONE;
           end else begin
-            if (active_count_i == NR_W'(1)) begin
-              mode_d = CAND_MODE_SINGLE;
-            end else if (both_idle) begin
-              mode_d = CAND_MODE_BOTH;
-            end else begin
-              mode_d = CAND_MODE_NOT_BOTH;
-            end
             idx_d = '0;
             st_d = ST_SEARCH;
           end
@@ -132,7 +123,7 @@ module sched_candidate_generator (
       ST_SEARCH: begin
         if (idx_q > last_idx) begin
           st_d = ST_DONE;
-        end else if (candidate_id_possible(mode_q, idx_q)) begin
+        end else if (candidate_id_possible(mode_comb, idx_q)) begin
           st_d = ST_EMIT;
         end else begin
           idx_d = idx_q + CAND_ID_W'(1);
@@ -159,15 +150,12 @@ module sched_candidate_generator (
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       st_q <= ST_IDLE;
-      mode_q <= CAND_MODE_SINGLE;
       idx_q <= '0;
     end else if (clear_i) begin
       st_q <= ST_IDLE;
-      mode_q <= CAND_MODE_SINGLE;
       idx_q <= '0;
     end else begin
       st_q <= st_d;
-      mode_q <= mode_d;
       idx_q <= idx_d;
     end
   end
@@ -175,11 +163,10 @@ module sched_candidate_generator (
   always_comb begin
     cand_o = '0;
     cand_o.valid = (st_q == ST_EMIT);
-    cand_o.mode  = mode_q;
+    cand_o.mode  = mode_comb;
     cand_o.id    = idx_q;
   end
 
-  assign cand_valid_o = cand_o.valid;
   assign busy_o = (st_q == ST_EMIT);
   assign done_o = (st_q == ST_DONE);
 
@@ -187,9 +174,9 @@ module sched_candidate_generator (
   // generator 的输出契约：综合路径只发合法 token；非法 token 应在 TB/仿真中暴露。
   always_ff @(posedge clk_i) begin
     if (rst_ni && (st_q == ST_EMIT)) begin
-      assert (candidate_id_possible(mode_q, idx_q))
+      assert (candidate_id_possible(mode_comb, idx_q))
         else $error("sched_candidate_generator emitted invalid token: mode=%0d id=%0d",
-                    mode_q, idx_q);
+                    mode_comb, idx_q);
     end
   end
 `endif

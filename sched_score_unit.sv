@@ -22,7 +22,6 @@ module sched_score_unit (
   input  logic                  clear_i,
 
   input  logic                  start_i,
-  output logic                  busy_o,
   output logic                  done_o,
 
   input  logic [T_W-1:0]        c2_task_end_i,
@@ -51,7 +50,7 @@ module sched_score_unit (
   //   ST_SIM1_SOLO      rem_len==1 时，复用一套 mk_timeline 枚举 4 个 solo 收尾。
   //   ST_SIM1_SPLIT_S2PF 等待 split A/B 的 S2PF 搜索完成，再更新 best cost。
   //   ST_DONE           cost_o 有效，等待 start_i 拉低后回到 IDLE。
-  typedef enum logic [2:0] {
+  typedef enum logic [1:0] {
     ST_IDLE,
     ST_SIM1_SOLO,
     ST_SIM1_SPLIT_S2PF,
@@ -61,7 +60,6 @@ module sched_score_unit (
   state_t st_q, st_d;
 
   logic [1:0]    solo_idx_q, solo_idx_d;
-  logic [T_W-1:0] best_cost_q, best_cost_d;
   logic [T_W-1:0] cost_q, cost_d;
 
   // t_now/tl 是两个 cluster 都完成当前 snap 后的较晚时刻；
@@ -127,6 +125,7 @@ module sched_score_unit (
   snap_timeline_t split_b_snap;
   logic [T_W-1:0] split_a_done;
   logic [T_W-1:0] split_b_done;
+  logic [T_W-1:0] split_ms;
   logic       split_s2pf_start;
 
   sched_pick_shapes i_sim1_split_pick_shapes (
@@ -204,6 +203,7 @@ module sched_score_unit (
   assign split_b_done = split_s2pf_patch_i.has_b ?
                                                     (split_b_snap.s2_end + time_t'(best_s4_ticks(split_b_snap.ntok))) :
                                                     split_b_snap.task_end;
+  assign split_ms = max_t(split_a_done, split_b_done);
 
   function automatic logic [T_W-1:0] min_t(
     input logic [T_W-1:0] a,
@@ -265,10 +265,10 @@ module sched_score_unit (
       if (rem_len == NR_W'(0)) begin
         fast_cost = tl_i;
       end else if (rem_len == NR_W'(2)) begin
-        bc0  = best_conc_ticks(rem0_ntok);
-        bc1  = best_conc_ticks(rem1_ntok);
-        bt0  = best_task_ticks(rem0_ntok);
-        bt1  = best_task_ticks(rem1_ntok);
+        bc0  = time_t'(best_conc_ticks(rem0_ntok));
+        bc1  = time_t'(best_conc_ticks(rem1_ntok));
+        bt0  = time_t'(best_task_ticks(rem0_ntok));
+        bt1  = time_t'(best_task_ticks(rem1_ntok));
         pc   = tl_i + max_t(bc0, bc1);
         ser  = csa3_sum_t(te_i, bt0, bt1);
         serc = max_t(ser, tl_i);
@@ -341,7 +341,6 @@ module sched_score_unit (
     // 默认保持寄存器状态；每个状态只改自己负责的字段，避免锁存器。
     st_d        = st_q;
     solo_idx_d  = solo_idx_q;
-    best_cost_d = best_cost_q;
     cost_d      = cost_q;
     split_s2pf_start = 1'b0;
 
@@ -350,7 +349,7 @@ module sched_score_unit (
         if (start_i) begin
           if (rem_len_i == NR_W'(1)) begin
             // 只有最后剩一个 expert 时才进入 sim1 精确收尾评估。
-            best_cost_d = INF_T;
+            cost_d      = INF_T;
             solo_idx_d  = 2'd0;
             st_d        = ST_SIM1_SOLO;
           end else begin
@@ -363,14 +362,11 @@ module sched_score_unit (
       end
 
       ST_SIM1_SOLO: begin
-        logic [T_W-1:0] next_best;
-        next_best = best_cost_q;
         // 当前 solo_idx 的 mk_timeline 输出已经在组合路径上给出；
         // 如果该 solo case 合法，就用 task_end 更新 best_cost。
-        if (solo_valid) begin
-          next_best = min_t(best_cost_q, mk_task_end);
+        if (solo_valid && (mk_task_end < cost_q)) begin
+          cost_d = mk_task_end;
         end
-        best_cost_d = next_best;
 
         if (solo_idx_q == 2'd3) begin
           // 四个 solo case 都试完后，ntok>=2 才继续尝试 split 收尾。
@@ -378,8 +374,7 @@ module sched_score_unit (
             split_s2pf_start = 1'b1;
             st_d = ST_SIM1_SPLIT_S2PF;
           end else begin
-            cost_d = (next_best == INF_T) ?
-                     (t_now + best_task_ticks(rem0_ntok_i)) : next_best;
+            // Shape-C solo is always legal, so next_best cannot remain INF.
             st_d = ST_DONE;
           end
         end else begin
@@ -389,19 +384,11 @@ module sched_score_unit (
       end
 
       ST_SIM1_SPLIT_S2PF: begin
-        logic [T_W-1:0] split_ms;
-        logic [T_W-1:0] next_best;
         // split A/B timeline 由组合 mk_timeline 重算；这里只在 S2PF 搜索完成后读取结果。
-        split_ms  = '0;
-        next_best = best_cost_q;
         if (split_s2pf_done_i) begin
-          split_ms  = max_t(split_a_done, split_b_done);
-          if (split_s2pf_patch_i.ok) begin
-            next_best = min_t(best_cost_q, split_ms);
+          if (split_s2pf_patch_i.ok && (split_ms < cost_q)) begin
+            cost_d = split_ms;
           end
-          cost_d = (next_best == INF_T) ?
-                   (t_now + best_task_ticks(rem0_ntok_i)) : next_best;
-          best_cost_d = next_best;
           st_d = ST_DONE;
         end
       end
@@ -422,23 +409,19 @@ module sched_score_unit (
     if (!rst_ni) begin
       st_q        <= ST_IDLE;
       solo_idx_q  <= '0;
-      best_cost_q <= INF_T;
       cost_q      <= '0;
     end else if (clear_i) begin
       st_q        <= ST_IDLE;
       solo_idx_q  <= '0;
-      best_cost_q <= INF_T;
       cost_q      <= '0;
     end else begin
       st_q        <= st_d;
       solo_idx_q  <= solo_idx_d;
-      best_cost_q <= best_cost_d;
       cost_q      <= cost_d;
     end
   end
 
-  // busy_o 表示 score 正在处理当前请求；done_o 表示 cost_o 当前有效。
-  assign busy_o = (st_q != ST_IDLE) && (st_q != ST_DONE);
+  // done_o 表示 cost_o 当前有效。
   assign done_o = (st_q == ST_DONE);
   assign cost_o = cost_q;
 

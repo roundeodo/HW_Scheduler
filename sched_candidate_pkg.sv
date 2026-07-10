@@ -39,7 +39,7 @@ package sched_candidate_pkg;
   endfunction
 
   function automatic ntok_t cand_single_split_cut(input ntok_t ntok);
-    cand_single_split_cut = (ntok + NTOK_W'(1)) >> 1;
+    cand_single_split_cut = ceil_div2_ntok(ntok);
   endfunction
 
   function automatic logic cand_single_split_valid(input ntok_t ntok);
@@ -67,7 +67,7 @@ package sched_candidate_pkg;
   endfunction
 
   function automatic ntok_t cand_both_split_cut(input ntok_t ntok, input logic [CAND_ID_W-1:0] id);
-    cand_both_split_cut = (id == CAND_ID_W'(3)) ? ((ntok + NTOK_W'(1)) >> 1) : NTOK_W'(2);
+    cand_both_split_cut = (id == CAND_ID_W'(3)) ? ceil_div2_ntok(ntok) : NTOK_W'(2);
   endfunction
 
   function automatic logic cand_both_split_valid(input ntok_t ntok, input logic [CAND_ID_W-1:0] id);
@@ -93,11 +93,8 @@ package sched_candidate_pkg;
   endfunction
 
   function automatic logic [1:0] cand_remove_count(input cand_token_t token);
-    unique case (cand_remove_mask(token))
-      4'b0011, 4'b0110, 4'b1100: cand_remove_count = 2'd2;
-      4'b0001:                   cand_remove_count = 2'd1;
-      default:                   cand_remove_count = 2'd0;
-    endcase
+    cand_remove_count = ((token.mode == CAND_MODE_BOTH) &&
+                         (token.id <= CAND_ID_W'(2))) ? 2'd2 : 2'd1;
   endfunction
 
   function automatic logic cand_remove_mask_legal(input logic [3:0] mask);

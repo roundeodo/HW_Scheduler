@@ -27,12 +27,12 @@ module sched_pick_shapes (
 );
 
   // ── 中间信号 ──────────────────────────────────────────────────────────────
-  logic [NTOK_W-1:0] tail_a, tail_b;
-  logic [T_W-1:0]    s2a_off, s2b_off;
+  ntok_t             tail_a, tail_b;
+  best_ticks_t       s2a_off, s2b_off;
   logic              hit_s1_any;
   shape_t            s1_shape;
   ntok_t             s1_mdim_sel;
-  time_t             s1_ts_sel;
+  best_ticks_t       s1_ts_sel;
   logic              abs_delta_ge_1;
 
   assign hit_s1_any  = sw_a_i | sw_b_i;
@@ -40,7 +40,7 @@ module sched_pick_shapes (
   // pick_shapes 的 S1 只会在 ShapeB/ShapeC 间选择，不会产生 ShapeA。
   // 直接用 hit_s1_any 选择 mdim/ts1，避免调用通用 shape helper 展开三路 case。
   assign s1_mdim_sel = hit_s1_any ? ntok_t'(2) : ntok_t'(4);
-  assign s1_ts_sel   = hit_s1_any ? time_t'(2) : time_t'(4);
+  assign s1_ts_sel   = hit_s1_any ? best_ticks_t'(2) : best_ticks_t'(4);
   assign abs_delta_ge_1 = (s2a_off != s2b_off);
 
   always_comb begin
