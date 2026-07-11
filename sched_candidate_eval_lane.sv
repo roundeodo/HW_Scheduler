@@ -240,7 +240,7 @@ module sched_candidate_eval_lane (
         token_s2pf_policy = (token.id <= CAND_ID_W'(2)) ?
                             S2PF_PAIR_LITE : S2PF_SPLIT_LITE;
       end
-      CAND_MODE_NOT_BOTH: token_s2pf_policy = S2PF_SINGLE_LATEST;
+      CAND_MODE_NOT_BOTH: token_s2pf_policy = S2PF_SINGLE_DMA1;
       default:            token_s2pf_policy = S2PF_OFF;
     endcase
   endfunction

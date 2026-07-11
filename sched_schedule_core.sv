@@ -6,7 +6,7 @@
 // This is the datapath-only core under the MMIO wrapper:
 //   wrapper-maintained top4/reserve state -> token candidate_generator
 //   -> token-decode candidate_eval_lane -> compact best_reduce -> replay(best_token)
-//   -> core-local commit/S4PF check -> remove metadata + depth-4 round FIFO
+//   -> core-local commit/S4PF check -> remove metadata + depth-8 task FIFO
 //
 // There is intentionally no internal rem_sram, plan_sram, AXI master, or DMA
 // writer in this module.  The full rem stream and final lowered args live
@@ -31,31 +31,33 @@ module sched_schedule_core (
   input  logic [NR_W-1:0]              active_count_i,
   input  logic [T_W-1:0]               total_conc_i,
 
-  // Core-level remove handshake.  In the 10K wrapper fast path this is driven
-  // internally by auto-run after a round completes.
+  // Core-level remove handshake.  The wrapper accepts this event, compacts the
+  // top window, refills it from reserve, and then starts the next round.
   input  logic                         remove_ready_i,
   output logic                         remove_valid_o,
   output logic [1:0]                   remove_count_o,
   output logic [3:0]                   remove_slot_mask_o,
 
-  // FIFO drain path: CVA6 pops completed round packets after reading them.
-  // In the current direct-lowering path this is not an L3 plan SRAM writeback.
-  input  logic [2:0]                   plan_pop_count_i,
-  input  logic [$clog2(PLANQ_DEPTH)-1:0] plan_rd_entry_i,
-  input  logic                         plan_rd_slot_i,
-  output logic                         plan_valid_o,
-  output logic [63:0]                  plan_rd_data_o,
-  output logic [PLANQ_DEPTH-1:0][1:0]  plan_count_o,
-  output logic                         plan_queue_full_o,
-  output logic [3:0]                   plan_queue_count_o,
+  // Dense task FIFO drain path.  CVA6 reads contiguous 64-bit task words and
+  // acknowledges exactly that many words with task_pop_count_i.
+  input  logic [3:0]                   task_pop_count_i,
+  input  logic [$clog2(TASKQ_DEPTH)-1:0] task_rd_index_i,
+  output logic                         task_valid_o,
+  output logic [63:0]                  task_rd_data_o,
+  output logic                         task_queue_full_o,
+  output logic [3:0]                   task_queue_count_o,
 
   output logic                         busy_o,
   output logic                         done_o
 );
 
-  localparam int unsigned PLANQ_COUNT_W = $clog2(PLANQ_DEPTH + 1);
-  localparam int unsigned PLANQ_PTR_W   = $clog2(PLANQ_DEPTH);
+  localparam int unsigned TASKQ_COUNT_W = $clog2(TASKQ_DEPTH + 1);
+  localparam int unsigned TASKQ_PTR_W   = $clog2(TASKQ_DEPTH);
 
+  // Round control is intentionally split into four phases:
+  //   enumerate/evaluate -> replay winner -> commit S4PF -> serialize tasks.
+  // Replay avoids storing a wide winner snapshot; serialization keeps the
+  // FIFO at one physical write port.
   typedef enum logic [3:0] {
     ST_IDLE,
     ST_ROUND_START,
@@ -69,14 +71,17 @@ module sched_schedule_core (
     ST_COMMIT_S4PF_B_START,
     ST_COMMIT_S4PF_B_WAIT,
     ST_COMMIT_APPLY,
-    ST_DONE_EMPTY
+    ST_COMMIT_EMIT_PREV,
+    ST_COMMIT_EMIT_CUR,
+    ST_COMMIT_FINISH,
+    ST_FLUSH_PENDING
   } state_t;
 
   state_t st_q, st_d;
 
   // Persistent per-cluster state is split by consumer class.  Timeline feeds
-  // BW/S2PF/commit timing, while cache feeds hit logic.  Do not recreate a
-  // full snap struct here; that was the old high-fanout boundary.
+  // BW/S2PF/commit timing, while cache identity feeds hit logic.  Each consumer
+  // receives only the view it needs, limiting wide cross-module fanout.
   typedef struct packed {
     logic  valid;
     time_t task_start;
@@ -108,34 +113,52 @@ module sched_schedule_core (
 
   logic              remove_valid_q, remove_valid_d;
 
-  logic [PLANQ_COUNT_W-1:0] planq_count_q, planq_count_d;
-  logic [PLANQ_PTR_W-1:0]   planq_head_q, planq_head_d;
-  logic [PLANQ_COUNT_W-1:0] planq_count_after_pop;
-  logic [PLANQ_DEPTH-1:0][1:0][63:0] planq_data_q;
-  logic [PLANQ_DEPTH-1:0]   planq_is_two_q;
-  logic [PLANQ_PTR_W-1:0]   planq_rd_idx;
-  logic [PLANQ_PTR_W-1:0]   planq_tail_idx;
-  logic                     planq_push;
-  logic              planq_has_space_after_pop;
+  logic [TASKQ_COUNT_W-1:0] taskq_count_q, taskq_count_d;
+  logic [TASKQ_PTR_W-1:0]   taskq_head_q, taskq_head_d;
+  logic [TASKQ_COUNT_W-1:0] taskq_count_after_pop;
+  logic [TASKQ_DEPTH-1:0][63:0] taskq_data_q;
+  logic [TASKQ_PTR_W-1:0]   taskq_rd_idx;
+  logic [TASKQ_PTR_W-1:0]   taskq_tail_idx;
+  logic                     taskq_push;
+  logic [63:0]              taskq_push_data;
+  logic                     taskq_has_space_after_pop;
   logic              remove_free_after_ready;
-  logic [1:0]        tail_pending_valid_q, tail_pending_valid_d;
-  logic [1:0]        tail_pending_skip_s1_q, tail_pending_skip_s1_d;
-  slot_id_t [1:0]    tail_pending_slot_q, tail_pending_slot_d;
-  logic [1:0][7:0]   commit_inline_patch;
-  logic [1:0][63:0]  commit_plan_word;
 
-  function automatic logic [7:0] pack_inline_patch_byte(
+  // S4PF target eid belongs to the next task on the same cluster.  A pending
+  // record owns exactly the information that must survive until that task is
+  // known; it is not a second FIFO or a copy of cluster timeline state.
+  typedef struct packed {
+    task_desc_t desc;
+    slot_id_t   local_slot;
+  } pending_task_t;
+  logic [1:0]          pending_valid_q, pending_valid_d;
+  pending_task_t [1:0] pending_task_q, pending_task_d;
+  logic                emit_idx_q, emit_idx_d;
+  logic                emit_current_valid;
+  task_desc_t          emit_current_task;
+  slot_id_t            emit_current_slot;
+  logic                emit_current_allow_s4pf;
+  logic                emit_current_cluster;
+  logic                emit_target_cache_hit;
+  logic                emit_pending_no_copy;
+  logic                round_finishes_batch;
+  task_desc_t          pack_task;
+  slot_id_t            pack_local_slot;
+  logic [7:0]          pack_s4pf_desc;
+  logic [63:0]         pack_word;
+
+  function automatic logic [7:0] pack_s4pf_desc_byte(
     input logic     valid,
     input logic     no_copy,
-    input slot_id_t local_slot
+    input logic [EID_RAW_W-1:0] target_eid
   );
     logic [7:0] word;
     begin
       word = '0;
-      word[INLINE_PATCH_VALID_LSB] = valid;
-      word[INLINE_PATCH_NO_COPY_LSB] = no_copy;
-      word[INLINE_PATCH_LOCAL_SLOT_LSB +: SLOT_W] = local_slot;
-      pack_inline_patch_byte = word;
+      word[S4PF_DESC_VALID_LSB] = valid;
+      word[S4PF_DESC_NO_COPY_LSB] = no_copy;
+      word[S4PF_DESC_TARGET_EID_LSB +: EID_RAW_W] = target_eid;
+      pack_s4pf_desc_byte = word;
     end
   endfunction
 
@@ -194,7 +217,9 @@ module sched_schedule_core (
       t.s2pf_end    = s.s2pf_end;
       t.s2pf_bw     = s.s2pf_bw;
       t.s4pf_valid  = s.s4pf_valid;
-      t.s4pf_start  = s.s4_start;
+      // S4PF always starts when the current down-weight DMA releases its lane.
+      // Derive it instead of storing another persistent timestamp.
+      t.s4pf_start  = s.dma3_end;
       state_to_timeline = t;
     end
   endfunction
@@ -225,9 +250,8 @@ module sched_schedule_core (
       rel_valid[2] &= (rel_t[2] > idle_t);
       rel_valid[3] &= (rel_t[3] > idle_t);
 
-      // Fixed priority extraction preserves the old endpoint order without a
-      // count-dependent append chain.  Only the first two distinct endpoints
-      // are consumed by the hardware-lite early-start policy.
+      // Fixed priority extraction follows the physical stage order.  Only the
+      // first two distinct release endpoints are candidates in the lite policy.
       if (rel_valid[0]) begin
         e.count = 2'd1;
         e.t0 = rel_t[0];
@@ -279,10 +303,9 @@ module sched_schedule_core (
   logic       commit_bw_done;
   logic       commit_bw_ok;
 
-  // Two pointer-only BW checkers keep the input-stability contract local:
-  // eval_lane holds its BW request stable while waiting, and the commit FSM
-  // drives the same commit request through START/WAIT.  This removes the old
-  // shared checker segment queues and avoids a wide shared snap mux.
+  // Two pointer-only BW checkers keep the input-stability contract local.
+  // Eval and commit are independent clients, so neither path needs a wide
+  // arbitration mux or duplicated segment storage.
   sched_bw_ok_seq i_eval_bw_ok (
     .clk_i    (clk_i),
     .rst_ni   (rst_ni),
@@ -442,33 +465,31 @@ module sched_schedule_core (
   assign commit_cache_b    = eval_cache_b;
 
   task_desc_t [1:0] commit_task_desc;
-  logic [1:0]        commit_plan_allow_s4pf;
-  logic [1:0]        commit_plan_count;
+  logic [1:0]        commit_task_allow_s4pf;
+  logic [1:0]        commit_task_count;
   slot_id_t [1:0]    commit_local_slot;
   slot_id_t          c2_slot_after_commit;
   slot_id_t          c3_slot_after_commit;
 
-  for (genvar pp = 0; pp < 2; pp++) begin : gen_plan_pack
-    sched_plan_pack i_plan_pack (
-      .task_i         (commit_task_desc[pp]),
-      .local_slot_i   (commit_local_slot[pp]),
-      .inline_patch_i (commit_inline_patch[pp]),
-      .word_o         (commit_plan_word[pp])
-    );
-  end
+  // One packer feeds the single-write-port task FIFO.  Commit emission is
+  // deliberately micro-sequenced instead of building a four-word write crossbar.
+  sched_task_word_pack i_task_word_pack (
+    .task_i       (pack_task),
+    .local_slot_i (pack_local_slot),
+    .s4pf_desc_i  (pack_s4pf_desc),
+    .word_o       (pack_word)
+  );
 
   assign commit_s4pf_candidate_a =
       commit_timeline_a.valid &&
       (commit_cache_a.pf_eid == PF_EID_NONE) &&
-      (commit_timeline_a.dma1_end <= commit_timeline_a.s4_start) &&
-      ((commit_timeline_a.s4_start + GHOST_WINDOW_TICKS) <=
+      ((commit_timeline_a.dma3_end + GHOST_WINDOW_TICKS) <=
        commit_timeline_a.task_end);
 
   assign commit_s4pf_candidate_b =
       commit_timeline_b.valid &&
       (commit_cache_b.pf_eid == PF_EID_NONE) &&
-      (commit_timeline_b.dma1_end <= commit_timeline_b.s4_start) &&
-      ((commit_timeline_b.s4_start + GHOST_WINDOW_TICKS) <=
+      ((commit_timeline_b.dma3_end + GHOST_WINDOW_TICKS) <=
        commit_timeline_b.task_end);
 
   always_comb begin
@@ -476,11 +497,11 @@ module sched_schedule_core (
     commit_s4pf_timeline_b = commit_timeline_b;
     if (commit_s4pf_candidate_a) begin
       commit_s4pf_timeline_a.s4pf_valid = 1'b1;
-      commit_s4pf_timeline_a.s4pf_start = commit_timeline_a.s4_start;
+      commit_s4pf_timeline_a.s4pf_start = commit_timeline_a.dma3_end;
     end
     if (commit_s4pf_candidate_b) begin
       commit_s4pf_timeline_b.s4pf_valid = 1'b1;
-      commit_s4pf_timeline_b.s4pf_start = commit_timeline_b.s4_start;
+      commit_s4pf_timeline_b.s4pf_start = commit_timeline_b.dma3_end;
     end
   end
 
@@ -489,13 +510,13 @@ module sched_schedule_core (
 
   always_comb begin
     commit_task_desc       = '{default: '0};
-    commit_plan_allow_s4pf = '0;
-    commit_plan_count = {1'b0, commit_plan.valid[0]} +
+    commit_task_allow_s4pf = '0;
+    commit_task_count = {1'b0, commit_plan.valid[0]} +
                         {1'b0, commit_plan.valid[1]};
     for (int i = 0; i < 2; i++) begin
       if (commit_plan.valid[i]) begin
         commit_task_desc[i] = make_task_desc(commit_plan.token[i], commit_plan.ctrl[i]);
-        commit_plan_allow_s4pf[i] =
+        commit_task_allow_s4pf[i] =
             commit_plan.ctrl[i].cluster ? allow_s4pf_b_q : allow_s4pf_a_q;
       end
     end
@@ -510,7 +531,7 @@ module sched_schedule_core (
     // The task descriptor already carries the physical cluster, so this is just
     // two tiny per-cluster counters and no software-visible scheduling decision.
     for (int s = 0; s < 2; s++) begin
-      if (s < int'(commit_plan_count)) begin
+      if (s < int'(commit_task_count)) begin
         if (commit_task_desc[s].cluster) begin
           commit_local_slot[s] = c3_slot_after_commit;
           c3_slot_after_commit = c3_slot_after_commit + slot_id_t'(1);
@@ -522,65 +543,46 @@ module sched_schedule_core (
     end
   end
 
-  // Compute S4PF inline patch at FIFO enqueue time, not on MMIO read.
-  // This keeps the wrapper read path to a small indexed mux.  The only
-  // sequential S4PF state is the tail pending record: for each cluster, whether
-  // the latest enqueued task still waits for the next same-cluster task.
+  // Dense task emission keeps at most one unresolved task per cluster.  A task
+  // that owns an S4PF window is published only after the next same-cluster eid
+  // is known; its high byte then carries that target directly.
   always_comb begin
-    logic [1:0]     pend_valid;
-    logic [1:0]     pend_skip_s1;
-    slot_id_t [1:0] pend_slot;
+    emit_current_valid = ({1'b0, emit_idx_q} < commit_task_count);
+    emit_current_task = commit_task_desc[emit_idx_q];
+    emit_current_slot = commit_local_slot[emit_idx_q];
+    emit_current_allow_s4pf = commit_task_allow_s4pf[emit_idx_q];
+    emit_current_cluster = emit_current_task.cluster;
+    emit_target_cache_hit = emit_current_cluster ?
+        (!cache_eid_c3_i[7] &&
+         (cache_eid_c3_i[EID_RAW_W-1:0] == emit_current_task.eid)) :
+        (!cache_eid_c2_i[7] &&
+         (cache_eid_c2_i[EID_RAW_W-1:0] == emit_current_task.eid));
+    emit_pending_no_copy =
+        pending_task_q[emit_current_cluster].desc.skip_s1 && emit_target_cache_hit;
+    round_finishes_batch =
+        (active_count_i == NR_W'(best_remove_count));
 
-    commit_inline_patch = '{default: '0};
-
-    pend_valid   = tail_pending_valid_q;
-    pend_skip_s1 = tail_pending_skip_s1_q;
-    pend_slot    = tail_pending_slot_q;
-
-    for (int s = 0; s < 2; s++) begin
-      int ci;
-      logic cache_hit;
-      logic no_copy;
-      ci        = 0;
-      cache_hit = 1'b0;
-      no_copy   = 1'b0;
-      if (s < int'(commit_plan_count)) begin
-        ci = int'(commit_task_desc[s].cluster);
-        cache_hit = (ci == 0) ?
-                    (!cache_eid_c2_i[7] &&
-                     (cache_eid_c2_i[EID_RAW_W-1:0] == commit_task_desc[s].eid)) :
-                    (!cache_eid_c3_i[7] &&
-                     (cache_eid_c3_i[EID_RAW_W-1:0] == commit_task_desc[s].eid));
-        no_copy = pend_skip_s1[ci] && cache_hit;
-
-        if (pend_valid[ci]) begin
-          commit_inline_patch[s] = pack_inline_patch_byte(1'b1, no_copy, pend_slot[ci]);
-          pend_valid[ci]   = 1'b0;
-          pend_skip_s1[ci] = 1'b0;
-          pend_slot[ci]    = '0;
-        end
-
-        if (commit_plan_allow_s4pf[s]) begin
-          pend_valid[ci]   = 1'b1;
-          pend_skip_s1[ci] = commit_task_desc[s].skip_s1;
-          pend_slot[ci]    = commit_local_slot[s];
-        end
+    pack_task       = '0;
+    pack_local_slot = '0;
+    pack_s4pf_desc  = '0;
+    unique case (st_q)
+      ST_COMMIT_EMIT_PREV: begin
+        pack_task = pending_task_q[emit_current_cluster].desc;
+        pack_local_slot = pending_task_q[emit_current_cluster].local_slot;
+        pack_s4pf_desc = pack_s4pf_desc_byte(
+            1'b1, emit_pending_no_copy, emit_current_task.eid);
       end
-    end
-
-    tail_pending_valid_d   = tail_pending_valid_q;
-    tail_pending_skip_s1_d = tail_pending_skip_s1_q;
-    tail_pending_slot_d    = tail_pending_slot_q;
-
-    if (init_i) begin
-      tail_pending_valid_d   = '0;
-      tail_pending_skip_s1_d = '0;
-      tail_pending_slot_d    = '{default: '0};
-    end else if (planq_push) begin
-      tail_pending_valid_d   = pend_valid;
-      tail_pending_skip_s1_d = pend_skip_s1;
-      tail_pending_slot_d    = pend_slot;
-    end
+      ST_COMMIT_EMIT_CUR: begin
+        pack_task       = emit_current_task;
+        pack_local_slot = emit_current_slot;
+      end
+      ST_FLUSH_PENDING: begin
+        pack_task       = pending_task_q[emit_idx_q].desc;
+        pack_local_slot = pending_task_q[emit_idx_q].local_slot;
+      end
+      default: begin
+      end
+    endcase
   end
 
   // ── Control FSM ───────────────────────────────────────────────────────
@@ -598,9 +600,13 @@ module sched_schedule_core (
     allow_s4pf_b_d       = allow_s4pf_b_q;
 
     remove_valid_d        = remove_valid_q;
-    planq_count_d         = planq_count_q;
-    planq_head_d          = planq_head_q;
-    planq_push            = 1'b0;
+    taskq_count_d         = taskq_count_q;
+    taskq_head_d          = taskq_head_q;
+    taskq_push            = 1'b0;
+    taskq_push_data       = pack_word;
+    pending_valid_d       = pending_valid_q;
+    pending_task_d        = pending_task_q;
+    emit_idx_d            = emit_idx_q;
 
     gen_start   = 1'b0;
     gen_advance = 1'b0;
@@ -611,21 +617,20 @@ module sched_schedule_core (
     commit_bw_snap_b = commit_timeline_b;
 
     remove_free_after_ready = !remove_valid_q || remove_ready_i;
-    planq_count_after_pop = planq_count_q - PLANQ_COUNT_W'(plan_pop_count_i);
-    planq_has_space_after_pop =
-        (planq_count_after_pop < PLANQ_COUNT_W'(PLANQ_DEPTH));
+    taskq_count_after_pop = taskq_count_q - TASKQ_COUNT_W'(task_pop_count_i);
+    taskq_has_space_after_pop =
+        (taskq_count_after_pop < TASKQ_COUNT_W'(TASKQ_DEPTH));
 
     if (remove_ready_i) begin
       remove_valid_d = 1'b0;
     end
 
-    // CVA6 pops the oldest queued plan entries after reading them.  The FIFO is
-    // circular: pop only advances the head pointer and never shifts wide data.
-    // Pop is handled before an internal commit push, so pop+push in the same
-    // cycle is safe.
-    if (plan_pop_count_i != 3'd0) begin
-      planq_head_d  = planq_head_q + plan_pop_count_i[PLANQ_PTR_W-1:0];
-      planq_count_d = planq_count_after_pop;
+    // Pop advances only the circular FIFO head.  The producer writes at the
+    // pre-pop occupancy, which is also the first freed slot on simultaneous
+    // pop/push.  Wrapper protocol guarantees pop_count <= current occupancy.
+    if (task_pop_count_i != 4'd0) begin
+      taskq_head_d  = taskq_head_q + task_pop_count_i[TASKQ_PTR_W-1:0];
+      taskq_count_d = taskq_count_after_pop;
     end
 
     if (init_i) begin
@@ -639,8 +644,11 @@ module sched_schedule_core (
       allow_s4pf_a_d       = 1'b0;
       allow_s4pf_b_d       = 1'b0;
       remove_valid_d       = 1'b0;
-      planq_count_d        = '0;
-      planq_head_d         = '0;
+      taskq_count_d        = '0;
+      taskq_head_d         = '0;
+      pending_valid_d      = '0;
+      pending_task_d       = '{default: '0};
+      emit_idx_d           = 1'b0;
       // Batch initialization and first-round start may arrive in the same
       // control write.  Init still clears all persistent round state first;
       // start_i then arms the freshly initialized core for the first round.
@@ -648,7 +656,7 @@ module sched_schedule_core (
     end else begin
       unique case (st_q)
         ST_IDLE: begin
-          if (start_i && remove_free_after_ready && planq_has_space_after_pop) begin
+          if (start_i && remove_free_after_ready && taskq_has_space_after_pop) begin
             st_d            = ST_ROUND_START;
           end
         end
@@ -660,7 +668,7 @@ module sched_schedule_core (
           early_ctx_d = early_ctx_comb;
           if (active_count_i == NR_W'(0)) begin
             done_d = 1'b1;
-            st_d   = ST_DONE_EMPTY;
+            st_d   = ST_IDLE;
           end else begin
             st_d = ST_EVAL_START;
           end
@@ -749,6 +757,50 @@ module sched_schedule_core (
         end
 
         ST_COMMIT_APPLY: begin
+          // eval_lane reconstructs task identity from token + round context.
+          // Keep the persistent timeline/cache unchanged until every task of
+          // this round has crossed the single-write-port emit sequence.
+          emit_idx_d = 1'b0;
+          st_d = ST_COMMIT_EMIT_PREV;
+        end
+
+        ST_COMMIT_EMIT_PREV: begin
+          if (!emit_current_valid) begin
+            st_d = ST_COMMIT_FINISH;
+          end else if (!pending_valid_q[emit_current_cluster]) begin
+            st_d = ST_COMMIT_EMIT_CUR;
+          end else if (taskq_has_space_after_pop) begin
+            taskq_push = 1'b1;
+            taskq_count_d = taskq_count_d + TASKQ_COUNT_W'(1);
+            pending_valid_d[emit_current_cluster] = 1'b0;
+            st_d = ST_COMMIT_EMIT_CUR;
+          end
+        end
+
+        ST_COMMIT_EMIT_CUR: begin
+          if (emit_current_allow_s4pf) begin
+            pending_valid_d[emit_current_cluster] = 1'b1;
+            pending_task_d[emit_current_cluster].desc = emit_current_task;
+            pending_task_d[emit_current_cluster].local_slot = emit_current_slot;
+            if ((emit_idx_q + 1'b1) < commit_task_count) begin
+              emit_idx_d = emit_idx_q + 1'b1;
+              st_d = ST_COMMIT_EMIT_PREV;
+            end else begin
+              st_d = ST_COMMIT_FINISH;
+            end
+          end else if (taskq_has_space_after_pop) begin
+            taskq_push = 1'b1;
+            taskq_count_d = taskq_count_d + TASKQ_COUNT_W'(1);
+            if ((emit_idx_q + 1'b1) < commit_task_count) begin
+              emit_idx_d = emit_idx_q + 1'b1;
+              st_d = ST_COMMIT_EMIT_PREV;
+            end else begin
+              st_d = ST_COMMIT_FINISH;
+            end
+          end
+        end
+
+        ST_COMMIT_FINISH: begin
           c2_timeline_d = timeline_to_state(
               allow_s4pf_a_q ? commit_s4pf_timeline_a : commit_timeline_a);
           c3_timeline_d = timeline_to_state(
@@ -765,20 +817,37 @@ module sched_schedule_core (
             c3_cache_d.pf_end  = commit_timeline_b.task_end;
             c3_cache_d.pf_full = 1'b0;
           end
-
-          c2_slot_d       = c2_slot_after_commit;
-          c3_slot_d       = c3_slot_after_commit;
-          remove_valid_d  = 1'b1;
-          planq_push      = 1'b1;
-          planq_count_d   = planq_count_d + PLANQ_COUNT_W'(1);
-          allow_s4pf_a_d  = 1'b0;
-          allow_s4pf_b_d  = 1'b0;
-          done_d = 1'b1;
-          st_d   = ST_IDLE;
+          c2_slot_d = c2_slot_after_commit;
+          c3_slot_d = c3_slot_after_commit;
+          if (round_finishes_batch) begin
+            emit_idx_d = 1'b0;
+            st_d = ST_FLUSH_PENDING;
+          end else begin
+            remove_valid_d = 1'b1;
+            allow_s4pf_a_d = 1'b0;
+            allow_s4pf_b_d = 1'b0;
+            done_d = 1'b1;
+            st_d = ST_IDLE;
+          end
         end
 
-        ST_DONE_EMPTY: begin
-          st_d = ST_IDLE;
+        ST_FLUSH_PENDING: begin
+          if (!pending_valid_q[emit_idx_q] || taskq_has_space_after_pop) begin
+            if (pending_valid_q[emit_idx_q]) begin
+              taskq_push = 1'b1;
+              taskq_count_d = taskq_count_d + TASKQ_COUNT_W'(1);
+              pending_valid_d[emit_idx_q] = 1'b0;
+            end
+            if (emit_idx_q == 1'b0) begin
+              emit_idx_d = 1'b1;
+            end else begin
+              remove_valid_d = 1'b1;
+              allow_s4pf_a_d = 1'b0;
+              allow_s4pf_b_d = 1'b0;
+              done_d = 1'b1;
+              st_d = ST_IDLE;
+            end
+          end
         end
 
         default: st_d = ST_IDLE;
@@ -800,11 +869,11 @@ module sched_schedule_core (
       allow_s4pf_b_q        <= 1'b0;
       done_q                <= 1'b0;
       remove_valid_q        <= 1'b0;
-      planq_count_q         <= '0;
-      planq_head_q          <= '0;
-      tail_pending_valid_q   <= '0;
-      tail_pending_skip_s1_q <= '0;
-      tail_pending_slot_q    <= '{default: '0};
+      taskq_count_q         <= '0;
+      taskq_head_q          <= '0;
+      pending_valid_q       <= '0;
+      pending_task_q        <= '{default: '0};
+      emit_idx_q            <= 1'b0;
     end else begin
       st_q                  <= st_d;
       c2_timeline_q         <= c2_timeline_d;
@@ -818,14 +887,13 @@ module sched_schedule_core (
       allow_s4pf_b_q        <= allow_s4pf_b_d;
       done_q                <= done_d;
       remove_valid_q        <= remove_valid_d;
-      planq_count_q         <= planq_count_d;
-      planq_head_q          <= planq_head_d;
-      tail_pending_valid_q   <= tail_pending_valid_d;
-      tail_pending_skip_s1_q <= tail_pending_skip_s1_d;
-      tail_pending_slot_q    <= tail_pending_slot_d;
-      if (planq_push) begin
-        planq_data_q[planq_tail_idx] <= commit_plan_word;
-        planq_is_two_q[planq_tail_idx] <= commit_plan_count[1];
+      taskq_count_q         <= taskq_count_d;
+      taskq_head_q          <= taskq_head_d;
+      pending_valid_q       <= pending_valid_d;
+      pending_task_q        <= pending_task_d;
+      emit_idx_q            <= emit_idx_d;
+      if (taskq_push) begin
+        taskq_data_q[taskq_tail_idx] <= taskq_push_data;
       end
     end
   end
@@ -847,31 +915,21 @@ module sched_schedule_core (
   end
 `endif
 
-  assign plan_valid_o = (planq_count_q != PLANQ_COUNT_W'(0));
-  // For a circular FIFO tail == head + occupancy (mod depth); storing a
-  // second pointer would duplicate this invariant.
-  assign planq_tail_idx = planq_head_q + planq_count_q[PLANQ_PTR_W-1:0];
-  for (genvar q = 0; q < PLANQ_DEPTH; q++) begin : gen_planq_out
-    localparam logic [PLANQ_COUNT_W-1:0] Q_COUNT = PLANQ_COUNT_W'(q);
-    localparam logic [PLANQ_PTR_W-1:0]   Q_PTR   = PLANQ_PTR_W'(q);
-    logic [PLANQ_PTR_W-1:0] count_rd_idx;
-
-    assign count_rd_idx = planq_head_q + Q_PTR;
-    assign plan_count_o[q] = (Q_COUNT >= planq_count_q) ? 2'd0 :
-                             planq_is_two_q[count_rd_idx] ? 2'd2 : 2'd1;
-  end
-  assign planq_rd_idx = planq_head_q + plan_rd_entry_i;
-  assign plan_rd_data_o =
-      (PLANQ_COUNT_W'(plan_rd_entry_i) >= planq_count_q) ? 64'd0 :
-      (plan_rd_slot_i && !planq_is_two_q[planq_rd_idx]) ? 64'd0 :
-      planq_data_q[planq_rd_idx][plan_rd_slot_i];
-  assign plan_queue_full_o  = (planq_count_q == PLANQ_COUNT_W'(PLANQ_DEPTH));
-  assign plan_queue_count_o = {{(4-PLANQ_COUNT_W){1'b0}}, planq_count_q};
+  assign task_valid_o = (taskq_count_q != TASKQ_COUNT_W'(0));
+  // Tail is derived from head+occupancy; no duplicate tail register is kept.
+  assign taskq_tail_idx = taskq_head_q + taskq_count_q[TASKQ_PTR_W-1:0];
+  assign taskq_rd_idx = taskq_head_q + task_rd_index_i;
+  assign task_rd_data_o =
+      (TASKQ_COUNT_W'(task_rd_index_i) >= taskq_count_q) ? 64'd0 :
+      taskq_data_q[taskq_rd_idx];
+  assign task_queue_full_o =
+      (taskq_count_q == TASKQ_COUNT_W'(TASKQ_DEPTH));
+  assign task_queue_count_o = taskq_count_q[3:0];
 
   assign busy_o = (st_q != ST_IDLE) ||
                   (remove_valid_q && !remove_ready_i) ||
-                  ((planq_count_q == PLANQ_COUNT_W'(PLANQ_DEPTH)) &&
-                   (plan_pop_count_i == 3'd0));
+                  ((taskq_count_q == TASKQ_COUNT_W'(TASKQ_DEPTH)) &&
+                   (task_pop_count_i == 4'd0));
   assign done_o = done_q;
 
 endmodule

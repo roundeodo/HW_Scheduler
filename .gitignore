@@ -2,4 +2,3 @@ tb/work/
 tb/*.log
 tb/gen_eval_vectors
 tb/gen_schedule_vectors
-tb/verify_compact_lowering

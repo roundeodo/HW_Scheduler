@@ -30,7 +30,9 @@ package sched_pkg;
   localparam int unsigned NTOK_W    = 9;  // token 数宽度（≤511）
   localparam int unsigned CAND_ID_W = 4;  // 单轮候选 ID（当前最大 id=12）
   localparam int unsigned SLOT_W    = 6;  // dynamic args slot_id ABI: ctrl[19:14], 0..63
-  localparam int unsigned PLANQ_DEPTH = 4; // wrapper-visible completed-round FIFO depth
+  // Dense task FIFO: each entry stores one independently consumable 64-bit
+  // task word.  Eight entries provide 512 bits of payload capacity.
+  localparam int unsigned TASKQ_DEPTH = 8;
 
   // ── 唯一容量配置点：只改 E_MAX，EID_W/NR_W/T_W 自动推导 ─────────────────
   localparam int unsigned EID_RAW_W = $clog2(E_MAX);     // 原始 expert ID 位宽（0..E_MAX-1）
@@ -51,7 +53,7 @@ package sched_pkg;
   //   0_000001 = GHOST
   //   1_xxxxxx = raw expert id（MSB=1，低 EID_RAW_W bit 为 CVA6 传入的 eid）
   //
-  // 这样避免旧版 eid+2 编码的加法器；hit 判断只需要检查 MSB 和低位相等。
+  // MSB tag 使编码不需要加法器；hit 判断只检查 tag 和低位 eid。
   localparam pf_eid_t PF_EID_NONE  = '0;
   localparam pf_eid_t PF_EID_GHOST = pf_eid_t'(1);
 
@@ -72,7 +74,7 @@ package sched_pkg;
   endfunction
 
   // ── Ghost 注入阈值 ───────────────────────────────────────────────────────
-  // ghost_ok 条件：task_end - s4_start ≥ shape_td1[A] = 4 ticks
+  // ghost_ok 条件：task_end - dma3_end >= shape_td1[A] = 4 ticks
   localparam time_t GHOST_WINDOW_TICKS = time_t'(4);
 
   // ── ceil-div helpers / best_*（tick 域，纯移位+小修正）───────────────
@@ -341,23 +343,25 @@ package sched_pkg;
     logic                 has_s2pf;
   } task_desc_t;                       // 32 bits when E_MAX=64
 
-  // ── MMIO plan entry word layout ─────────────────────────────────────────
+  // ── MMIO task word layout ───────────────────────────────────────────────
   //
-  // PLAN_ENTRY_DATAx 是 64-bit fast-lowering payload。RTL 在 plan FIFO enqueue
-  // 时完成打包，wrapper read path 只做 indexed mux，避免读路径重复推导 patch。
-  localparam int unsigned PLAN_EID_LSB          = 0;
-  localparam int unsigned PLAN_TOKEN_START_LSB  = PLAN_EID_LSB + EID_RAW_W;
-  localparam int unsigned PLAN_NTOK_LSB         = PLAN_TOKEN_START_LSB + NTOK_W;
-  localparam int unsigned PLAN_HAS_S2PF_LSB     = PLAN_NTOK_LSB + NTOK_W;
-  localparam int unsigned PLAN_CTRL_LSB         = PLAN_HAS_S2PF_LSB + 1;
-  localparam int unsigned PLAN_CTRL_W           = 13;
-  localparam int unsigned PLAN_M_S2_LSB         = PLAN_CTRL_LSB + PLAN_CTRL_W;
-  localparam int unsigned PLAN_M_S4_LSB         = PLAN_M_S2_LSB + NTOK_W;
-  localparam int unsigned PLAN_INLINE_PATCH_LSB = PLAN_M_S4_LSB + NTOK_W;
+  // TASK_FIFO_DATA[i] 是 64-bit fast-lowering payload。每条 task 自带其 S4PF
+  // target；consumer 不需要再用后一条 task 反向修改前一个 L3 slot。
+  localparam int unsigned TASK_WORD_EID_LSB         = 0;
+  localparam int unsigned TASK_WORD_TOKEN_START_LSB = TASK_WORD_EID_LSB + EID_RAW_W;
+  localparam int unsigned TASK_WORD_NTOK_LSB        = TASK_WORD_TOKEN_START_LSB + NTOK_W;
+  localparam int unsigned TASK_WORD_HAS_S2PF_LSB    = TASK_WORD_NTOK_LSB + NTOK_W;
+  localparam int unsigned TASK_WORD_CTRL_LSB        = TASK_WORD_HAS_S2PF_LSB + 1;
+  localparam int unsigned TASK_WORD_CTRL_W          = 13;
+  localparam int unsigned TASK_WORD_M_S2_LSB        = TASK_WORD_CTRL_LSB + TASK_WORD_CTRL_W;
+  localparam int unsigned TASK_WORD_M_S4_LSB        = TASK_WORD_M_S2_LSB + NTOK_W;
+  localparam int unsigned TASK_WORD_S4PF_DESC_LSB   = TASK_WORD_M_S4_LSB + NTOK_W;
 
-  localparam int unsigned INLINE_PATCH_VALID_LSB      = 0;
-  localparam int unsigned INLINE_PATCH_NO_COPY_LSB    = 1;
-  localparam int unsigned INLINE_PATCH_LOCAL_SLOT_LSB = 2;
+  // High-byte S4PF descriptor: valid/no-copy/target-eid.  target_eid belongs
+  // to this task's future S4 prefetch, not to the current task itself.
+  localparam int unsigned S4PF_DESC_VALID_LSB      = 0;
+  localparam int unsigned S4PF_DESC_NO_COPY_LSB    = 1;
+  localparam int unsigned S4PF_DESC_TARGET_EID_LSB = 2;
 
   // ── Lite S2PF policy ────────────────────────────────────────────────────
   //
@@ -366,15 +370,15 @@ package sched_pkg;
   // 和无效中间结果。
   typedef enum logic [1:0] {
     S2PF_OFF           = 2'd0, // 不尝试 S2PF，只检查原始 BW
-    S2PF_PAIR_LITE     = 2'd1, // PAIR: none + both@task_start/dma1_end/latest
-    S2PF_SPLIT_LITE    = 2'd2, // SPLIT: none + both@task_start/dma1_end + b_only@latest
-    S2PF_SINGLE_LATEST = 2'd3  // SINGLE/not_both: none + active side latest
+    S2PF_PAIR_LITE     = 2'd1, // PAIR: both@dma1_end, raw
+    S2PF_SPLIT_LITE    = 2'd2, // SPLIT: both@dma1_end, b_only@dma1_end, raw
+    S2PF_SINGLE_DMA1   = 2'd3  // SINGLE/not_both: active side@dma1_end, raw
   } s2pf_policy_t;
 
   // ── 1-lane 架构存储原则 ────────────────────────────────────────────────
   // E_MAX=64 时，完整 rem_eid/ntok/order 和完整 plan list 放在 L3/CVA6
   // 软件内存；scheduler 寄存器侧只保留本轮 top4、两个 cluster snap、
-  // compact best_token/best_score、depth=4 round FIFO 和 FSM。
+  // compact best_token/best_score、depth=8 dense task FIFO 和 FSM。
   // 时序字段仍使用 tick 域，不回退到 32-bit raw-CC。
 
 endpackage

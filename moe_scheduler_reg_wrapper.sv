@@ -4,34 +4,32 @@
 // Thin regbus wrapper for the MoE scheduler datapath.
 //
 // 这个文件不是单纯的 register bank；它承担 CVA6 MMIO 协议和 scheduler
-// datapath 之间的运行时状态管理，所以代码会比较长。主要包含五类逻辑：
+// datapath 之间的运行时状态管理，包含四类逻辑：
 //
 //   1. MMIO 地址译码：把 64-bit regbus 读写转换成 init/start/pop/refill 等脉冲。
 //   2. 输入窗口管理：保存当前 top4 head 和 reserve[4]，每轮 commit 后 compact/refill。
 //   3. 自动连续运行：一轮 done 后，如果 head/reserve 足够，自动启动下一轮。
-//   4. 输出 FIFO 暴露：把 schedule_core 的 depth=4 plan queue 映射成 indexed MMIO entry。
+//   4. 输出 FIFO 暴露：把 schedule_core 的 depth=8 task queue 映射成连续 MMIO words。
 //
-// S4PF inline patch 已在 sched_schedule_core enqueue plan entry 时生成并写进
-// PLAN_ENTRY_DATAx[63:56]。wrapper read path 只做 indexed mux，不再做 read-time
-// walk 或 patch 推导。
+// 每条 task 的 S4PF target 已在 sched_schedule_core 发布前写进 word[63:56]。
+// wrapper read path 只做 indexed mux，不再推导跨 task patch。
 //
 // The SoC side is expected to use:
 //   soc_narrow_xbar.out_moe_scheduler -> atomic filter -> axi_to_reg -> this module
 //
 // Register map, 64-bit word addressed:
 //   0x00 CTRL      W: bit0 init, bit1 start
-//   0x08 STATUS    R: bit3 plan_valid, bit5 active_empty, bit6 refill_req,
-//                     bits[31:28] refill_count, bits[39:36] plan_fifo_count,
-//                     bits[47:40] plan_count for entries 0..3
-//   0x10 CONFIG    R/W: bits[7:0] cache_eid_c2, bits[15:8] cache_eid_c3,
-//                       bits[16 +: NR_W] active_count, bits[32 +: T_W] total_conc
-//   0x68 ROUND_COMMIT W: bits[2:0] pop_count
+//   0x08 STATUS    R: bit3 task_valid, bit5 active_empty, bit6 refill_req,
+//                     bits[31:28] refill_count, bits[39:36] task_fifo_count
+//   0x10 CONFIG    W: bits[7:0] cache_eid_c2, bits[15:8] cache_eid_c3,
+//                     bits[16 +: NR_W] active_count, bits[32 +: T_W] total_conc
+//   0x68 TASK_POP W: bits[3:0] pop_count
 //   0xa8 HEAD_QUAD        W: compact head16 x4 for initial top4
 //   0xb0 RESERVE_QUAD     W: compact head16 x4 for initial reserve[4]
 //   0xb8 HEAD_PUSH_QUAD   W: compact head16 x4 appended to reserve[4]
-//   0x100 + i*0x20 PLAN_ENTRY_DATA0 R: FIFO entry i task 0, including inline S4PF patch
-//   0x108 + i*0x20 PLAN_ENTRY_DATA1 R: FIFO entry i task 1, including inline S4PF patch
-//                            head16 layout: ntok, eid, valid.
+//   0x100 + i*0x08 TASK_FIFO_DATA(i) R: dense FIFO task i, i=0..7
+//
+// head16 layout: bits[8:0] ntok, bits[14:9] eid, bit[15] valid.
 
 // 默认 regbus request/response 类型。SoC 集成时可以通过 parameter type 换成
 // axi_to_reg 真实输出结构；本地 testbench 可以直接用这里的默认结构。
@@ -66,21 +64,20 @@ module moe_scheduler_reg_wrapper
   // 1. 64-bit word-addressed register map
   // ────────────────────────────────────────────────────────────────────────
   // word_addr = byte_addr[8:3]。例如 REG_STATUS=6'h01 对应 byte offset 0x08。
-  // PLAN_ENTRY_BASE 之后每个 FIFO entry 使用 0x20 byte stride，当前只用 DATA0/1。
+  // TASK_DATA_BASE 之后是 8 个连续 64-bit FIFO words。
   localparam logic [5:0] REG_CTRL             = 6'h00;
   localparam logic [5:0] REG_STATUS           = 6'h01;
   localparam logic [5:0] REG_CONFIG           = 6'h02;
-  localparam logic [5:0] REG_ROUND_COMMIT     = 6'h0d;
+  localparam logic [5:0] REG_TASK_POP         = 6'h0d;
   localparam logic [5:0] REG_HEAD_QUAD        = 6'h15;
   localparam logic [5:0] REG_RESERVE_QUAD     = 6'h16;
   localparam logic [5:0] REG_HEAD_PUSH_QUAD   = 6'h17;
-  localparam logic [5:0] REG_PLAN_ENTRY_BASE  = 6'h20;
+  localparam logic [5:0] REG_TASK_DATA_BASE   = 6'h20;
 
   // ────────────────────────────────────────────────────────────────────────
   // 2. MMIO payload bit layout
   // ────────────────────────────────────────────────────────────────────────
-  // PLAN_ENTRY_DATAx 的 64-bit payload 在 sched_schedule_core enqueue 时已完成
-  // pack；这里不再在 read path 计算 shape/lowering/S4PF patch。
+  // TASK_FIFO_DATA 的 64-bit payload 在 sched_schedule_core 发布时已完成 pack。
   localparam int unsigned HEAD16_NTOK_LSB  = 0;
   localparam int unsigned HEAD16_EID_LSB   = HEAD16_NTOK_LSB + NTOK_W;
   localparam int unsigned HEAD16_VALID_LSB = HEAD16_EID_LSB + EID_RAW_W;
@@ -94,19 +91,18 @@ module moe_scheduler_reg_wrapper
   logic [63:0] wr_data;
   logic [63:0] rd_data;
   logic        addr_hit;
-  logic        plan_entry_read;
-  logic [5:0]  plan_entry_delta;
-  logic [1:0]  plan_entry_idx;
-  logic [1:0]  plan_entry_sub;
+  logic        task_data_read;
+  logic [5:0]  task_data_delta;
+  logic [2:0]  task_data_idx;
 
   logic init_pulse;
   logic start_pulse;
   logic remove_ready_pulse;
-  logic [2:0] plan_pop_count;
+  logic [3:0] task_pop_count;
   logic auto_run_q;
   logic ctrl_init_pulse;
   logic ctrl_start_pulse;
-  logic round_commit_req;
+  logic task_pop_req;
   logic head_push_req;
 
   // ────────────────────────────────────────────────────────────────────────
@@ -158,16 +154,15 @@ module moe_scheduler_reg_wrapper
   // ────────────────────────────────────────────────────────────────────────
   // 5. schedule_core outputs exposed by this wrapper
   // ────────────────────────────────────────────────────────────────────────
-  // plan_* signals 由 sched_schedule_core 持有；wrapper 只负责 MMIO indexed mux
-  // 以及向 core 反馈 CVA6 已 pop 多少 FIFO entry。
+  // task_* signals 由 sched_schedule_core 持有；wrapper 只负责 MMIO indexed mux
+  // 以及向 core 反馈 CVA6 已 pop 多少 task word。
   logic                         remove_valid;
   logic [1:0]                   remove_count;
   logic [3:0]                   remove_slot_mask;
-  logic                         plan_valid;
-  logic [63:0]                  plan_rd_data;
-  logic [PLANQ_DEPTH-1:0][1:0]  plan_count;
-  logic [3:0]                   plan_fifo_count;
-  logic                         plan_queue_full;
+  logic                         task_valid;
+  logic [63:0]                  task_rd_data;
+  logic [3:0]                   task_fifo_count;
+  logic                         task_queue_full;
   logic                         busy;
   logic                         done;
 
@@ -206,19 +201,14 @@ module moe_scheduler_reg_wrapper
   assign wr_data            = reg_req_i.wdata[63:0];
   assign ctrl_init_pulse    = write_req && (word_addr == REG_CTRL) && wr_data[0];
   assign ctrl_start_pulse   = write_req && (word_addr == REG_CTRL) && wr_data[1];
-  assign round_commit_req   = write_req && (word_addr == REG_ROUND_COMMIT);
+  assign task_pop_req       = write_req && (word_addr == REG_TASK_POP);
   assign head_push_req      = write_req && (word_addr == REG_HEAD_PUSH_QUAD);
-  // CVA6 通过 ROUND_COMMIT.pop_count 告诉 wrapper：已经读走 FIFO 前几个 entry。
-  // Fast ABI 要求软件只提交刚刚读取的合法 entry 数，不保留饱和兜底逻辑。
-  assign plan_pop_count     = round_commit_req ? wr_data[2:0] : 3'd0;
-  // PLAN_ENTRY_DATA0/1 的地址解析：
-  //   plan_entry_idx = FIFO entry index, 0..3；
-  //   plan_entry_sub = 0 表示 task0，1 表示 task1。
-  assign plan_entry_read    = (word_addr >= REG_PLAN_ENTRY_BASE) &&
-                              (word_addr < (REG_PLAN_ENTRY_BASE + 6'(PLANQ_DEPTH * 4)));
-  assign plan_entry_delta   = word_addr - REG_PLAN_ENTRY_BASE;
-  assign plan_entry_idx     = plan_entry_delta[3:2];
-  assign plan_entry_sub     = plan_entry_delta[1:0];
+  // Fast ABI 只 pop 刚刚读取的 task 数；depth=8，因此 count 使用 4 bit。
+  assign task_pop_count = task_pop_req ? wr_data[3:0] : 4'd0;
+  assign task_data_read = (word_addr >= REG_TASK_DATA_BASE) &&
+                          (word_addr < (REG_TASK_DATA_BASE + 6'(TASKQ_DEPTH)));
+  assign task_data_delta = word_addr - REG_TASK_DATA_BASE;
+  assign task_data_idx   = task_data_delta[2:0];
 
   assign init_pulse         = ctrl_init_pulse;
   // start_pulse 可能来自 CVA6 显式写 CTRL.start，也可能来自 auto-run。
@@ -358,17 +348,17 @@ module moe_scheduler_reg_wrapper
   // ────────────────────────────────────────────────────────────────────────
   // auto_run_q=1 后，CVA6 不需要每轮写 CTRL.start。wrapper 在 core done 后：
   //   1. 自动 acknowledge/remove 当前 round；
-  //   2. 如果 head/reserve 足够且 plan FIFO 未满，自动启动下一轮。
+  //   2. 如果 head/reserve 足够且 task FIFO 未满，自动启动下一轮。
   // head_push_req 会阻止同拍 auto remove，避免 CVA6 正在补 reserve 时状态同时移动。
   assign auto_remove_pulse = auto_run_q && remove_valid && !head_push_req;
   assign auto_start_after_remove = auto_remove_pulse &&
                                    (active_after_remove != NR_W'(0)) &&
                                    head_complete_after_remove &&
-                                   !plan_queue_full;
+                                   !task_queue_full;
   assign auto_resume_pulse = auto_run_q && !busy && !remove_valid && !head_push_req &&
                              (active_count_q != NR_W'(0)) &&
                              head_complete_current &&
-                             !plan_queue_full;
+                             !task_queue_full;
 
   // ────────────────────────────────────────────────────────────────────────
   // 11. Wrapper state registers
@@ -376,7 +366,7 @@ module moe_scheduler_reg_wrapper
   // 这个 always_ff 保存 wrapper 自己拥有的状态：
   //   - cache_eid / head / reserve / active_count / total_conc；
   //   - auto_run enable。
-  // schedule_core 内部 plan FIFO 不在这里保存，它通过输出端口暴露给 wrapper。
+  // schedule_core 内部 task FIFO 不在这里保存，它通过输出端口暴露给 wrapper。
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       cache_eid_c2_q <= 8'hff;
@@ -494,7 +484,7 @@ module moe_scheduler_reg_wrapper
   // 11. MMIO read mux
   // ────────────────────────────────────────────────────────────────────────
   // regbus 是 1-cycle ready，读数据完全组合产生。
-  // PLAN_ENTRY_DATA0/1 已在 core enqueue 时 pack 好，read path 只做 indexed mux。
+  // TASK_FIFO_DATA 已在 core publish 时 pack 好，read path 只做 indexed mux。
   always_comb begin
     rd_data  = '0;
     addr_hit = 1'b1;
@@ -508,26 +498,21 @@ module moe_scheduler_reg_wrapper
         // Fast ABI only exposes fields consumed by the CVA6 drain/refill loop.
         // Remove metadata is internal to wrapper compact/refill and is not
         // associated with a later FIFO-head read.
-        rd_data[3]      = plan_valid;
+        rd_data[3]      = task_valid;
         rd_data[5]      = (active_count_q == NR_W'(0));
         rd_data[6]      = refill_req;
         rd_data[31:28]  = refill_count;
-        rd_data[39:36]  = plan_fifo_count;
-        for (int q = 0; q < PLANQ_DEPTH; q++) begin
-          rd_data[40 + q * 2 +: 2] = plan_count[q];
-        end
+        rd_data[39:36]  = task_fifo_count;
       end
-      REG_CONFIG, REG_ROUND_COMMIT, REG_HEAD_QUAD,
+      REG_CONFIG, REG_TASK_POP, REG_HEAD_QUAD,
       REG_RESERVE_QUAD, REG_HEAD_PUSH_QUAD: begin
         // 这些是 write-only command/data register，读回 0。
         rd_data = '0;
       end
       default: begin
-        if (plan_entry_read && (int'(plan_entry_idx) < PLANQ_DEPTH) &&
-            (plan_entry_sub <= 2'd1)) begin
-          // Indexed FIFO read。CVA6 可以读 entry 0..3 的 DATA0/DATA1；
-          // 真正 pop 由后续 ROUND_COMMIT.pop_count 完成。
-          rd_data = plan_rd_data;
+        if (task_data_read) begin
+          // Dense indexed FIFO read；真正 pop 由后续 TASK_POP 完成。
+          rd_data = task_rd_data;
         end else begin
           addr_hit = 1'b0;
         end
@@ -536,7 +521,7 @@ module moe_scheduler_reg_wrapper
   end
 
   // regbus response：当前 wrapper 不插 wait state，所有访问 ready=1。
-  // addr_hit=0 时返回 error，主要用于捕捉非法地址或 PLAN_ENTRY subword。
+  // addr_hit=0 时返回 error，用于捕捉未定义的 MMIO 地址。
   assign reg_rsp_o.rdata = rd_data;
   assign reg_rsp_o.error = reg_req_i.valid && !addr_hit;
   assign reg_rsp_o.ready = 1'b1;
@@ -556,9 +541,9 @@ module moe_scheduler_reg_wrapper
   // ────────────────────────────────────────────────────────────────────────
   // wrapper 负责准备 head/cache/active_count，并把这些作为一轮调度输入送进 core。
   // core 负责真正的 candidate generation/eval/commit/FIFO enqueue。
-  // wrapper 再通过 remove_ready_i 和 plan_pop_count_i 告诉 core：
+  // wrapper 再通过 remove_ready_i 和 task_pop_count_i 告诉 core：
   //   - 当前 round 的 remove metadata 已经被 wrapper 接收；
-  //   - CVA6 已经 pop 了几个 FIFO entry。
+  //   - CVA6 已经 pop 了几个 task word。
   sched_schedule_core i_sched_schedule_core (
     .clk_i              (clk_i),
     .rst_ni             (rst_ni),
@@ -573,14 +558,12 @@ module moe_scheduler_reg_wrapper
     .remove_valid_o     (remove_valid),
     .remove_count_o     (remove_count),
     .remove_slot_mask_o (remove_slot_mask),
-    .plan_pop_count_i   (plan_pop_count),
-    .plan_rd_entry_i    (plan_entry_idx),
-    .plan_rd_slot_i     (plan_entry_sub[0]),
-    .plan_valid_o       (plan_valid),
-    .plan_rd_data_o     (plan_rd_data),
-    .plan_count_o       (plan_count),
-    .plan_queue_full_o  (plan_queue_full),
-    .plan_queue_count_o (plan_fifo_count),
+    .task_pop_count_i   (task_pop_count),
+    .task_rd_index_i    (task_data_idx),
+    .task_valid_o       (task_valid),
+    .task_rd_data_o     (task_rd_data),
+    .task_queue_full_o  (task_queue_full),
+    .task_queue_count_o (task_fifo_count),
     .busy_o             (busy),
     .done_o             (done)
   );

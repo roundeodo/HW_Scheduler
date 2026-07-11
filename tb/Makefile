@@ -23,8 +23,6 @@ VLOG    := vlog
 VSIM    := vsim
 VSIM_PLUSARGS ?=
 
-VERIFY_BIN := verify_compact_lowering
-VERIFY_SRC := $(TB_DIR)/verify_compact_lowering.c
 SCHED_VEC_FILE := schedule_vectors.txt
 SCHED_GEN_BIN  := gen_schedule_vectors
 SCHED_GEN_SRC  := $(TB_DIR)/gen_schedule_vectors.c
@@ -42,22 +40,16 @@ CORE_RTL_SRCS := \
     $(RTL_DIR)/sched_candidate_eval_lane.sv  \
     $(RTL_DIR)/sched_candidate_generator.sv  \
     $(RTL_DIR)/sched_best_reduce.sv          \
-    $(RTL_DIR)/sched_plan_pack.sv            \
+    $(RTL_DIR)/sched_task_word_pack.sv            \
     $(RTL_DIR)/sched_schedule_core.sv
 
 SCHED_TB_SRCS := $(TB_DIR)/tb_schedule_core.sv
 WRAPPER_RTL_SRCS := $(CORE_RTL_SRCS) $(RTL_DIR)/moe_scheduler_reg_wrapper.sv
 WRAPPER_TB_SRCS := $(TB_DIR)/tb_scheduler_reg_wrapper.sv
 
-.PHONY: all verify-lowering schedule-gen schedule-compile schedule-sim verify-schedule-core wrapper-compile wrapper-sim verify-scheduler-reg-wrapper clean
+.PHONY: all schedule-gen schedule-compile schedule-sim verify-schedule-core wrapper-compile wrapper-sim verify-scheduler-reg-wrapper clean
 
 all: verify-schedule-core
-
-verify-lowering: $(VERIFY_SRC) $(SCHED_C)
-	$(CC) $(CFLAGS) -DMOE_SCHEDULER_ENABLE_LEGACY_CHECK \
-	    -I$(SCHED_INC) \
-	    -o $(VERIFY_BIN) $(VERIFY_SRC) $(SCHED_C)
-	./$(VERIFY_BIN)
 
 $(SCHED_GEN_BIN): $(SCHED_GEN_SRC) $(SCHED_C)
 	$(CC) $(CFLAGS) -I$(SCHED_INC) -o $@ $(SCHED_GEN_SRC) $(SCHED_C)
@@ -100,7 +92,7 @@ verify-scheduler-reg-wrapper: schedule-gen wrapper-compile wrapper-sim
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
-	rm -rf $(WORK) $(VERIFY_BIN) $(SCHED_GEN_BIN) \
+	rm -rf $(WORK) $(SCHED_GEN_BIN) \
 	    $(SCHED_VEC_FILE) schedule_core_sim.log \
 	    scheduler_reg_wrapper_sim.log transcript
 	rm -f modelsim.ini

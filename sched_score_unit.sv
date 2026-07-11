@@ -9,10 +9,9 @@
 //   rem_len=2  -> exact 2-task expression (same as greedy_h nr==2)
 //   rem_len>2  -> greedy_h(sum/max best_conc)
 //
-// The old reference implementation instantiated all sim1 solo cases in
-// parallel.  This version only enters the sim1 FSM when rem_len_i==1 and
-// reuses one mk_timeline datapath for the solo cases.  The split case is replayed
-// combinationally in its final state instead of storing two snap records.
+// sim1 is evaluated only when rem_len_i==1.  A small FSM reuses one
+// mk_timeline datapath across solo cases; the split case is reconstructed in
+// its final state instead of storing two complete timeline records.
 
 import sched_pkg::*;
 

@@ -28,18 +28,18 @@ module tb_schedule_core;
     logic       allow_s4pf;
   } plan_entry_t;
 
-  function automatic logic [7:0] tb_pack_inline_patch(
+  function automatic logic [7:0] tb_pack_s4pf_desc(
     input logic     valid,
     input logic     no_copy,
-    input slot_id_t local_slot
+    input logic [EID_RAW_W-1:0] target_eid
   );
     logic [7:0] word;
     begin
       word = '0;
-      word[INLINE_PATCH_VALID_LSB] = valid;
-      word[INLINE_PATCH_NO_COPY_LSB] = no_copy;
-      word[INLINE_PATCH_LOCAL_SLOT_LSB +: SLOT_W] = local_slot;
-      tb_pack_inline_patch = word;
+      word[S4PF_DESC_VALID_LSB] = valid;
+      word[S4PF_DESC_NO_COPY_LSB] = no_copy;
+      word[S4PF_DESC_TARGET_EID_LSB +: EID_RAW_W] = target_eid;
+      tb_pack_s4pf_desc = word;
     end
   endfunction
 
@@ -56,10 +56,10 @@ module tb_schedule_core;
   function automatic logic [63:0] tb_pack_plan_entry_word(
     input task_desc_t t,
     input slot_id_t   local_slot,
-    input logic [7:0] inline_patch
+    input logic [7:0] s4pf_desc
   );
     logic [63:0] word;
-    logic [PLAN_CTRL_W-1:0] ctrl;
+    logic [TASK_WORD_CTRL_W-1:0] ctrl;
     ntok_t tail_s2;
     ntok_t tail_s4;
     begin
@@ -77,14 +77,14 @@ module tb_schedule_core;
       ctrl[12:7] = local_slot;
 
       word = '0;
-      word[PLAN_EID_LSB +: EID_RAW_W]          = t.eid;
-      word[PLAN_TOKEN_START_LSB +: NTOK_W]     = t.tok_start;
-      word[PLAN_NTOK_LSB +: NTOK_W]            = t.ntok;
-      word[PLAN_HAS_S2PF_LSB]                  = t.has_s2pf;
-      word[PLAN_CTRL_LSB +: PLAN_CTRL_W]       = ctrl;
-      word[PLAN_M_S2_LSB +: NTOK_W]            = ceil_div2_ntok(tail_s2);
-      word[PLAN_M_S4_LSB +: NTOK_W]            = ceil_div2_ntok(tail_s4);
-      word[PLAN_INLINE_PATCH_LSB +: 8]         = inline_patch;
+      word[TASK_WORD_EID_LSB +: EID_RAW_W]          = t.eid;
+      word[TASK_WORD_TOKEN_START_LSB +: NTOK_W]     = t.tok_start;
+      word[TASK_WORD_NTOK_LSB +: NTOK_W]            = t.ntok;
+      word[TASK_WORD_HAS_S2PF_LSB]                  = t.has_s2pf;
+      word[TASK_WORD_CTRL_LSB +: TASK_WORD_CTRL_W]       = ctrl;
+      word[TASK_WORD_M_S2_LSB +: NTOK_W]            = ceil_div2_ntok(tail_s2);
+      word[TASK_WORD_M_S4_LSB +: NTOK_W]            = ceil_div2_ntok(tail_s4);
+      word[TASK_WORD_S4PF_DESC_LSB +: 8]            = s4pf_desc;
       tb_pack_plan_entry_word = word;
     end
   endfunction
@@ -107,14 +107,12 @@ module tb_schedule_core;
   logic [1:0] remove_count_o;
   logic [3:0] remove_slot_mask_o;
 
-  logic [2:0] plan_pop_count_i;
-  logic [$clog2(PLANQ_DEPTH)-1:0] plan_rd_entry_i;
-  logic plan_rd_slot_i;
-  logic plan_valid_o;
-  logic [63:0] plan_rd_data_o;
-  logic [PLANQ_DEPTH-1:0][1:0] plan_count_o;
-  logic plan_queue_full_o;
-  logic [3:0] plan_queue_count_o;
+  logic [3:0] task_pop_count_i;
+  logic [$clog2(TASKQ_DEPTH)-1:0] task_rd_index_i;
+  logic task_valid_o;
+  logic [63:0] task_rd_data_o;
+  logic task_queue_full_o;
+  logic [3:0] task_queue_count_o;
 
   logic busy_o;
   logic done_o;
@@ -133,14 +131,12 @@ module tb_schedule_core;
     .remove_valid_o     (remove_valid_o),
     .remove_count_o     (remove_count_o),
     .remove_slot_mask_o (remove_slot_mask_o),
-    .plan_pop_count_i   (plan_pop_count_i),
-    .plan_rd_entry_i    (plan_rd_entry_i),
-    .plan_rd_slot_i     (plan_rd_slot_i),
-    .plan_valid_o       (plan_valid_o),
-    .plan_rd_data_o     (plan_rd_data_o),
-    .plan_count_o       (plan_count_o),
-    .plan_queue_full_o  (plan_queue_full_o),
-    .plan_queue_count_o (plan_queue_count_o),
+    .task_pop_count_i   (task_pop_count_i),
+    .task_rd_index_i    (task_rd_index_i),
+    .task_valid_o       (task_valid_o),
+    .task_rd_data_o     (task_rd_data_o),
+    .task_queue_full_o  (task_queue_full_o),
+    .task_queue_count_o (task_queue_count_o),
     .busy_o             (busy_o),
     .done_o             (done_o)
   );
@@ -150,6 +146,7 @@ module tb_schedule_core;
   logic                 rem_active [MAX_N_LOCAL];
 
   plan_entry_t golden_plan [MAX_PLAN_LOCAL];
+  logic task_seen [1:0][1 << SLOT_W];
 
   int total_tests;
   int total_pass;
@@ -218,28 +215,87 @@ module tb_schedule_core;
     end
   endtask
 
-  task automatic compare_plan_word(
+  task automatic compare_task_word(
     input int tid,
     input int round_idx,
-    input int plan_idx,
     input logic [63:0] got_word,
-    input logic [63:0] exp_word,
-    input plan_entry_t exp
+    input int golden_n,
+    input int cache_c2,
+    input int cache_c3
   );
+    int ci;
+    int local_slot;
+    int match_idx;
+    int cluster_pos;
+    int next_idx;
+    logic cache_hit;
+    logic no_copy;
+    logic [7:0] s4pf_desc;
+    logic [63:0] exp_word;
     begin
-      if (!exp.valid) begin
-        $display("[FAIL] tid=%0d plan=%0d expected entry invalid", tid, plan_idx);
-        total_fail++;
+      ci = int'(got_word[TASK_WORD_CTRL_LSB + 6]);
+      local_slot = int'(got_word[TASK_WORD_CTRL_LSB + 7 +: SLOT_W]);
+      match_idx = -1;
+      cluster_pos = 0;
+      for (int i = 0; i < golden_n; i++) begin
+        if (int'(golden_plan[i].desc.cluster) == ci) begin
+          if (cluster_pos == local_slot) begin
+            match_idx = i;
+          end
+          cluster_pos++;
+        end
       end
-      if (got_word !== exp_word) begin
-        $display("[FAIL] tid=%0d round=%0d plan=%0d packed word mismatch",
-                 tid, round_idx, plan_idx);
+
+      if (match_idx < 0) begin
+        $display("[FAIL] tid=%0d round=%0d no golden task for C%0d slot=%0d",
+                 tid, round_idx, ci + 2, local_slot);
+        total_fail++;
+      end else begin
+        if (task_seen[ci][local_slot]) begin
+          $display("[FAIL] tid=%0d round=%0d duplicate C%0d slot=%0d",
+                   tid, round_idx, ci + 2, local_slot);
+          total_fail++;
+        end
+        task_seen[ci][local_slot] = 1'b1;
+        s4pf_desc = '0;
+        if (golden_plan[match_idx].allow_s4pf) begin
+          next_idx = -1;
+          for (int j = match_idx + 1; j < golden_n; j++) begin
+            if ((next_idx < 0) &&
+                (golden_plan[j].desc.cluster == golden_plan[match_idx].desc.cluster)) begin
+              next_idx = j;
+            end
+          end
+          if (next_idx >= 0) begin
+            cache_hit = (ci == 0) ?
+                ((cache_c2 >= 0) &&
+                 (EID_RAW_W'(cache_c2) == golden_plan[next_idx].desc.eid)) :
+                ((cache_c3 >= 0) &&
+                 (EID_RAW_W'(cache_c3) == golden_plan[next_idx].desc.eid));
+            no_copy = golden_plan[match_idx].desc.skip_s1 && cache_hit;
+            s4pf_desc = tb_pack_s4pf_desc(
+                1'b1, no_copy, golden_plan[next_idx].desc.eid);
+          end
+        end
+        exp_word = tb_pack_plan_entry_word(
+            golden_plan[match_idx].desc, slot_id_t'(local_slot), s4pf_desc);
+        if (got_word !== exp_word) begin
+          $display("[FAIL] tid=%0d round=%0d C%0d slot=%0d packed word mismatch",
+                   tid, round_idx, ci + 2, local_slot);
         $display("       got=0x%016h exp=0x%016h", got_word, exp_word);
         $display("       exp desc: cluster=%0d eid=%0d tok_start=%0d ntok=%0d s1=%0d s3=%0d skip_s1=%0d skip_s3=%0d has_s2pf=%0d allow_s4pf=%0d",
-                 exp.desc.cluster, exp.desc.eid, exp.desc.tok_start, exp.desc.ntok,
-                 exp.desc.s1, exp.desc.s3, exp.desc.skip_s1,
-                 exp.desc.skip_s3, exp.desc.has_s2pf, exp.allow_s4pf);
-        total_fail++;
+                   golden_plan[match_idx].desc.cluster,
+                   golden_plan[match_idx].desc.eid,
+                   golden_plan[match_idx].desc.tok_start,
+                   golden_plan[match_idx].desc.ntok,
+                   golden_plan[match_idx].desc.s1,
+                   golden_plan[match_idx].desc.s3,
+                   golden_plan[match_idx].desc.skip_s1,
+                   golden_plan[match_idx].desc.skip_s3,
+                   golden_plan[match_idx].desc.has_s2pf,
+                   golden_plan[match_idx].allow_s4pf);
+          total_fail++;
+        end
       end
     end
   endtask
@@ -292,12 +348,7 @@ module tb_schedule_core;
     int cycles;
     int active_before;
     int fail_before;
-    int c2_slot_exp;
-    int c3_slot_exp;
-    slot_id_t exp_local_slot;
-    logic [1:0] exp_pending_valid;
-    logic [1:0] exp_pending_skip_s1;
-    slot_id_t [1:0] exp_pending_slot;
+    int drain_tasks;
     begin
       fail_before = total_fail;
       cache_eid_c2_i = cache_to_rtl(cache_c2);
@@ -307,19 +358,18 @@ module tb_schedule_core;
       init_i = 1'b1;
       start_i = 1'b0;
       remove_ready_i = 1'b0;
-      plan_pop_count_i = 3'd0;
-      plan_rd_entry_i = '0;
-      plan_rd_slot_i = 1'b0;
+      task_pop_count_i = 4'd0;
+      task_rd_index_i = '0;
       @(negedge clk_i);
       init_i = 1'b0;
 
       round_idx = 0;
       plan_seen = 0;
-      c2_slot_exp = 0;
-      c3_slot_exp = 0;
-      exp_pending_valid = '0;
-      exp_pending_skip_s1 = '0;
-      exp_pending_slot = '{default: '0};
+      for (int ci = 0; ci < 2; ci++) begin
+        for (int slot = 0; slot < (1 << SLOT_W); slot++) begin
+          task_seen[ci][slot] = 1'b0;
+        end
+      end
 
       while (count_active(n_experts) > 0) begin
         drive_round_context(n_experts);
@@ -349,81 +399,17 @@ module tb_schedule_core;
         if (remove_valid_o !== 1'b1) begin
           fail_msg("remove_valid_o not asserted", tid, round_idx);
         end
-        if (plan_valid_o !== 1'b1) begin
-          fail_msg("plan_valid_o not asserted", tid, round_idx);
-        end
-        if ((plan_count_o[0] == 2'd0) || (plan_count_o[0] > 2'd2)) begin
-          fail_msg("illegal plan_count_o", tid, round_idx);
-        end
-        if ((remove_valid_o !== 1'b1) || (plan_valid_o !== 1'b1) ||
-            (plan_count_o[0] == 2'd0) || (plan_count_o[0] > 2'd2)) begin
-          $display("[FAIL] tid=%0d round=%0d aborting test after invalid core event active=%0d done=%0b busy=%0b",
-                   tid, round_idx, active_before, done_o, busy_o);
-          return;
-        end
-
-        if (plan_seen + int'(plan_count_o[0]) > golden_n) begin
-          $display("[FAIL] tid=%0d round=%0d produced too many plan entries seen=%0d count=%0d golden=%0d",
-                   tid, round_idx, plan_seen, plan_count_o[0], golden_n);
+        drain_tasks = int'(task_queue_count_o);
+        if (plan_seen + drain_tasks > golden_n) begin
+          $display("[FAIL] tid=%0d round=%0d produced too many tasks seen=%0d count=%0d golden=%0d",
+                   tid, round_idx, plan_seen, drain_tasks, golden_n);
           total_fail++;
         end else begin
-          for (int s = 0; s < 2; s++) begin
-            if (s < int'(plan_count_o[0])) begin
-              int ci;
-              logic cache_hit;
-              logic no_copy;
-              logic [7:0] exp_patch;
-              logic [63:0] exp_word;
-
-              if (golden_plan[plan_seen + s].desc.cluster) begin
-                if (c3_slot_exp >= (1 << SLOT_W)) begin
-                  $display("[FAIL] tid=%0d round=%0d C3 local_slot overflow exp=%0d",
-                           tid, round_idx, c3_slot_exp);
-                  total_fail++;
-                end
-                exp_local_slot = slot_id_t'(c3_slot_exp);
-                c3_slot_exp++;
-              end else begin
-                if (c2_slot_exp >= (1 << SLOT_W)) begin
-                  $display("[FAIL] tid=%0d round=%0d C2 local_slot overflow exp=%0d",
-                           tid, round_idx, c2_slot_exp);
-                  total_fail++;
-                end
-                exp_local_slot = slot_id_t'(c2_slot_exp);
-                c2_slot_exp++;
-              end
-
-              ci = int'(golden_plan[plan_seen + s].desc.cluster);
-              cache_hit = (ci == 0) ?
-                          ((cache_c2 >= 0) &&
-                           (EID_RAW_W'(cache_c2) == golden_plan[plan_seen + s].desc.eid)) :
-                          ((cache_c3 >= 0) &&
-                           (EID_RAW_W'(cache_c3) == golden_plan[plan_seen + s].desc.eid));
-              no_copy = exp_pending_skip_s1[ci] && cache_hit;
-              exp_patch = exp_pending_valid[ci] ?
-                          tb_pack_inline_patch(1'b1, no_copy, exp_pending_slot[ci]) : 8'h00;
-
-              if (exp_pending_valid[ci]) begin
-                exp_pending_valid[ci] = 1'b0;
-                exp_pending_skip_s1[ci] = 1'b0;
-                exp_pending_slot[ci] = '0;
-              end
-
-              if (golden_plan[plan_seen + s].allow_s4pf) begin
-                exp_pending_valid[ci] = 1'b1;
-                exp_pending_skip_s1[ci] = golden_plan[plan_seen + s].desc.skip_s1;
-                exp_pending_slot[ci] = exp_local_slot;
-              end
-
-              exp_word = tb_pack_plan_entry_word(golden_plan[plan_seen + s].desc,
-                                              exp_local_slot,
-                                              exp_patch);
-              plan_rd_slot_i = logic'(s);
-              #1;
-              compare_plan_word(tid, round_idx, plan_seen + s,
-                                plan_rd_data_o, exp_word,
-                                golden_plan[plan_seen + s]);
-            end
+          for (int ti = 0; ti < drain_tasks; ti++) begin
+            task_rd_index_i = $clog2(TASKQ_DEPTH)'(ti);
+            #1;
+            compare_task_word(tid, round_idx, task_rd_data_o,
+                              golden_n, cache_c2, cache_c3);
           end
         end
 
@@ -434,16 +420,16 @@ module tb_schedule_core;
           remove_slots(remove_slot_mask_o, tid, round_idx);
         end
 
-        plan_seen += int'(plan_count_o[0]);
+        plan_seen += drain_tasks;
         round_idx++;
         total_rounds++;
 
         @(negedge clk_i);
         remove_ready_i = 1'b1;
-        plan_pop_count_i = 3'd1;
+        task_pop_count_i = 4'(drain_tasks);
         @(negedge clk_i);
         remove_ready_i = 1'b0;
-        plan_pop_count_i = 3'd0;
+        task_pop_count_i = 4'd0;
       end
 
       if (plan_seen != golden_n) begin
@@ -500,9 +486,8 @@ module tb_schedule_core;
     active_count_i = '0;
     total_conc_i = '0;
     remove_ready_i = 1'b0;
-    plan_pop_count_i = 3'd0;
-    plan_rd_entry_i = '0;
-    plan_rd_slot_i = 1'b0;
+    task_pop_count_i = 4'd0;
+    task_rd_index_i = '0;
 
     rst_ni = 1'b0;
     repeat (5) @(posedge clk_i);

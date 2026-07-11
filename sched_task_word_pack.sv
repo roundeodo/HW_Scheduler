@@ -1,18 +1,18 @@
 // Copyright KU Leuven / MiCAS Lab
 // SPDX-License-Identifier: SHL-0.51
 //
-// MoE Hardware Scheduler - compact 64-bit plan entry packer
+// MoE Hardware Scheduler - compact 64-bit task-word packer
 //
 // This is the only RTL block that knows how to turn a committed single-task
-// descriptor into the PLAN_ENTRY_DATA ABI word.  sched_pkg only owns the bit
+// descriptor into the TASK_FIFO_DATA ABI word.  sched_pkg only owns the bit
 // layout constants; lowering arithmetic stays local to this leaf block.
 
 import sched_pkg::*;
 
-module sched_plan_pack (
+module sched_task_word_pack (
   input  task_desc_t task_i,
   input  slot_id_t   local_slot_i,
-  input  logic [7:0] inline_patch_i,
+  input  logic [7:0] s4pf_desc_i,
   output logic [63:0] word_o
 );
 
@@ -20,7 +20,7 @@ module sched_plan_pack (
   ntok_t tail_s4;
   ntok_t m_s2_exec;
   ntok_t m_s4_exec;
-  logic [PLAN_CTRL_W-1:0] ctrl_word;
+  logic [TASK_WORD_CTRL_W-1:0] ctrl_word;
 
   function automatic ntok_t stage_tail(
     input ntok_t  ntok,
@@ -57,14 +57,14 @@ module sched_plan_pack (
     ctrl_word[12:7] = local_slot_i;
 
     word_o = '0;
-    word_o[PLAN_EID_LSB +: EID_RAW_W]          = task_i.eid;
-    word_o[PLAN_TOKEN_START_LSB +: NTOK_W]     = task_i.tok_start;
-    word_o[PLAN_NTOK_LSB +: NTOK_W]            = task_i.ntok;
-    word_o[PLAN_HAS_S2PF_LSB]                  = task_i.has_s2pf;
-    word_o[PLAN_CTRL_LSB +: PLAN_CTRL_W]       = ctrl_word;
-    word_o[PLAN_M_S2_LSB +: NTOK_W]            = m_s2_exec;
-    word_o[PLAN_M_S4_LSB +: NTOK_W]            = m_s4_exec;
-    word_o[PLAN_INLINE_PATCH_LSB +: 8]         = inline_patch_i;
+    word_o[TASK_WORD_EID_LSB +: EID_RAW_W]          = task_i.eid;
+    word_o[TASK_WORD_TOKEN_START_LSB +: NTOK_W]     = task_i.tok_start;
+    word_o[TASK_WORD_NTOK_LSB +: NTOK_W]            = task_i.ntok;
+    word_o[TASK_WORD_HAS_S2PF_LSB]                  = task_i.has_s2pf;
+    word_o[TASK_WORD_CTRL_LSB +: TASK_WORD_CTRL_W]  = ctrl_word;
+    word_o[TASK_WORD_M_S2_LSB +: NTOK_W]            = m_s2_exec;
+    word_o[TASK_WORD_M_S4_LSB +: NTOK_W]            = m_s4_exec;
+    word_o[TASK_WORD_S4PF_DESC_LSB +: 8]            = s4pf_desc_i;
   end
 
 endmodule

@@ -1,6 +1,6 @@
 # MoE Scheduler Hardware
 
-当前目录只保留 pure-slave scheduler datapath。scheduler 不主动读写 L3，也没有内部 SRAM。完整 sorted rem stream、完整 lowered args、token metadata 仍由 CVA6/L3 维护；RTL 内部只保存当前 top window、reserve window、snap/state 和 depth=4 输出 FIFO 所需寄存器。
+当前目录只保留 pure-slave scheduler datapath。scheduler 不主动读写 L3，也没有内部 SRAM。完整 sorted rem stream、完整 lowered args、token metadata 仍由 CVA6/L3 维护；RTL 内部只保存当前 top window、reserve window、snap/state 和 depth=8 dense task FIFO 所需寄存器。
 
 ## RTL 层次
 
@@ -15,10 +15,10 @@ moe_scheduler_reg_wrapper
       │   ├── sched_s2pf_pair            # BW client
       │   └── sched_score_unit
       ├── sched_best_reduce
-      └── sched_plan_pack x2             # compact PLAN_ENTRY_DATA packer
+      └── sched_task_word_pack                # shared compact task-word packer
 ```
 
-`sched_pkg.sv` 只保留全局参数、ABI bit layout、窄基础类型、shape/best 小 helper 和必要 plan/task 类型。candidate issue 类型放在 `sched_candidate_pkg.sv`，64-bit plan word 打包放在 `sched_plan_pack.sv`。当前默认 `E_MAX=64`，`PLANQ_DEPTH=4`。
+`sched_pkg.sv` 只保留全局参数、ABI bit layout、窄基础类型、shape/best 小 helper 和必要 plan/task 类型。candidate issue 类型放在 `sched_candidate_pkg.sv`，64-bit task word 打包放在 `sched_task_word_pack.sv`。当前默认 `E_MAX=64`，`TASKQ_DEPTH=8`。
 
 ## Register Boundaries
 
@@ -107,7 +107,7 @@ bits [63:48]  head3
 
 steady-state 下，RTL 自己推进 round：
 
-1. `sched_schedule_core` 完成一轮 candidate evaluation，输出 winner 对应的 task descriptor、`allow_s4pf`、`remove_count` 和内部 `remove_slot_mask`。
+1. `sched_schedule_core` 完成一轮 candidate evaluation，在 core 内生成 winner 对应的 task descriptor、cluster-local `allow_s4pf`，并通过 remove handshake 向 wrapper 提交 `remove_count/remove_slot_mask`。
 2. `moe_scheduler_reg_wrapper` 根据四种合法 `remove_slot_mask` 对 `head_q[4]` 做 fixed-case compact。
 3. wrapper 从 `reserve_q[4]` 头部 pop 需要的 entry，补到 compact 后 top window 尾部。
 4. 如果 top window 满足下一轮所需 entry 且输出 FIFO 未满，wrapper 自动启动下一轮。
@@ -160,34 +160,35 @@ checker busy 期间保持 `snap_a_i/snap_b_i` 稳定；eval lane 和 commit FSM
 分别满足这个约束。发现超带宽立即 early stop；正常完成时检查次数由有效
 segment 数决定，避免固定扫描 25 对 cross product。
 
-当前 S2PF placement 只由 `sched_s2pf_pair` 产生，且 `can_apply_s2pf`
-要求 `pf_start >= task_start`。因此 BW segment builder 明确删除了
-`s2pf_start < task_start` 的通用分支，只保留：
+当前 S2PF placement 只由 `sched_s2pf_pair` 产生，并严格要求 down-weight
+DMA 完整落在 `[dma1_end, s2_end]`。这与 workload DFG 中 down-weight load
+依赖 S1 weight load 完成的约束一致。hardware-lite 只尝试：
 
 ```text
-task_start <= s2pf_start < dma1_end  : S1/S2PF 局部 overlap
-task_start <  dma1_end <= s2pf_start : S1 在前，S2PF 在后
+PAIR   : both@dma1_end, raw
+SPLIT  : both@dma1_end, B-only@dma1_end, raw
+SINGLE : active@dma1_end, raw
 ```
 
 `sched_s2pf_pair.apply_s2pf` 也不再重复做 placement 合法性检查；合法性在
-trial 生成阶段由 `try_valid`、`can[2]`、`dma_start_valid[2]` 保证，apply
+trial 生成阶段由 `try_valid` 和 `can[2]` 保证，apply
 只负责 patch timeline 字段。这样避免同一个 candidate trial 里重复 duration
 decode、endpoint compare 和 BW decode。
 
-`sched_s2pf_pair` 在 `start_i` 时预先锁存 `policy/can/hi/dma_valid` 等标量。
-trial 阶段不再每拍重复做
-`task_start + dur <= s2_end`。合法性改写为 `task_start <= s2_end - dur`，
-并把 `s2_end - dur` 作为 `hi` 锁存，减少 trial path 的加法和 endpoint fanout。
-模板按最终优先级顺序访问，第一条通过 BW 的模板立即结束搜索，不保存
-`best_class/best_start_sum`，也不存在并行 comparator tree。
+compact plan 只携带 `has_s2pf`，没有可编程 start timestamp，因此 earliest、
+latest 或中间 placement 不能作为不同硬件 action。`sched_s2pf_pair` 在
+`start_i` 时只锁存 `policy/can`；`can` 直接检查
+`dma1_end + dur <= s2_end`。模板按最终优先级顺序访问，第一条通过 BW 的
+side mask 立即结束搜索，不保存 `best_class/best_start_sum`，也不存在并行
+comparator tree。
 
 BW segment builder 不再使用动态 compact list。每侧固定 4 个 slot：
 
 ```text
-slot0: S1/S2PF 局部切分后的前段，或无 overlap 时较早的 S1/S2PF 段
-slot1: S1 和 S2PF overlap 后的 merged 段
-slot2: S1/S2PF 局部切分后的后段；若无 S2PF，则复用为 S3 DMA
-slot3: S4PF ghost window
+slot0: S1 DMA
+slot1: S2PF down-weight DMA
+slot2: S3 down-weight DMA（与 slot1 互斥）
+slot3: next-S1 ghost prefetch
 ```
 
 `s2pf_valid` 和 S3 DMA 在当前 RTL 生产路径中互斥：`sched_s2pf_pair`
@@ -199,14 +200,16 @@ slot3: S4PF ghost window
 segment 记录也不再保存完整 2-bit BW 编码，只保存 `is_128`：全局 BW
 检查只需要知道重叠区间是否包含 128 B/cc。64+64 合法，任何包含 128 的
 cross-cluster overlap 非法，因此 sweep 阶段不需要加法器。
-`has_s1/has_s3/has_s2pf` 只依赖 upstream 的 compact timeline contract：
+各 slot 只依赖 upstream 的 compact timeline contract：
 跳过的 DMA 由 `BW_0` 表示，合法 S2PF 由 `s2pf_valid` 表示。BW checker
 不再重复检查 `dma_end > start` 这类生产端已保证的不变量。
 
-S4PF 只在 `sched_schedule_core` 的 commit 子状态机中做一次 BW check。
-commit 阶段如果某个 cluster 的 S4 window 合法且通过 BW 检查，core 会同时：
+下一专家 S1 prefetch 从 `dma3_end` 开始，可与当前专家剩余的 S3 compute 和
+S4 compute 重叠；它必须在 `task_end` 前完整结束。S4PF 只在
+`sched_schedule_core` 的 commit 子状态机中做一次 BW check。
+commit 阶段如果某个 cluster 的 post-down-DMA window 合法且通过 BW 检查，core 会同时：
 
-- 输出 `plan_allow_s4pf`，用于 plan FIFO enqueue 阶段生成 inline patch。
+- 生成 cluster-local `allow_s4pf`，用于 dense task 发布阶段维护 pending task 并形成 self-contained S4PF descriptor。
 - 直接把 `s4pf_valid/s4pf_start` 和 `PF_EID_GHOST` 写入下一轮 persistent
   timeline/cache。
 
@@ -215,60 +218,56 @@ commit 阶段如果某个 cluster 的 S4 window 合法且通过 BW 检查，core
 
 ## Output FIFO
 
-`sched_schedule_core` 内部保存 depth=4 的 completed-round FIFO。每个 FIFO entry 是一个 round packet：
-
-- `plan_count`：本轮输出 1 条还是 2 条 task。
-- `PLAN_ENTRY_DATA0/1`：已经 pack 好的 compact single-task plan word，
-  包含 task 描述、slot、执行 tile 数和 inline S4PF patch。
+`sched_schedule_core` 内部保存 depth=8 的 dense task FIFO。每个 entry 恰好是一条
+64-bit task word。FIFO 不保存 round-level metadata，solo round 也只占一个 entry。
 
 `remove_count/remove_slot_mask` 不作为 FIFO entry 的 shadow 字段保存，也不暴露给
 CVA6。core 在 commit 后通过内部 valid/ready 事务把它们交给 wrapper，用于 top4
-compact/refill；plan FIFO 只保存 lowering/drain 真正需要的 payload。
+compact/refill；task FIFO 只保存 lowering/drain 真正需要的 payload。
 
-FIFO 使用 circular `head + occupancy` 结构：只保存 head pointer 和 count，tail
-地址由二者组合推出，不保存重复 tail pointer。每个有效 entry 的 task 数只可能是
-1 或 2，因此 metadata 只保存 1-bit `is_two`，不保存 2-bit plan_count shadow。
+FIFO 使用 circular `head + occupancy` 结构：只保存 3-bit head pointer 和 4-bit
+count，tail 地址由二者组合推出，不保存重复 tail pointer。生产端采用单写口，commit
+FSM 每拍最多发布一条 task，避免 4-word 多写口和宽 crossbar。
 
 `STATUS` 是 fast path 的事件/metadata 入口：
 
 ```text
-bit  [3]     plan_valid
+bit  [3]     task_valid
 bit  [5]     active_empty
 bit  [6]     refill_req
 bits [31:28] refill_count
-bits [39:36] plan_fifo_count
-bits [47:40] plan_count vector, 2 bits per FIFO entry
+bits [39:36] task_fifo_count
 ```
 
-CVA6 和 TB 只读 `STATUS` 获取 FIFO 数量、plan_count vector 与 refill metadata；
+CVA6 和 TB 只读 `STATUS` 获取 task FIFO 数量与 refill metadata；
 没有 remove/status debug shadow，也没有额外 FIFO 状态读路径。
 
-CVA6 可以一次 drain FIFO 中 1..4 个 completed rounds：
+CVA6 可以一次 drain FIFO 中 1..8 条 task：
 
-1. 读 `STATUS`，得到 `plan_fifo_count` 和每个 entry 的 `plan_count`。
-2. 对 entry `i` 读 indexed payload：
-   - `PLAN_ENTRY_DATA0(i)`：task0。
-   - `PLAN_ENTRY_DATA1(i)`：仅当该 entry `plan_count=2` 时读取。
-3. lowering 后写 `ROUND_COMMIT.pop_count=N`，一次 pop 已 drain 的 N 个 FIFO entry。
+1. 读 `STATUS` 得到 `task_fifo_count=N`。
+2. 连续读取 `TASK_FIFO_DATA(i) = 0x100 + i*8`，`i=0..N-1`。
+3. lowering 后写 `TASK_POP.pop_count=N`，一次 pop 已 drain 的 N 条 task word。
 
-S4PF patch 在 `sched_schedule_core` 的 plan FIFO enqueue 阶段生成。core 维护每个 cluster 的 tail pending record，把 patch 直接内联到 FIFO 中保存的 `PLAN_ENTRY_DATAx[63:56]`。wrapper read path 只做 indexed mux，不再对 `planq[0..3]` 做 read-time walk。
+每个 cluster 最多保留一条尚未知道未来 target 的 pending task。下一条同
+cluster task 到来时，core 用其 eid 完成前一条 task 的 `S4PF_DESC[63:56]`，然后才
+将前一条发布到 FIFO；batch 最后一条 task 以无 S4PF target 的形式 flush。因此每条
+已发布 task 自己携带 S4PF target，CVA6 不再反向修改已经 lowered 的前一个 L3 slot。
 
 ## MMIO Register Map
 
 ```text
 0x00 CTRL              W bit0 init, bit1 start
-0x08 STATUS            R plan/refill/active metadata
+0x08 STATUS            R task/refill/active metadata
 0x10 CONFIG            W cache_eid_c2/c3, active_count, total_conc
-0x68 ROUND_COMMIT      W bits[2:0] pop_count
+0x68 TASK_POP          W bits[3:0] pop_count
 0xa8 HEAD_QUAD         W initial top4, head16 x4
 0xb0 RESERVE_QUAD      W initial reserve[4], head16 x4
 0xb8 HEAD_PUSH_QUAD    W append up to 4 head16 into reserve[4]
 
-0x100 + i*0x20 PLAN_ENTRY_DATA0  R FIFO entry i task0 plan word
-0x108 + i*0x20 PLAN_ENTRY_DATA1  R FIFO entry i task1 plan word
+0x100 + i*0x08 TASK_FIFO_DATA(i) R dense FIFO task word, i=0..7
 ```
 
-`PLAN_ENTRY_DATAx` 64-bit word layout：
+`TASK_FIFO_DATA` 64-bit word layout：
 
 ```text
 bits [5:0]   expert id
@@ -278,8 +277,10 @@ bit  [24]    has_s2pf
 bits [37:25] compact ctrl word
 bits [46:38] m_s2_exec
 bits [55:47] m_s4_exec
-bits [63:56] inline S4PF patch byte
+bits [63:56] self-contained S4PF descriptor
 ```
+
+`S4PF descriptor` bits：`bit0 valid`、`bit1 no_copy`、`bits[7:2] target_eid`。
 
 `ctrl` bits：
 
@@ -292,15 +293,14 @@ bit  [6]     cluster
 bits [12:7]  local_slot
 ```
 
-CVA6 根据 compact ctrl、`m_s2_exec/m_s4_exec` 和 shape 重新生成写入 dynamic args 的 20-bit runtime ctrl。inline S4PF patch byte layout 是 `valid/no_copy/local_slot[5:0]`；patch target expert 和 cluster 分别来自同一个 DATA word 的 `eid` 和 `ctrl.cluster`。
+CVA6 根据 compact ctrl、`m_s2_exec/m_s4_exec` 和 shape 重新生成写入 dynamic args 的 20-bit runtime ctrl。S4PF descriptor 已经自包含 target expert：CVA6 只需检查 `valid/no_copy`，然后将 `target_eid` 写入当前 task 的 S4 prefetch DMA slot，不再维护跨 task pending pointer，也不再回写早先已 lowering 的 slot。
 
 ## 验证
 
-`tb/` 目录有三层验证：
+`tb/` 目录有两层当前 RTL/ABI 验证：
 
-- `make verify-lowering`：纯 C 检查 legacy schedule、public schedule 和 compact-plan lowering 的最终 `tasks[]/dma_ops[]` 是否一致。
-- `make verify-schedule-core`：完整 RTL datapath 检查。`gen_schedule_vectors.c` 调用 `moe_make_hw_plan()` 生成 512 个 request 的 golden compact plan；`tb_schedule_core.sv` 驱动 core 并逐项比较 compact plan 和 per-cluster `local_slot`。
-- `make verify-scheduler-reg-wrapper`：把 MMIO wrapper、reserve refill、auto-run、indexed FIFO drain、compact `ctrl` word 和 inline S4PF patch 纳入测试。
+- `make verify-schedule-core`：完整 RTL datapath 检查。`gen_schedule_vectors.c` 调用 `moe_make_hw_plan()` 生成 512 个 request 的 golden task stream；`tb_schedule_core.sv` 驱动 core 并逐项比较 task word 和 per-cluster `local_slot`。
+- `make verify-scheduler-reg-wrapper`：把 MMIO wrapper、reserve refill、auto-run、dense task FIFO drain、compact `ctrl` word 和 self-contained S4PF target descriptor 纳入测试。
 
 运行 Questa 前需要：
 
@@ -310,29 +310,29 @@ make -C Scheduler_hw/tb verify-schedule-core
 make -C Scheduler_hw/tb verify-scheduler-reg-wrapper
 ```
 
-当前 Verilator 全量回归结果：
+当前 dense task FIFO 协议的 Questa 2022.4 全量结果：
 
 ```text
 verify-schedule-core:
-[RESULT] PASS tests=512 rounds=13404 plan_entries=16812
+[RESULT] PASS tests=512 rounds=12060 plan_entries=16935
 
 verify-scheduler-reg-wrapper:
-[RESULT] PASS tests=512 rounds=13404 plan_entries=16812
+[RESULT] PASS tests=512 drain_batches=15384 plan_entries=16935
 ```
 
-Questa 源码编译也已通过；当前机器本次运行未取得 VSIM license，因此最终 512-case
-执行结果来自同一 RTL/TB/向量的 Verilator `--timing` 仿真。
+wrapper TB 原始日志的统计字段仍名为 `rounds`，但在 auto-run + dense FIFO
+协议下它统计的是 wrapper event/drain 循环，不是 algorithm round 数。
 
 ## FF Budget
 
-按默认 `E_MAX=64/T_W=16/PLANQ_DEPTH=4`，根据最终 Verilator 展开层次逐个统计
-实际 `*_q` 状态，wrapper 加完整 core 约为 **1483 bit FF**。该数字是综合前逻辑
+按默认 `E_MAX=64/T_W=16/TASKQ_DEPTH=8`，根据源码中实际 `*_q`
+状态逐项统计，wrapper 加完整 core 约为 **1544 bit FF**。该数字是综合前逻辑
 寄存器预算，不包含 testbench、`ifndef SYNTHESIS` assertion history，也不等同于
 FPGA implementation 的物理 FF report。
 
 ```text
 wrapper head/reserve/config/count                 174
-core persistent/FIFO/slot/pending/control         912
+core persistent/FIFO/slot/pending/control         973
 BW checker x2                                      22
 candidate generator                                 6
 eval scratch                                      226
@@ -340,8 +340,10 @@ shared S2PF engine                                 77
 score FSM                                          20
 best reducer                                       46
 ------------------------------------------------------
-total                                            1483 bit
+total                                            1544 bit
 ```
 
-其中 520 bit 来自 depth-4 plan FIFO payload+`is_two`，274 bit 来自 C2/C3
-persistent timeline；两者合计占总 FF 的 53.5%，是功能性容量，不是流水线复制。
+其中 dense task FIFO 是 `8 x 64 + head[2:0] + count[3:0] = 519 bit`；
+C2/C3 persistent timeline 约 274 bit；两个 cluster 各保存一条尚未知道
+S4PF target 的 pending task，共 78 bit。pending state 是生成自包含 S4PF
+descriptor 所必需的跨 task 状态，不是第二份输出 FIFO。
