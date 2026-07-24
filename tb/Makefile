@@ -1,98 +1,100 @@
-# Makefile — scheduler RTL testbenches
-#
-# Workflow:
-#   make                         → run schedule-core regression flow
-#   make verify-schedule-core    → generate schedule vectors, compile core TB, run
-#   make verify-scheduler-reg-wrapper
-#                                → generate schedule vectors, compile wrapper TB, run
-#   make clean    → remove build artefacts
-#
-# Prerequisites on the server:
-#   - GCC available in PATH (or adjust CC below)
-#   - QuestaSim sourced: source /esat/micas-data/data/design/scripts/questasim_2022.4.rc
-#
-# All RTL files live in the parent directory (../):
+# Questa regressions for the current scheduler RTL.
+# Source questasim_2022.4.rc before invoking these targets.
+
 RTL_DIR := ..
 TB_DIR  := .
 WORK    := work
 
-CC      := gcc
-CFLAGS  := -std=c99 -O2 -Wall -Wextra
-
-VLOG    := vlog
-VSIM    := vsim
-VSIM_PLUSARGS ?=
-
-SCHED_VEC_FILE := schedule_vectors.txt
-SCHED_GEN_BIN  := gen_schedule_vectors
-SCHED_GEN_SRC  := $(TB_DIR)/gen_schedule_vectors.c
-SCHED_C    := ../../HeMAiA/target/sw/host/apps/offload_bingo_hw/single_chip/workloads/multi_cluster_MoE/moe_scheduler.c
-SCHED_INC  := ../../HeMAiA/target/sw/host/apps/offload_bingo_hw/single_chip/workloads/multi_cluster_MoE
+VLOG := vlog
+VSIM := vsim
 
 CORE_RTL_SRCS := \
-    $(RTL_DIR)/sched_pkg.sv                  \
-    $(RTL_DIR)/sched_candidate_pkg.sv        \
-    $(RTL_DIR)/sched_bw_ok_seq.sv            \
-    $(RTL_DIR)/sched_mk_timeline.sv              \
-    $(RTL_DIR)/sched_pick_shapes.sv          \
-    $(RTL_DIR)/sched_s2pf_pair.sv            \
-    $(RTL_DIR)/sched_score_unit.sv           \
-    $(RTL_DIR)/sched_candidate_eval_lane.sv  \
-    $(RTL_DIR)/sched_candidate_generator.sv  \
-    $(RTL_DIR)/sched_best_reduce.sv          \
-    $(RTL_DIR)/sched_task_word_pack.sv            \
-    $(RTL_DIR)/sched_schedule_core.sv
+    $(RTL_DIR)/sched_pkg.sv \
+    $(RTL_DIR)/sched_candidate_pkg.sv \
+    $(RTL_DIR)/sched_bandwidth_check.sv \
+    $(RTL_DIR)/sched_task_timeline.sv \
+    $(RTL_DIR)/sched_pair_shape_select.sv \
+    $(RTL_DIR)/sched_s2pf_search.sv \
+    $(RTL_DIR)/sched_continuation_score.sv \
+    $(RTL_DIR)/sched_candidate_evaluator.sv \
+    $(RTL_DIR)/sched_candidate_generator.sv \
+    $(RTL_DIR)/sched_best_candidate.sv \
+    $(RTL_DIR)/sched_task_word_pack.sv \
+    $(RTL_DIR)/moe_scheduler_core.sv
 
-SCHED_TB_SRCS := $(TB_DIR)/tb_schedule_core.sv
 WRAPPER_RTL_SRCS := $(CORE_RTL_SRCS) $(RTL_DIR)/moe_scheduler_reg_wrapper.sv
-WRAPPER_TB_SRCS := $(TB_DIR)/tb_scheduler_reg_wrapper.sv
 
-.PHONY: all schedule-gen schedule-compile schedule-sim verify-schedule-core wrapper-compile wrapper-sim verify-scheduler-reg-wrapper clean
+SCORE_VECTOR_FILE := score_vectors.txt
+CORE_VECTOR_FILE  := core_vectors.txt
+SCORE_GENERATOR   := $(TB_DIR)/gen_score_vectors.py
+CORE_GENERATOR    := $(TB_DIR)/gen_core_vectors.py
+SCORE_TB          := $(TB_DIR)/tb_continuation_score.sv
+CORE_TB           := $(TB_DIR)/tb_scheduler_core.sv
+WRAPPER_TB        := $(TB_DIR)/tb_scheduler_reg_wrapper.sv
 
-all: verify-schedule-core
+.PHONY: all verify-score verify-core verify-wrapper verify-dma-resource \
+        score-gen score-compile score-sim \
+        core-gen core-compile core-sim \
+        wrapper-compile wrapper-sim dma-resource-compile dma-resource-sim clean
 
-$(SCHED_GEN_BIN): $(SCHED_GEN_SRC) $(SCHED_C)
-	$(CC) $(CFLAGS) -I$(SCHED_INC) -o $@ $(SCHED_GEN_SRC) $(SCHED_C)
+all: verify-core
 
-schedule-gen: $(SCHED_GEN_BIN)
-	./$(SCHED_GEN_BIN) > $(SCHED_VEC_FILE)
-	@echo "[GEN] $(SCHED_VEC_FILE) ready ($$(wc -l < $(SCHED_VEC_FILE)) lines)"
+$(WORK):
+	vlib $(WORK)
 
-schedule-compile: $(CORE_RTL_SRCS) $(SCHED_TB_SRCS)
-	$(VLOG) -work $(WORK) -sv \
-	    +acc \
-	    $(CORE_RTL_SRCS) $(SCHED_TB_SRCS)
+score-gen: $(SCORE_GENERATOR)
+	python3 $(SCORE_GENERATOR) > $(SCORE_VECTOR_FILE)
 
-schedule-sim:
-	$(VSIM) -batch \
-	    -work $(WORK) \
-	    tb_schedule_core $(VSIM_PLUSARGS) \
-	    -do "run -all; quit -f" \
-	    -logfile schedule_core_sim.log
-	@echo ""
-	@grep -E "PASS|FAIL|RESULT" schedule_core_sim.log || true
+score-compile: $(WORK) $(RTL_DIR)/sched_pkg.sv \
+               $(RTL_DIR)/sched_continuation_score.sv $(SCORE_TB)
+	$(VLOG) -work $(WORK) -sv +acc \
+	    $(RTL_DIR)/sched_pkg.sv $(RTL_DIR)/sched_continuation_score.sv $(SCORE_TB)
 
-verify-schedule-core: schedule-gen schedule-compile schedule-sim
+score-sim:
+	$(VSIM) -batch -work $(WORK) tb_continuation_score \
+	    -do "run -all; quit -f" -logfile score_sim.log
+	@grep -E "PASS|FAIL|RESULT" score_sim.log || true
 
-wrapper-compile: $(WRAPPER_RTL_SRCS) $(WRAPPER_TB_SRCS)
-	$(VLOG) -work $(WORK) -sv \
-	    +acc \
-	    $(WRAPPER_RTL_SRCS) $(WRAPPER_TB_SRCS)
+verify-score: score-gen score-compile score-sim
+
+core-gen: $(CORE_GENERATOR)
+	python3 $(CORE_GENERATOR) > $(CORE_VECTOR_FILE)
+
+core-compile: $(WORK) $(CORE_RTL_SRCS) $(CORE_TB)
+	$(VLOG) -work $(WORK) -sv +acc $(CORE_RTL_SRCS) $(CORE_TB)
+
+core-sim:
+	$(VSIM) -batch -work $(WORK) tb_scheduler_core \
+	    -do "run -all; quit -f" -logfile core_sim.log
+	@grep -E "PASS|FAIL|RESULT" core_sim.log || true
+
+verify-core: core-gen core-compile core-sim
+
+wrapper-compile: $(WORK) $(WRAPPER_RTL_SRCS) $(WRAPPER_TB)
+	$(VLOG) -work $(WORK) -sv +acc $(WRAPPER_RTL_SRCS) $(WRAPPER_TB)
 
 wrapper-sim:
-	$(VSIM) -batch \
-	    -work $(WORK) \
-	    tb_scheduler_reg_wrapper $(VSIM_PLUSARGS) \
-	    -do "run -all; quit -f" \
-	    -logfile scheduler_reg_wrapper_sim.log
-	@echo ""
-	@grep -E "PASS|FAIL|RESULT" scheduler_reg_wrapper_sim.log || true
+	$(VSIM) -batch -work $(WORK) tb_scheduler_reg_wrapper \
+	    -do "run -all; quit -f" -logfile wrapper_sim.log
+	@grep -E "PASS|FAIL|RESULT" wrapper_sim.log || true
 
-verify-scheduler-reg-wrapper: schedule-gen wrapper-compile wrapper-sim
+verify-wrapper: core-gen wrapper-compile wrapper-sim
 
-# ── Clean ─────────────────────────────────────────────────────────────────────
+dma-resource-compile: $(WORK) $(RTL_DIR)/sched_pkg.sv \
+                       $(RTL_DIR)/sched_bandwidth_check.sv tb_dma_resource_check.sv
+	$(VLOG) -work $(WORK) -sv +acc \
+	    $(RTL_DIR)/sched_pkg.sv $(RTL_DIR)/sched_bandwidth_check.sv \
+	    tb_dma_resource_check.sv
+
+dma-resource-sim:
+	$(VSIM) -batch -work $(WORK) tb_dma_resource_check \
+	    -do "run -all; quit -f" -logfile dma_resource_sim.log
+	@grep -E "PASS|FAIL|RESULT" dma_resource_sim.log || true
+
+verify-dma-resource: dma-resource-compile dma-resource-sim
+
 clean:
-	rm -rf $(WORK) $(SCHED_GEN_BIN) \
-	    $(SCHED_VEC_FILE) schedule_core_sim.log \
-	    scheduler_reg_wrapper_sim.log transcript
+	rm -rf $(WORK) $(SCORE_VECTOR_FILE) $(CORE_VECTOR_FILE) \
+	    score_sim.log core_sim.log wrapper_sim.log transcript
+	rm -f dma_resource_sim.log
 	rm -f modelsim.ini

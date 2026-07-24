@@ -7,14 +7,14 @@ sources:
   - files:
       - sched_pkg.sv
       - sched_candidate_pkg.sv
-      - sched_bw_ok_seq.sv
-      - sched_mk_timeline.sv
-      - sched_pick_shapes.sv
-      - sched_s2pf_pair.sv
-      - sched_score_unit.sv
-      - sched_candidate_eval_lane.sv
+      - sched_bandwidth_check.sv
+      - sched_task_timeline.sv
+      - sched_pair_shape_select.sv
+      - sched_s2pf_search.sv
+      - sched_continuation_score.sv
+      - sched_candidate_evaluator.sv
       - sched_candidate_generator.sv
-      - sched_best_reduce.sv
+      - sched_best_candidate.sv
       - sched_task_word_pack.sv
-      - sched_schedule_core.sv
+      - moe_scheduler_core.sv
       - moe_scheduler_reg_wrapper.sv

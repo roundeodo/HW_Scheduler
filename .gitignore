@@ -1,4 +1,3 @@
 tb/work/
 tb/*.log
-tb/gen_eval_vectors
-tb/gen_schedule_vectors
+tb/*_vectors.txt
