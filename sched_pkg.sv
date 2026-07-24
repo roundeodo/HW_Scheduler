@@ -91,8 +91,10 @@ package sched_pkg;
   endfunction
 
   // ── S4 prefetch window ───────────────────────────────────────────────────
-  // allow_s4pf 条件：task_end - dma3_end >= 4 ticks。
-  localparam time_t S4PF_WINDOW_TICKS = time_t'(4);
+  // S2PF/S4PF 都固定使用 iDMA+xDMA（128 B/cc）。S2PF 搬运
+  // 1 tick，S4PF 从 dma3_end 开始搬运 2 ticks。
+  localparam time_t S2PF_DMA_TICKS = time_t'(1);
+  localparam time_t S4PF_DMA_TICKS = time_t'(2);
 
   // ── ceil-div helpers / best_*（tick 域，纯移位+小修正）───────────────
   // C 模型是 best_s4(r)=((r+1)/2)*11264，即 tick 域 ceil(r/2)。
@@ -238,15 +240,13 @@ package sched_pkg;
     input ntok_t          ntok
   );
     snap_timeline_t updated_timeline;
-    time_t          prefetch_duration;
     begin
       updated_timeline = timeline;
-      prefetch_duration = (timeline.dma_s3 == DMA_BOTH) ? time_t'(1) : time_t'(2);
       if (apply_prefetch) begin
         updated_timeline.s2pf_valid = 1'b1;
         updated_timeline.s2pf_start = timeline.dma1_end;
-        updated_timeline.s2pf_end   = timeline.dma1_end + prefetch_duration;
-        updated_timeline.s2pf_dma   = timeline.dma_s3;
+        updated_timeline.s2pf_end   = timeline.dma1_end + S2PF_DMA_TICKS;
+        updated_timeline.s2pf_dma   = DMA_BOTH;
         updated_timeline.dma3_end   = timeline.s2_end;
         updated_timeline.dma_s3     = DMA_NONE;
         updated_timeline.task_end   = timeline.s2_end +

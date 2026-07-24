@@ -84,32 +84,33 @@ module tb_dma_resource_check;
     set_s1_pair(DMA_IDMA, DMA_IDMA, time_t'(4));
     run_case(1'b1, "non-overlap IDMA/IDMA");
 
-    // S2PF uses the same physical mask contract as normal DMA intervals.
+    // S2PF is fixed to BOTH and occupies one tick.
     snap_a = '0;
     snap_b = '0;
     snap_a.valid       = 1'b1;
     snap_a.s2pf_valid  = 1'b1;
     snap_a.s2pf_start  = time_t'(0);
-    snap_a.s2pf_end    = time_t'(2);
-    snap_a.s2_end      = time_t'(2);
-    snap_a.s2pf_dma    = DMA_XDMA;
+    snap_a.s2pf_end    = time_t'(1);
+    snap_a.s2_end      = time_t'(1);
+    snap_a.s2pf_dma    = DMA_BOTH;
     snap_b.valid       = 1'b1;
     snap_b.task_start  = time_t'(0);
     snap_b.dma1_end    = time_t'(2);
     snap_b.dma_s1      = DMA_XDMA;
-    run_case(1'b0, "S2PF XDMA conflicts with S1 XDMA");
+    run_case(1'b0, "S2PF BOTH conflicts with S1 XDMA");
 
-    // S4PF is also an explicit resource interval, not an abstract 64-B/cc tag.
+    // S4PF is fixed to BOTH (128 B/cc) and occupies a two-tick interval.
     snap_a = '0;
     snap_b = '0;
     snap_a.valid       = 1'b1;
     snap_a.s4pf_valid  = 1'b1;
-    snap_a.s4pf_dma    = DMA_IDMA;
+    snap_a.dma3_end    = time_t'(0);
+    snap_a.s4pf_dma    = DMA_BOTH;
     snap_b.valid       = 1'b1;
     snap_b.task_start  = time_t'(0);
     snap_b.dma1_end    = time_t'(4);
     snap_b.dma_s1      = DMA_IDMA;
-    run_case(1'b0, "S4PF IDMA conflicts with S1 IDMA");
+    run_case(1'b0, "S4PF BOTH conflicts with S1 IDMA");
 
     $display("[RESULT] PASS dma_resource_check tests=%0d", tests);
     $finish;

@@ -61,8 +61,6 @@ module sched_s2pf_search (
   logic        selected_valid_q, selected_valid_d;
   logic [1:0]  selected_side_mask_q, selected_side_mask_d;
 
-  time_t [1:0] prefetch_duration;
-  dma_binding_t [1:0] prefetch_dma;
   logic [1:0]  fits_prefetch_window;
   logic [1:0]  eligible_side_at_start;
 
@@ -74,8 +72,6 @@ module sched_s2pf_search (
 
   function automatic snap_bw_view_t apply_s2pf_dma(
     input snap_timeline_t sn,
-    input time_t          pf_duration,
-    input dma_binding_t   pf_dma,
     input time_t          pf_start
   );
     snap_bw_view_t v;
@@ -83,8 +79,8 @@ module sched_s2pf_search (
       v = to_bw_view(sn);
       v.s2pf_valid = 1'b1;
       v.s2pf_start = pf_start;
-      v.s2pf_end   = pf_start + pf_duration;
-      v.s2pf_dma   = pf_dma;
+      v.s2pf_end   = pf_start + S2PF_DMA_TICKS;
+      v.s2pf_dma   = DMA_BOTH;
       v.dma3_end   = sn.s2_end;
       v.dma_s3     = DMA_NONE;
       apply_s2pf_dma = v;
@@ -92,24 +88,18 @@ module sched_s2pf_search (
   endfunction
 
   always_comb begin
-    // S2PF 复用被替代的 S3 DMA 资源：单 lane 仍使用该 cluster 的固定
-    // lane，Shape C 则明确占用 BOTH。资源绑定本身决定 DMA 时长。
-    prefetch_dma[SIDE_A] = snap_a_i.dma_s3;
-    prefetch_dma[SIDE_B] = snap_b_i.dma_s3;
-    prefetch_duration[SIDE_A] = (prefetch_dma[SIDE_A] == DMA_BOTH) ?
-                                 time_t'(1) : time_t'(2);
-    prefetch_duration[SIDE_B] = (prefetch_dma[SIDE_B] == DMA_BOTH) ?
-                                 time_t'(1) : time_t'(2);
+    // S2PF 固定占用 BOTH DMA 一个 tick，不再从 S3 shape 派生
+    // 可变资源/时长。窗口不足或资源冲突时由现有 trial 直接拒绝。
 
     // dma1_end can lie after s2_end for a legal task shape.  Guard the
     // unsigned subtraction explicitly; otherwise the wrapped difference would
     // turn an empty S2PF window into a large, apparently legal window.
     fits_prefetch_window[SIDE_A] =
         (snap_a_i.s2_end >= snap_a_i.dma1_end) &&
-        (prefetch_duration[SIDE_A] <= (snap_a_i.s2_end - snap_a_i.dma1_end));
+        (S2PF_DMA_TICKS <= (snap_a_i.s2_end - snap_a_i.dma1_end));
     fits_prefetch_window[SIDE_B] =
         (snap_b_i.s2_end >= snap_b_i.dma1_end) &&
-        (prefetch_duration[SIDE_B] <= (snap_b_i.s2_end - snap_b_i.dma1_end));
+        (S2PF_DMA_TICKS <= (snap_b_i.s2_end - snap_b_i.dma1_end));
 
     eligible_side_at_start[SIDE_A] =
         side_a_active_i &&
@@ -192,12 +182,10 @@ module sched_s2pf_search (
     trial_bw_a = to_bw_view(snap_a_i);
     trial_bw_b = to_bw_view(snap_b_i);
     if (trial_side_mask[SIDE_A]) begin
-      trial_bw_a = apply_s2pf_dma(snap_a_i, prefetch_duration[SIDE_A],
-                                  prefetch_dma[SIDE_A], snap_a_i.dma1_end);
+      trial_bw_a = apply_s2pf_dma(snap_a_i, snap_a_i.dma1_end);
     end
     if (trial_side_mask[SIDE_B]) begin
-      trial_bw_b = apply_s2pf_dma(snap_b_i, prefetch_duration[SIDE_B],
-                                  prefetch_dma[SIDE_B], snap_b_i.dma1_end);
+      trial_bw_b = apply_s2pf_dma(snap_b_i, snap_b_i.dma1_end);
     end
   end
 

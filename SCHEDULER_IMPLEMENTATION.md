@@ -155,8 +155,9 @@ trial 顺序已经编码最终优先级，因此不保存 provisional winner、s
 3. S4PF window。
 
 每个 segment 保存具体资源掩码：`IDMA=01`、`XDMA=10`、`BOTH=11`。
-单路资源由 cluster 固定分配，Shape C 占用两条 lane；S2PF 继承 S3 绑定，
-S4PF 使用对应 cluster 的单路绑定。checker 使用两个 3-bit one-hot pointer 做
+单路资源由 cluster 固定分配，Shape C 占用两条 lane。S2PF/S4PF 都固定使用
+`BOTH`：S2PF 为 `dma1_end` 起始的 1-tick 区间，S4PF 为 `dma3_end`
+起始的 2-tick 区间。checker 使用两个 3-bit one-hot pointer 做
 ordered interval sweep。segment 从稳定输入组合生成，不保存 6 个 segment
 record。每拍只比较当前两个区间：
 

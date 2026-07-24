@@ -168,7 +168,7 @@ module moe_scheduler_core (
       s1_release = busy_timeline.dma1_end;
       stage3_release = busy_timeline.s2pf_valid ? busy_timeline.s2pf_end :
                                                  busy_timeline.dma3_end;
-      s4pf_release = busy_timeline.dma3_end + S4PF_WINDOW_TICKS;
+      s4pf_release = busy_timeline.dma3_end + S4PF_DMA_TICKS;
 
       s1_release_valid = busy_timeline.valid &&
                          (busy_timeline.dma_s1 != DMA_NONE) &&
@@ -182,17 +182,19 @@ module moe_scheduler_core (
       s4pf_release_valid = busy_timeline.valid && busy_timeline.s4pf_valid &&
                            (s4pf_release > idle_t);
 
-      // Physical stage order is already chronological.  Keep only the first
-      // two distinct endpoints used by the one-idle candidate policy.
+      // one-idle policy has two extra release slots.  Without S4PF, retain the
+      // first two physical releases.  With BOTH-DMA S4PF, always retain its
+      // final release as slot 2; otherwise all early candidates could overlap
+      // the lane-exclusive prefetch and leave the round without a legal token.
       if (s1_release_valid) begin
         early_context.release_count = 2'd1;
         early_context.first_release = s1_release;
-        if (stage3_release_valid && (stage3_release != s1_release)) begin
-          early_context.release_count = 2'd2;
-          early_context.second_release = stage3_release;
-        end else if (s4pf_release_valid && (s4pf_release != s1_release)) begin
+        if (s4pf_release_valid && (s4pf_release != s1_release)) begin
           early_context.release_count = 2'd2;
           early_context.second_release = s4pf_release;
+        end else if (stage3_release_valid && (stage3_release != s1_release)) begin
+          early_context.release_count = 2'd2;
+          early_context.second_release = stage3_release;
         end
       end else if (stage3_release_valid) begin
         early_context.release_count = 2'd1;
@@ -395,13 +397,13 @@ module moe_scheduler_core (
   assign c2_s4pf_window_candidate =
       evaluated_c2_timeline.valid &&
       (c2_cache_after_commit.pf_eid == PF_EID_NONE) &&
-      ((evaluated_c2_timeline.dma3_end + S4PF_WINDOW_TICKS) <=
+      ((evaluated_c2_timeline.dma3_end + S4PF_DMA_TICKS) <=
        evaluated_c2_timeline.task_end);
 
   assign c3_s4pf_window_candidate =
       evaluated_c3_timeline.valid &&
       (c3_cache_after_commit.pf_eid == PF_EID_NONE) &&
-      ((evaluated_c3_timeline.dma3_end + S4PF_WINDOW_TICKS) <=
+      ((evaluated_c3_timeline.dma3_end + S4PF_DMA_TICKS) <=
        evaluated_c3_timeline.task_end);
 
   always_comb begin
@@ -409,11 +411,11 @@ module moe_scheduler_core (
     c3_s4pf_trial_timeline = evaluated_c3_timeline;
     if (c2_s4pf_window_candidate) begin
       c2_s4pf_trial_timeline.s4pf_valid = 1'b1;
-      c2_s4pf_trial_timeline.s4pf_dma   = single_dma_for_cluster(1'b0);
+      c2_s4pf_trial_timeline.s4pf_dma   = DMA_BOTH;
     end
     if (c3_s4pf_window_candidate) begin
       c3_s4pf_trial_timeline.s4pf_valid = 1'b1;
-      c3_s4pf_trial_timeline.s4pf_dma   = single_dma_for_cluster(1'b1);
+      c3_s4pf_trial_timeline.s4pf_dma   = DMA_BOTH;
     end
   end
 

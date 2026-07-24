@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 import random
 import sys
 from pathlib import Path
@@ -14,65 +16,13 @@ N_TESTS = 512
 IDEA_MODEL = Path(__file__).resolve().parents[2] / "Idea_Model"
 sys.path.insert(0, str(IDEA_MODEL))
 
-import scheduler_hw_fixed_policy as model  # noqa: E402
+import scheduler_rtl_prefetch_both_policy as model  # noqa: E402
 
 
-SINGLE_SHAPES = tuple(model.hw.N1_PRUNED_SOLO_SHAPES)
-
-
-def choose_transition(state: model.PolicyState) -> model.Transition:
-    transitions = model.generate_one_idle_shape_successors(
-        state, policy="balanced", top_policy="pruned", n1_policy="pruned"
-    )
-    if len(state.remaining) == 1 or state.c2.task_end != state.c3.task_end:
-        return min(
-            transitions,
-            key=lambda tr: max(tr.state.c2.task_end, tr.state.c3.task_end),
-        )
-    return min(
-        transitions,
-        key=lambda tr: (
-            model.hw_v2_continuation(
-                tr.state.c2, tr.state.c3, tr.state.remaining, policy="balanced"
-            ),
-            len(tr.state.remaining),
-            max(tr.state.c2.task_end, tr.state.c3.task_end),
-        ),
-    )
-
-
-def token_from_tag(state: model.PolicyState, tag: str) -> tuple[int, int]:
-    if len(state.remaining) == 1:
-        if tag.startswith("last_solo_c"):
-            cluster = int(tag[len("last_solo_c")])
-            shape_code = tag.rsplit("_", 1)[1]
-            shape = (int(shape_code[0]), int(shape_code[1]))
-            return 0, (0 if cluster == 2 else len(SINGLE_SHAPES)) + SINGLE_SHAPES.index(shape)
-        if tag.startswith("last_split_"):
-            return 0, 10
-        if tag.startswith("last_release_c"):
-            release_index = int(tag.rsplit("_", 1)[1])
-            return 0, 11 + release_index
-        raise RuntimeError(f"unmapped LAST_EXPERT tag {tag}")
-
-    if state.c2.task_end == state.c3.task_end:
-        if tag == "pair_0_1":
-            return 1, 0
-        if tag == "pair_1_2":
-            return 1, 1
-        if tag == "pair_2_3":
-            return 1, 2
-        if tag.startswith("split_0_"):
-            cut = int(tag.rsplit("_", 1)[1])
-            half = (state.remaining[0][1] + 1) // 2
-            return 1, 3 if cut == half else 4
-        raise RuntimeError(f"unmapped BOTH_IDLE tag {tag}")
-
-    if tag.startswith("one_idle_adaptive_c"):
-        return 2, 3 + int(tag.rsplit("p", 1)[1])
-    if tag.startswith("one_idle_c"):
-        return 2, int(tag.rsplit("p", 1)[1])
-    raise RuntimeError(f"unmapped ONE_IDLE tag {tag}")
+DEFAULT_COVERAGE_INPUTS = tuple(
+    IDEA_MODEL / f"scheduler_strategy_coverage_E{experts}.json"
+    for experts in (8, 32, 64)
+)
 
 
 def make_case(rng: random.Random, tid: int) -> tuple[dict[int, int], int, int]:
@@ -100,26 +50,70 @@ def make_case(rng: random.Random, tid: int) -> tuple[dict[int, int], int, int]:
     return token_dist, cache2, cache3
 
 
+def emit_case(
+    tid: int,
+    token_dist: dict[int, int],
+    cache2: int,
+    cache3: int,
+) -> None:
+    state = model.initial_state(token_dist, cache2, cache3)
+    sorted_remaining = state.remaining
+    trace: list[tuple[int, int]] = []
+    while state.remaining:
+        chosen = model.choose_transition(state)
+        trace.append(model.token_from_tag(state, chosen.tag))
+        state = chosen.state
+
+    final_cycles = model.terminal_cost(state)
+    assert final_cycles % TICK_CC == 0
+    print(tid, len(sorted_remaining), cache2, cache3, len(trace), final_cycles // TICK_CC)
+    for eid, ntok in sorted_remaining:
+        print(eid, ntok)
+    for mode, cand_id in trace:
+        print(mode, cand_id)
+
+
+def load_coverage_cases(paths: tuple[Path, ...]) -> list[tuple[dict[int, int], int, int]]:
+    cases = []
+    for path in paths:
+        for case in json.loads(path.read_text())["cases"]:
+            if not case.get("analysis_eligible", False):
+                continue
+            cases.append(
+                (
+                    {int(eid): int(ntok) for eid, ntok in case["dist"].items()},
+                    int(case.get("c2", -1)),
+                    int(case.get("c3", -1)),
+                )
+            )
+    return cases
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--coverage-30k",
+        action="store_true",
+        help="emit all 29,928 analysis-eligible E8/E32/E64 coverage cases",
+    )
+    parser.add_argument("--coverage-input", action="append", type=Path)
+    args = parser.parse_args()
+
+    if args.coverage_30k:
+        paths = tuple(args.coverage_input) if args.coverage_input else DEFAULT_COVERAGE_INPUTS
+        cases = load_coverage_cases(paths)
+        if len(cases) != 29_928:
+            raise RuntimeError(f"expected 29928 eligible cases, got {len(cases)}")
+        print(len(cases))
+        for tid, (token_dist, cache2, cache3) in enumerate(cases):
+            emit_case(tid, token_dist, cache2, cache3)
+        return
+
     rng = random.Random(0xC0DE_6006)
     print(N_TESTS)
     for tid in range(N_TESTS):
         token_dist, cache2, cache3 = make_case(rng, tid)
-        state = model.initial_state(token_dist, cache2, cache3)
-        sorted_remaining = state.remaining
-        trace: list[tuple[int, int]] = []
-        while state.remaining:
-            chosen = choose_transition(state)
-            trace.append(token_from_tag(state, chosen.tag))
-            state = chosen.state
-
-        final_cycles = model.terminal_cost(state)
-        assert final_cycles % TICK_CC == 0
-        print(tid, len(sorted_remaining), cache2, cache3, len(trace), final_cycles // TICK_CC)
-        for eid, ntok in sorted_remaining:
-            print(eid, ntok)
-        for mode, cand_id in trace:
-            print(mode, cand_id)
+        emit_case(tid, token_dist, cache2, cache3)
 
 
 if __name__ == "__main__":

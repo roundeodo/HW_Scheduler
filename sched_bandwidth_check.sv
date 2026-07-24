@@ -85,7 +85,7 @@ module sched_bandwidth_check (
                        sn.s2_end, sn.dma3_end, sn.dma_s3);
       segment_o[2] = make_segment(sn.valid && sn.s4pf_valid,
                                   sn.dma3_end,
-                                  sn.dma3_end + S4PF_WINDOW_TICKS,
+                                  sn.dma3_end + S4PF_DMA_TICKS,
                                   sn.s4pf_dma);
     end
   endtask
@@ -234,11 +234,11 @@ module sched_bandwidth_check (
       assert (!sn.s2pf_valid ||
               ((sn.s2pf_start >= sn.dma1_end) &&
                (sn.s2pf_end <= sn.s2_end) &&
-               (sn.s2pf_dma != DMA_NONE) &&
+               (sn.s2pf_dma == DMA_BOTH) &&
                (sn.dma_s3 == DMA_NONE)))
         else $error("invalid S2PF timeline contract");
-      assert (!sn.s4pf_valid || (sn.s4pf_dma != DMA_NONE))
-        else $error("S4PF enabled without a DMA resource binding");
+      assert (!sn.s4pf_valid || (sn.s4pf_dma == DMA_BOTH))
+        else $error("S4PF must use the BOTH-DMA binding");
     end
   endtask
 
