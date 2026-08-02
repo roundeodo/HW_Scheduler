@@ -6,15 +6,17 @@ package:
 sources:
   - files:
       - sched_pkg.sv
-      - sched_candidate_pkg.sv
+      - sched_distilled_pkg.sv
+      - sched_distilled_profile_decode.sv
+      - sched_distilled_timeline.sv
       - sched_bandwidth_check.sv
-      - sched_task_timeline.sv
-      - sched_pair_shape_select.sv
-      - sched_s2pf_search.sv
-      - sched_continuation_score.sv
-      - sched_candidate_evaluator.sv
-      - sched_candidate_generator.sv
-      - sched_best_candidate.sv
+      - sched_distilled_transition_eval.sv
+      - sched_distilled_bound_score.sv
+      - sched_distilled_pair_compare.sv
+      - sched_distilled_regime_classify.sv
+      - sched_distilled_start_iter.sv
+      - sched_distilled_target_s4pf.sv
+      - sched_distilled_round_engine.sv
       - sched_task_word_pack.sv
       - moe_scheduler_core.sv
       - moe_scheduler_reg_wrapper.sv

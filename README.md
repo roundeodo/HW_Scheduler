@@ -1,166 +1,145 @@
-# MoE Scheduler RTL
+# Bounded Distilled MoE Scheduler RTL
 
-本目录实现面向硬件的 MoE 双 cluster 调度器。当前 RTL 只有一套实现，不保留旧候选协议、旧模块名或兼容路径。
+本目录实现 `bounded-distilled-top5-bottom1-targeted-s4pf` 双 cluster 调度策略。
+RTL 观察 `top5 + bottom1`，顺序执行 28 个硬编码 physical profile，并与
+`Idea_Model/scheduler_rtl_distilled_policy.py` 保持整数、确定性 lockstep。
 
 ## 设计边界
 
-- 完整 sorted expert stream 和最终 args/plan 位于 L3，由 CVA6 管理。
-- wrapper 保存当前 `head[6]` 和 `reserve[6]`，每条 expert descriptor 为 16 bit：`{valid,eid[5:0],ntok[8:0]}`。
-- core 保存 C2/C3 timeline、cache identity、local slot、两个 unresolved S4PF task 和 depth-8 task FIFO。CONFIG 的 8-bit cache eid 在 wrapper 写入时压成 7-bit tagged eid，不保存无语义位。
-- RTL 不包含 rem SRAM、plan SRAM、AXI master 或 DMA writer。
-- 当前 HeMAiA 软件 ABI 尚未同步到本目录的 top6+reserve6 协议；不要用旧软件二进制验证这版 RTL。
+- 软件在 L3 保存完整降序 expert stream；RTL 不复制 rem/plan SRAM。
+- wrapper 保存 `hot9 + cold5`：可见窗口为 `hot[0:4] + cold[0]`，其余
+  `hot[5:8] + cold[1:4]` 是各 4 项的本地候补。
+- 每项 descriptor 为 `{valid, eid[5:0], ntok[8:0]}`，共 16 bit。
+- core 保存 C2/C3 状态、aggregate counters、每 cluster 一个 pending task，
+  以及八个 47-bit entry 的 FF FIFO；64-bit task word 只在 FIFO head 处生成。
+- 顶层是 `moe_scheduler_reg_wrapper`；RTL 不含 AXI master、DMA writer、
+  Bingo 或完整 SoC。
 
-## 数据流
+## 硬件数据流
 
 ```text
-CVA6 CONFIG + HEAD[6] + RESERVE[6]
-                  |
-                  v
-moe_scheduler_reg_wrapper
-  fixed-mask compact/refill + auto-run
-                  |
-                  v
-moe_scheduler_core
-  round early-start predecode
-                  |
-                  v
-sched_candidate_generator
-  compact {valid, mode, id} token
-                  |
-                  v
-sched_candidate_evaluator
-  decode/pick -> shared timeline/remove-work scratch register
-  -> timeline A -> timeline B
-  -> S2PF search -> BW check -> continuation score
-                  |
-                  v
-sched_best_candidate
-  retain only best token + score
-                  |
-                  v
-replay(best token)
-  -> commit S4PF BW checks
-  -> resolve previous same-cluster S4PF target
-                  |
-                  v
-depth-8 circular task FIFO -> CVA6
+hot9 + cold5 + aggregate state
+            |
+            v
+28-entry combinational profile ROM
+            |
+            v
+shared start iterator -> shared transition/BW evaluator
+            |
+            v
+per-logical-action baseline/target reducer
+            |
+            v
+shared bound scorer -> shared regime comparator
+            |
+            v
+winner replay/commit -> pending S4PF target resolution
+            |
+            v
+eight-entry compact FF FIFO
 ```
 
-`best` 只保存 compact token 和 score。枚举结束后 replay 一次 winning token，避免保存宽 winner timeline/plan 寄存器。
-同一组 27-bit scratch FF 在前半程保存 timeline operator request，在候选完成时
-改存 winner 的 removed parallel/serial work；wrapper 直接复用，
-不再第二次展开 per-head work 算术。
+只有当前 profile、当前 logical group 的局部 winner 和一个 global incumbent
+被保存；logical group 结束后立即 score 并折叠到 global incumbent，不保存
+winner bank。宽 timeline 和 plan 不做 per-candidate 复制。baseline 与
+targeted-S4PF 复用同一 transition evaluator，target 只有使当前 `max_end`
+严格减小时才替换 baseline。
 
-## 候选策略
+状态机允许以下条件跳过：非法 selector、缓存条件不符、无可用 start、BW
+失败、S4PF 剩余 expert 少于 9、计算窗口不足、无 logical winner，以及无需
+refill 的轮次。不存在为了固定拍数而继续执行的空 pass。
 
-`cand_token_t` 只有 `valid/mode/id`。generator 只枚举 token，evaluator 按当前 round context 解码实际 task。
+## DMA 与 prefetch
 
-### 最后一个 expert
-
-- C2/C3 各 5 个高频 solo shape：`C/C`、`A/A`、`A/C`、`B/B`、`A/B`。
-- 一个 half-ceil split。
-- busy side 的前两个有效 release time。
-
-### 两侧同时 idle
-
-- `PAIR(top0,top1)`
-- `PAIR(top1,top2)`
-- `PAIR(top2,top3)`
-- `SPLIT(top0,half-ceil)`
-- `SPLIT(top0,front-2)`
-
-### 只有一侧 idle
-
-- idle/release0/release1 上的固定 `C/C`。
-- 同三个 start 上由 `ntok` 选择的 adaptive shape。
-
-remove mask 只可能是 `0001`、`0011`、`0110`、`1100`。wrapper 对这四种模式使用固定连接，不实现通用 prefix compact 网络。
-
-## S2PF 与 DMA 资源
-
-`sched_s2pf_search` 按最终优先级顺序检查固定模板，第一项合法结果立即结束：
-
-- pair：`both@dma1_end`，然后 raw。
-- split：`both@dma1_end`、`B-only@dma1_end`，然后 raw。
-- active side：`active@dma1_end`，然后 raw。
-- disabled：只检查 raw。
-
-所有保留模板的 start 都固定为本侧 `dma1_end`，因此 S2PF patch 只传
-`valid/apply_a/apply_b`，不保存或传输重复的 start timestamp。
-
-每个 DMA 区间在 RTL timeline 中明确保存 `{xDMA,iDMA}` 资源掩码，而不是
-抽象的 64/128 B/cc 档位。固定分配规则为：C2 的单路搬运使用 iDMA，C3 的
-单路搬运使用 xDMA，Shape C 使用 `BOTH`。S2PF 和 S4PF 都固定使用
-`BOTH`：S2PF 在 `dma1_end` 开始并占用 1 tick，S4PF 保持既有
-`dma3_end` 起点并占用 2 ticks。窗口不足或全局 DMA 资源检查失败时，
-对应 prefetch 直接不生成。
-当 busy side 含 S4PF 时，one-idle 的两个额外启动点保留“最早资源释放”
-和“S4PF 最终释放”，不增加 context FF，且避免因 `BOTH` 占用导致无合法候选。
-
-`sched_bandwidth_check` 不保存完整 segment queue。输入 timeline 在 busy 期间保持稳定，checker 每侧组合产生三个可达有序区间：S1、S2PF/S3 二选一、S4PF；两个 3-bit one-hot pointer 顺序扫描。重叠区间仅在 DMA mask 不相交时合法：iDMA+xDMA 可以并行，同名 DMA、BOTH 与任意 DMA 的重叠均非法。
-
-eval 与 commit 各有一套 pointer-only checker，避免共享宽 mux 和跨 client 的输入保持状态。
-
-## 评分
-
-- last-expert 和 one-idle 候选直接使用 committed child makespan。
-- both-idle 候选比较 aggregate greedy estimate 与 top4 four-step LPT projection。
-- LPT 每拍放置一个 remaining work item，复用一套 compare/add datapath。
-- 三个及以上独立时间项采用 3:2 compressor 后接一次 carry-propagate addition；两项加法保持普通表达式。
+- C2 single lane 为 iDMA，C3 single lane 为 xDMA，`BOTH` 同时占两条 lane。
+- S1、S2PF、S3 和 targeted-S4PF 均使用显式 DMA mask 做区间冲突检查。
+- S2PF 模式由 28 个 frozen profile 决定，支持合法的 SINGLE/BOTH 组合。
+- S4PF 对具体的下一条同 cluster consumer 评估，依次尝试本地 SINGLE、BOTH、
+  OFF；计算窗口和全局 BW 必须同时合法。
+- 前一条 task 在 target 未知时留在每 cluster 的 pending register；看到下一条
+  同 cluster task 后再写入自包含 S4PF descriptor。batch 尾部直接 flush OFF。
 
 ## MMIO 协议
 
-所有地址为 wrapper 内 64-bit register word 的 byte offset。
+地址是 64-bit register word 的 byte offset。
 
-| Offset | 名称 | 方向 | 内容 |
+| Offset | 名称 | 方向 | 语义 |
 |---:|---|---|---|
-| `0x00` | `CONFIG` | W | cache eid、active count、total parallel/serial work |
-| `0x08` | `WINDOW0` | W | sorted rank 0..3 |
-| `0x10` | `WINDOW1` | W | sorted rank 4..7，即 head4..5、reserve0..1 |
-| `0x18` | `WINDOW2_START` | W | sorted rank 8..11，即 reserve2..5；该写同时 init/start |
-| `0x20` | `REFILL_QUAD` | W | 向 reserve 尾部追加 1..4 条 descriptor |
-| `0x28` | `EVENT_WAIT` | R | 阻塞到 refill、FIFO watermark 或 batch 完成；返回 refill/FIFO count |
-| `0x30` | `TASK_STREAM` | R | 返回 FIFO head；成功读握手同时 pop 一条 64-bit task |
+| `0x00` | `CONFIG` | W | cache eid、active count |
+| `0x08` | `WINDOW0` | W | `hot[0:3]` |
+| `0x10` | `WINDOW1` | W | `hot[4:7]` |
+| `0x18` | `WINDOW2` | W | 初始化序列 `[8:11]` |
+| `0x20` | `REFILL_QUAD` | W | 同一 refill 连续写 1..2 个 quad |
+| `0x28` | `EVENT_WAIT` | R | 阻塞到 refill、FIFO watermark 或 batch done |
+| `0x30` | `TASK_STREAM` | R | 阻塞读 FIFO head，握手即 pop |
+| `0x38` | `AGGREGATE` | W | token/block/histogram counters |
+| `0x40` | `WINDOW3_START` | W | 初始化序列 `[12:13]`，并 init/start |
 
-wrapper 自动接受 `remove_valid`，对 head 做 compact/refill，并在输入完整且 FIFO 未满时启动下一轮。CVA6 只在 `EVENT_WAIT.refill_req` 时补充 `refill_count` 条 descriptor。每次 `TASK_STREAM` 读都原子消费一条 task，输出协议没有独立读索引、读指针或确认写事务。
+`EVENT_WAIT` 返回：`done[0]`、`refill_req[1]`、`top_count[4:2]`、
+`bottom_count[7:5]`、`task_count[11:8]`。初始化序列固定为最多 9 项 top prefix，
+随后最多 5 项 cold-to-hot bottom suffix。单次 refill 每侧不超过 4、合计不超过
+6；软件将 top 放在前、bottom 放在后，连续写一个或两个 `REFILL_QUAD`。RTL
+锁存 credit，最后一拍写握手就是 refill completion，不需要 ACK、TASK_POP 或
+轮询 status。output FIFO watermark 为 6，refill、output 和 done 共用同一个
+阻塞 event。
 
-若提交后仍有 descriptor 尚未装入 6+6 window，wrapper 要求 reserve 在本次 head refill 后至少保留两条。该约束覆盖下一轮最多删除两个 expert 的情况，使 refill 响应延迟只造成 backpressure，不改变候选评估使用的 sorted window 或最终调度序列。
-
-每个 task word 已包含 lowering 所需的 compact control、`m_s2/m_s4` 和自包含 S4PF descriptor。S4PF target 属于下一条同 cluster task；core 用每 cluster 一个 pending record 在 enqueue 前解析，不需要 CVA6 回写旧 plan entry。
+64-bit `TASK_STREAM` 保留原有低位 task/control 排列。仅将原先空闲的 bit
+定义为 `S1_BOTH[46]` 和 `LATE_BOTH[55]`；`M_S2[45:38]`、`M_S4[54:47]`
+仍是 8-bit tile count。`S4PF_DESC[63:56]` 为
+`{target_eid[5:0], op[1:0]}`，其中 `NONE=0`、`SINGLE=1`、`BOTH=2`、
+`NO_COPY=3`。reader、阻塞语义和读取顺序不变。
 
 ## 模块
 
-- `sched_pkg.sv`: 全局类型、ABI layout、窄算术 helper。
-- `sched_candidate_pkg.sv`: candidate token contract 和固定策略 decode。
-- `sched_candidate_generator.sv`: 顺序 token generator。
-- `sched_candidate_evaluator.sv`: 单 lane 多拍 evaluator。
-- `sched_task_timeline.sv`: task timeline 组合 datapath。
-- `sched_pair_shape_select.sv`: pair shape 选择。
-- `sched_s2pf_search.sv`: 固定模板 S2PF search。
-- `sched_bandwidth_check.sv`: pointer-only ordered interval sweep。
-- `sched_continuation_score.sv`: greedy/LPT continuation score。
-- `sched_best_candidate.sv`: compact best reducer。
-- `sched_task_word_pack.sv`: 唯一 task word packer。
-- `moe_scheduler_core.sv`: round FSM、replay、commit、pending S4PF、task FIFO。
-- `moe_scheduler_reg_wrapper.sv`: MMIO、top6/reserve6、auto-run/refill。
+- `sched_distilled_profile_decode.sv`: 28-entry hard-wired profile ROM。
+- `sched_distilled_start_iter.sv`: 固定 start-point iterator。
+- `sched_distilled_timeline.sv`: 单 task timeline 算术。
+- `sched_bandwidth_check.sv`: pointer-based ordered DMA interval sweep。
+- `sched_distilled_transition_eval.sv`: 共享 transition evaluator。
+- `sched_distilled_target_s4pf.sv`: target-aware SINGLE/BOTH/OFF trial。
+- `sched_distilled_bound_score.sv`: 顺序 compute/DMA lower bound scorer。
+- `sched_distilled_regime_classify.sv`: frozen regime predicates。
+- `sched_distilled_pair_compare.sv`: 单个全局 comparator。
+- `sched_distilled_round_engine.sv`: local reduction、global score 和 replay。
+- `moe_scheduler_core.sv`: persistent state、pending target 和 task FIFO。
+- `moe_scheduler_reg_wrapper.sv`: hot/cold 窗口、refill 和 blocking MMIO。
 
-## 验证
+## 验证边界
 
-Questa 必须在 sandbox 外运行：
+Questa 回归由 Python golden 直接生成 vector：
 
 ```bash
 source /esat/micas-data/data/design/scripts/questasim_2022.4.rc
-make -C Scheduler_hw/tb verify-score
-make -C Scheduler_hw/tb verify-core
+make -C Scheduler_hw/tb verify-distilled-profile
+make -C Scheduler_hw/tb verify-distilled-timeline
+make -C Scheduler_hw/tb verify-dma-resource
+make -C Scheduler_hw/tb verify-distilled-transition
+make -C Scheduler_hw/tb verify-distilled-bound
+make -C Scheduler_hw/tb verify-distilled-compare
+make -C Scheduler_hw/tb verify-distilled-regime
+make -C Scheduler_hw/tb verify-distilled-round
+make -C Scheduler_hw/tb verify-distilled-s4-round
 make -C Scheduler_hw/tb verify-wrapper
 ```
 
-当前回归结果：
+40 MHz 检查只对上述 scheduler source 以 `moe_scheduler_reg_wrapper` 为 top
+执行 Vivado OOC synthesis；它不是完整 SoC placement/routing 结论。
 
-```text
-[RESULT] PASS continuation_score tests=2048
-[RESULT] PASS scheduler_core tests=512
-[RESULT] PASS scheduler_reg_wrapper tests=512
-```
+本轮同条件 OOC 优化前后结果：
 
-Python golden 的函数名仍沿用 Idea_Model 中的历史 API 名称；该名字不属于 RTL 模块或 MMIO 协议。
+| 版本 | LUT | FF | LUTRAM | WNS @ 40 MHz | 最坏逻辑级数 |
+|---|---:|---:|---:|---:|---:|
+| 原始较少功能基线 | 6220 | 1590 | 0 | - | - |
+| 新策略功能版 | 8539 | 1424 | 40 | +12.274 ns | 46 |
+| 协议升级前资源优化版 | 6300 | 1382 | 0 | +14.150 ns | 41 |
+| 4+4 reserve / FIFO8 初版 | 7136 | 1711 | 0 | +13.835 ns | 42 |
+| 当前条件跳过 / FIFO8 版 | 7117 | 1707 | 0 | +14.036 ns | 42 |
+
+当前版相对原始基线增加 897 LUT（14.42%）和 117 FF（7.36%），满足放宽后的
+15% LUT/FF 上限；LUTRAM、SRL、BRAM 和 DSP 均为 0。相对协议升级前版本的增量
+用于 `hot9+cold5` 本地窗口、锁存式双拍 refill transaction 和八个 47-bit FF
+output entry。主要策略侧收益仍来自共享 DMA checker、删除不可达 partial-cache
+状态以及压缩时间/计数/replay/task entry 位宽。当前控制还会跳过不可能的 S4PF
+搜索、S3 cached 下六个恒无效 offset，以及三个只负责启动下级 FSM 的空状态。
+1849-round 回归由 `8,904,780 ns` 降至 `8,302,020 ns`，即减少 60,276 个
+10 ns 测试时钟周期（6.77%）。

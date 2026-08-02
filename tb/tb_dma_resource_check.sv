@@ -84,33 +84,40 @@ module tb_dma_resource_check;
     set_s1_pair(DMA_IDMA, DMA_IDMA, time_t'(4));
     run_case(1'b1, "non-overlap IDMA/IDMA");
 
-    // S2PF is fixed to BOTH and occupies one tick.
+    // S2PF is fixed to the owning cluster's single lane for two ticks.
     snap_a = '0;
     snap_b = '0;
     snap_a.valid       = 1'b1;
     snap_a.s2pf_valid  = 1'b1;
     snap_a.s2pf_start  = time_t'(0);
-    snap_a.s2pf_end    = time_t'(1);
-    snap_a.s2_end      = time_t'(1);
-    snap_a.s2pf_dma    = DMA_BOTH;
+    snap_a.s2pf_end    = time_t'(2);
+    snap_a.s2_end      = time_t'(2);
+    snap_a.s2pf_dma    = DMA_IDMA;
     snap_b.valid       = 1'b1;
     snap_b.task_start  = time_t'(0);
     snap_b.dma1_end    = time_t'(2);
     snap_b.dma_s1      = DMA_XDMA;
-    run_case(1'b0, "S2PF BOTH conflicts with S1 XDMA");
+    run_case(1'b1, "S2PF IDMA overlaps S1 XDMA");
+    snap_b.dma_s1      = DMA_IDMA;
+    run_case(1'b0, "S2PF IDMA conflicts with S1 IDMA");
 
-    // S4PF is fixed to BOTH (128 B/cc) and occupies a two-tick interval.
+    // S4PF duration follows its selected DMA mode: SINGLE=4, BOTH=2 ticks.
     snap_a = '0;
     snap_b = '0;
     snap_a.valid       = 1'b1;
     snap_a.s4pf_valid  = 1'b1;
     snap_a.dma3_end    = time_t'(0);
-    snap_a.s4pf_dma    = DMA_BOTH;
+    snap_a.s4pf_dma    = DMA_IDMA;
     snap_b.valid       = 1'b1;
-    snap_b.task_start  = time_t'(0);
+    snap_b.task_start  = time_t'(3);
     snap_b.dma1_end    = time_t'(4);
     snap_b.dma_s1      = DMA_IDMA;
-    run_case(1'b0, "S4PF BOTH conflicts with S1 IDMA");
+    run_case(1'b0, "S4PF SINGLE remains busy through tick 4");
+    snap_a.s4pf_dma    = DMA_BOTH;
+    run_case(1'b1, "S4PF BOTH releases both lanes at tick 2");
+    snap_b.task_start  = time_t'(0);
+    snap_b.dma1_end    = time_t'(1);
+    run_case(1'b0, "S4PF BOTH conflicts before tick 2");
 
     $display("[RESULT] PASS dma_resource_check tests=%0d", tests);
     $finish;

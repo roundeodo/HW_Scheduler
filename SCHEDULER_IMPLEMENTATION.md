@@ -1,251 +1,127 @@
-# MoE Scheduler RTL 实现说明
-
-## 1. 目标
-
-当前实现针对 ASIC/FPGA 数据通路重新组织调度算法：使用 compact token、顺序搜索、资源复用、固定连接 compaction 和 replay，避免把软件中的候选对象、通用列表处理和全量搜索机械展开成组合网络。
-
-约束如下：
-
-- `E_MAX=64`，expert id 为 6 bit。
-- `head[6] + reserve[6]`，每项 16 bit，共 192 bit。
-- 时间统一使用 11264 cycles/tick，`T_W=16`。
-- 输出为 depth-8 circular FIFO，每项 64 bit。
-- 软件保留完整 sorted stream 和最终 L3 args storage。
-
-## 2. 状态所有权
-
-### Wrapper
-
-- C2/C3 initial cache eid。
-- head6、reserve6 及其 3-bit count。
-- active expert count。
-- remaining parallel/serial work aggregate。
-- auto-run enable。
-
-wrapper 不保存 `best_conc` shadow，也不重复计算 winner 的 remove work。evaluator 在 replay 中产生 `removed_parallel_work/removed_serial_work`，与 remove metadata 一起交给 wrapper 更新 aggregate。
-
-### Core
-
-- C2/C3 timeline 和 cache identity。
-- C2/C3 local slot counter。
-- round early-start context。
-- unresolved S4PF task，每 cluster 一项。
-- circular task FIFO data/head/count。
-- round FSM 和 commit allow bit。
-
-### Evaluator
-
-- sampled candidate mode/id identity；valid 由 start handshake 表示。
-- 四个 selected shape。
-- 一组 27-bit scratch：前半程保存 timeline operator request，完成时复用为
-  removed parallel/serial work 结果。
-- A/B minimal raw timing，只保存四个跨多拍需要的 endpoint。
-- evaluator FSM state；结果 valid 由 retained S2PF result 组合推出。
-- evaluator、S2PF 和 score FSM 状态。
-
-S2PF search 自己保持最终 `valid/apply`，直到下一次 `start_i`；所有保留模板的
-start 固定为本侧 `dma1_end`，因此不保存 start FF。evaluator
-不再复制第二份 accepted patch。不保存 full candidate、full raw snap、cache
-shadow 或 lowering/debug 字段。
-
-### 逻辑寄存器预算
-
-按默认参数 `E_MAX=64`、`T_W=16`、`TASKQ_DEPTH=8` 从 RTL 状态字段逐项计算：
-
-| 区域 | bit |
-|---|---:|
-| wrapper：cache eid、head6、reserve6、aggregate/count/auto-run | 252 |
-| core persistent/control：timeline/cache/slot/early/S4PF/remove/FSM | 347 |
-| depth-8 task FIFO：8x64 data + head/count | 519 |
-| per-cluster pending task + valid + emit index | 79 |
-| candidate evaluator scratch（含 27-bit request/work union） | 172 |
-| S2PF search state | 9 |
-| continuation score state | 67 |
-| candidate generator | 6 |
-| best candidate token + score | 46 |
-| two pointer-only BW checkers | 16 |
-| **合计** | **1513** |
-
-其中 FIFO payload 占 512 bit；不计 FIFO payload 时为 1001 bit。这是源码层面的
-逻辑状态位，不是综合后的 FD/LUTRAM/BRAM utilization；综合器是否把 FIFO data
-映射成存储资源需要以后端报告确认。
-
-## 3. Round 控制
-
-```text
-ROUND_START
-  latch early-start context
-      |
-EVAL_START
-  clear best + start generator
-      |
-EVAL_ISSUE <----------------------+
-  sample token                     |
-      |                            |
-EVAL_WAIT                          |
-  decode/pick/mkA/mkB/S2PF/score   |
-      |                            |
-  generator advance ---------------+
-      |
-REPLAY_START / REPLAY_WAIT
-  recompute full winner from best token
-      |
-COMMIT_S4PF_C2 / COMMIT_S4PF_C3
-  sequential BW legality checks
-      |
-COMMIT_EMIT_PREV / COMMIT_EMIT_CUR
-  resolve pending target + one-port FIFO write
-      |
-COMMIT_FINISH
-  update timeline/cache/slot + remove_valid
-```
+# Bounded Distilled Scheduler RTL Implementation
 
-`remove_valid/ready` 是唯一 round completion transaction。不存在第二套 `done` 协议。
+## 1. Storage boundary
 
-## 4. Candidate 表达
+wrapper 物理保存 `hot9 + cold5`。可见窗口固定为 `hot[0:4] + cold[0]`，
+`hot[5:8] + cold[1:4]` 是各 4 项候补。core 接口保留窄的 `hot[7:0]` 总线和
+一个 `bottom` view，但策略 selector 只读取 T0..T4/B0；候补 descriptor 不进入
+profile decode、timeline 或 score 的组合网络，`hot[8]` 只参与 wrapper 内部
+compact/refill。
 
-跨 generator/evaluator 的数据只有：
+持久状态包括：
 
-```systemverilog
-typedef struct packed {
-  logic                 valid;
-  cand_mode_t           mode;
-  logic [CAND_ID_W-1:0] id;
-} cand_token_t;
-```
+- C2/C3 的 task endpoint、DMA binding 和完整初始 cache 状态；
+- count、token/block aggregate 和 small-block histogram；
+- 每 cluster 一个尚未解析 S4PF target 的 task；
+- 八个 47-bit entry 的环形 FF FIFO。
 
-evaluator 使用 token、head、base timeline/cache 和 early context 组合恢复两侧 task identity。generator 不构造 eid/ntok/start/shape/remove mask payload，因此 head 数据不会扇出到一个宽 candidate bus。
+不保存完整 candidate timeline、candidate plan 或 rem array。
 
-`sched_best_candidate` 只保存 `best_token_q + best_score_q`。remove mask/count 由 token 组合推出，winner plan 在 replay 中重建。
+## 2. Profile execution
 
-## 5. 时间 datapath
-
-`sched_task_timeline` 在一个组合 stage 中完成一侧 timeline：
-
-- shape 只解码一次，生成 stage-local attributes。
-- `ceil(ntok/2)` 只计算一次，S2/S4 duration 通过 shift 复用。
-- `s2_end/dma3_end/task_end` 共享 `start+s1_compute+s2_duration` 的第一层
-  3:2 compressor；各 endpoint 分支最后只做一次 CPA，不重复展开公共前缀。
-- 不输出 lowering-only scalar。
-
-A/B 复用同一个 timeline instance 和一组 27-bit request/work scratch，以两拍换取
-组合面积和输入 fanout 的下降；request register 把 token/head/cache decode 与
-endpoint arithmetic 分开，但不增加 evaluator cycle。
-
-## 6. S2PF datapath
-
-`sched_s2pf_search` 是 priority-first fixed-template FSM：
-
-1. 生成当前 template 的 side mask；start 固定取本侧 `dma1_end`。
-2. 形成带具体 `{xDMA,iDMA}` 绑定的窄 `snap_bw_view_t`。
-3. 发起 DMA 资源冲突检查。
-4. 第一项合法结果立即完成。
-
-trial 顺序已经编码最终优先级，因此不保存 provisional winner、start sum 或 class comparator。
-
-输出 `s2pf_patch_t` 只有 `valid/apply_a/apply_b`。`pf_start/pf_end/task_end`
-在使用点由 timeline/shape/ntok 计算，不作为 patch FF 或跨模块宽总线。
-
-## 7. DMA 资源 checker
-
-每侧仅有三个可达区间：
-
-1. S1 DMA。
-2. S2PF 或 S3 DMA，二者互斥。
-3. S4PF window。
-
-每个 segment 保存具体资源掩码：`IDMA=01`、`XDMA=10`、`BOTH=11`。
-单路资源由 cluster 固定分配，Shape C 占用两条 lane。S2PF/S4PF 都固定使用
-`BOTH`：S2PF 为 `dma1_end` 起始的 1-tick 区间，S4PF 为 `dma3_end`
-起始的 2-tick 区间。checker 使用两个 3-bit one-hot pointer 做
-ordered interval sweep。segment 从稳定输入组合生成，不保存 6 个 segment
-record。每拍只比较当前两个区间：
-
-```text
-overlap = a.hi > b.lo && b.hi > a.lo
-bad     = overlap && |(a.dma_mask & b.dma_mask)
-```
-
-结束较早的一侧前进；相同 end 时两侧同时前进。遇到 `bad` 立即结束。
-
-eval 和 commit 分别实例化一个小 checker。相较共享 checker，这避免宽 client mux、owner state 和跨阶段输入保持寄存器。
-
-## 8. Continuation score
-
-`sched_continuation_score` 的输入只有 work summary，不接 expert identity。
-
-- `rem=0/1/2` 使用固定表达式。
-- `rem>2` 先计算 aggregate greedy cost，再用四拍把 child top4 顺序放到较空闲 cluster。
-- tail aggregate 根据两侧 load gap 计算最终 LPT bound。
-- 一套 comparator/adder 被四次 placement 复用。
-
-该结构避免 parallel child expansion 和多候选 comparator tree。
-
-## 9. Compact/refill
-
-合法 remove mask 只有四种，因此 wrapper 直接连接 survivor：
-
-```text
-0001: [1,2,3,4,5]
-0011: [2,3,4,5]
-0110: [0,3,4,5]
-1100: [0,1,4,5]
-```
-
-reserve pop 只可能是 0/1/2，使用 fixed shift case。reserve append 根据 count 使用 fixed destination case。正常综合路径没有 variable-index write network 或 generic prefix compact。
-
-MMIO quad/pair 由协议保证 valid 是紧凑前缀，数量译码只覆盖
-`0000/0001/0011/0111/1111` 与 `00/01/11`，不为不可达的稀疏 mask
-保留通用 popcount 加法树。
-
-被删除 expert 的 parallel/serial work 只在 evaluator 中对选中的 1 或 2 个 head
-计算一次；replay 结果直接供 wrapper 更新 aggregate，不再在两个模块各展开四套
-work helper。
-
-## 10. Dense FIFO 与 S4PF target
-
-每个 FIFO entry 是单 task 64-bit word，不按 round 存 pair structure。一轮产生 1 或 2 个 task 时分别 enqueue 1 或 2 项。
-
-S4PF target 只有看到下一条同 cluster task 时才能确定。core 为 C2/C3 各保存一个 pending record：
-
-- 当前 task 允许 S4PF：先进入对应 pending。
-- 下一条同 cluster task 到来：用其 eid 完成旧 pending 的 S4PF descriptor，再写 FIFO。
-- 当前 task 不允许 S4PF：直接写 FIFO。
-- batch 结束：flush 剩余 pending，S4PF descriptor 无 target。
-
-因此 FIFO 中每个 word 都已自包含，CVA6 不需要 pending patch 或回写旧 entry。
-
-## 11. MMIO 快速路径
-
-- read path 只有阻塞 `EVENT_WAIT` 和当前 FIFO head 的 `TASK_STREAM`。
-- 没有 plan-status/debug register。
-- xbar 已完成地址区间路由，wrapper 不重复实现非法 local-offset error 检查。
-- 三个 64-bit window write 一次装入完整 6+6 初始窗口，最后一个 write 同时 init/start。
-- refill 使用一个 packed quad write，一次追加 1..4 个 16-bit descriptor。
-- wrapper 自动 remove/start；CVA6 不做 per-round 启动事务。
-- 每次 `TASK_STREAM` 读返回并原子 pop 一条 task，删除 indexed read 和独立 pop transaction。
-- 提交门控保留下一轮最多两条 expert 的 reserve lookahead，refill 延迟只产生 backpressure。
-
-## 12. 命名与综合原则
-
-- 模块名描述功能，不携带版本号。
-- `parallel_work/serial_work` 描述评分语义，不使用含糊的 `best_conc/best_task` 状态名。
-- `C2/C3` 用于物理 cluster state，`A/B` 只用于 evaluator 的局部两侧数据。
-- 只保存事实状态，不保存由 token、ntok 或 count 可重建的派生状态。
-- 两操作数加法交给综合器；只有 3 个以上独立操作数才显式使用 compressor。
-- 顺序搜索、one-hot pointer 和固定 case 优先于通用 crossbar/priority network。
-- 非法 token/remove mask 只在 `ifndef SYNTHESIS` assertion 中检查，不进入综合恢复路径。
-
-## 13. 当前验证
-
-```text
-continuation score: 2048 cases PASS
-core batch trace:    512 cases PASS
-wrapper MMIO batch:  512 cases PASS
-```
-
-wrapper 回归覆盖 top6/reserve6 初始化、多轮 auto-run、fixed compact、refill、dense FIFO read/pop 和最终 makespan。
-
-## 14. 集成状态
-
-`Scheduler_hw/Bender.yml` 已只列出当前模块。`HeMAiA` 内已有 checkout/生成产物仍可能引用旧 RTL；当前任务明确不修改软件端，因此下一次 SoC 集成必须同时更新 HeMAiA source mapping 与 CVA6 ABI，不能混用旧 top4 register layout。
+28 个 physical profile 由 5-bit ROM index 解码，按 terminal 5、sync 8、
+one-idle 15 分组。profile 带 `logical_id/logical_last`，硬件在同一 logical
+action 内只保留一个 baseline token 和一个 targeted-S4PF token。一个 logical
+group 结束后立即 replay/score，并与单个 global incumbent 比较；没有
+final-token bank。
+
+SINGLE profile 复用 `sched_distilled_start_iter` 枚举有效起点。PAIR/SPLIT 没有
+动态起点时直接进入 transition。selector 无效、profile mode 不匹配或 start
+iterator 无输出时直接跳到下一 profile。
+
+## 3. Shared datapaths
+
+以下算术单元均只有一套：
+
+- transition/timeline evaluator；
+- DMA interval checker；
+- targeted-S4PF trial controller；
+- compute/DMA bound scorer；
+- regime classifier 和 global comparator。
+
+S4PF baseline 与 target trial 顺序复用 transition evaluator。global 阶段只
+replay 每个 logical winner，不再次展开 28 个 profile。bound 输入在
+`ST_SCORE_EVAL_WAIT -> ST_BOUND_START` 边界寄存，截断 profile/selector 到
+bound 的长组合路径；这个边界使用已有状态转换，不增加额外 FSM state。
+
+跨模块接口使用窄 view：bound 只接收需要的 cluster/counter/head 字段，S4PF
+只接收 consumer 的 valid/cluster/skip_s1/has_s2pf 以及必要 timeline 字段。
+
+## 4. Bandwidth circuit
+
+DMA checker 将每侧可达区间按 S1、S2PF 或 S3、S4PF 顺序生成。两个 3-bit
+pointer 逐项 sweep，不建通用 segment queue。重叠区间仅在 DMA mask 不相交时
+合法；`BOTH` 与任意有效 DMA 重叠均非法。
+
+transition evaluator 和 targeted-S4PF controller 分时复用 round engine 内唯一的
+checker。owner 位只在发起检查时更新，两个 client 在状态机上互斥。
+
+## 5. Bounds and comparison
+
+bound scorer 使用多拍 FSM：常数除法逐 bit 执行，top5 和 histogram 顺序
+累计；DMA lower bound 每轮依次扫描 4 个现有 DMA 区间，再在 APPLY 周期消费
+下一个 event。它不实例化组合除法器、8-event 最小值树、乘法器或 per-head
+并行 scorer。
+
+global comparator 每拍比较一个 key field，严格按 frozen F/H/C/D、regime 和
+tie-break 顺序执行，并在首个不同字段立即结束当前 key。无 winner 时直接
+结束，不进入 commit。
+
+## 6. Commit and FIFO
+
+winning token 只 replay 一次以生成 child state 和 normalized plan。core 先与
+同 cluster pending task 解析 S4PF target，再写 FIFO；当前 task 随后成为新的
+pending。batch 结束按 C2、C3 顺序 flush，未找到 consumer 的 descriptor 为
+OFF。
+
+FIFO 使用 3-bit head/tail 和 4-bit count；push 只写 tail，pop 只推进 head，
+同拍 pop/push 不会覆盖或跳过 entry。payload 显式约束为 FF 实现，禁止 LUTRAM
+和 SRL。`TASK_STREAM` 的 successful read handshake 是唯一 pop 条件。
+
+## 7. Window and refill
+
+提交删除 1 或 2 个 eid 后，wrapper 分别 compact hot/cold。若所有剩余 expert
+已装入本地窗口，可从 cold 尾部移到 hot 尾部；存在 hidden expert 时保持 top
+stream 与 bottom stream 的独立顺序。
+
+refill 仅在 hidden 非零且 top 或 bottom 候补不超过 1 时请求。top deficit 优先，
+剩余配额给 bottom；每侧最多 4、合计最多 6。RTL 锁存本次 top/bottom credit，
+软件按 top 后 bottom 的顺序向同一 `REFILL_QUAD` 连续写 1 或 2 拍，最后一拍
+完成事务，无单独 ACK。窗口未就绪、refill 未完成或 FIFO 满时只产生
+backpressure，不运行无效 round。
+
+## 8. Synthesis interpretation
+
+验收频率为 40 MHz，即 25.000 ns。OOC synthesis top 仅为
+`moe_scheduler_reg_wrapper` 及其 Scheduler_hw 子模块。资源、fanout 和时序报告
+可用于模块级风险判断，但不能代替集成后的 clock-tree、placement 和 routing。
+
+同一 Vivado 2025.2 OOC flow 的本轮结果为：
+
+| 版本 | LUT | FF | LUTRAM | WNS | worst levels |
+|---|---:|---:|---:|---:|---:|
+| 原始较少功能基线 | 6220 | 1590 | 0 | - | - |
+| 新策略功能版 | 8539 | 1424 | 40 | +12.274 ns | 46 |
+| 协议升级前资源优化版 | 6300 | 1382 | 0 | +14.150 ns | 41 |
+| 4+4 reserve / FIFO8 初版 | 7136 | 1711 | 0 | +13.835 ns | 42 |
+| 当前条件跳过 / FIFO8 版 | 7117 | 1707 | 0 | +14.036 ns | 42 |
+
+当前版相对原始基线增加 897 LUT（14.42%）和 117 FF（7.36%），在放宽后的
+15% 上限内；LUTRAM、SRL、BRAM 和 DSP 均为 0。40 MHz OOC setup slack 为
++14.036 ns。1849-round 回归由 `8,904,780 ns` 降至 `8,302,020 ns`，减少
+60,276 个 10 ns 测试时钟周期（6.77%）。除 release group 跳过外，S3 cached
+时每个 release 只检查唯一可达的 offset；没有任何可行 S4PF binding 时不启动
+target FSM；三个不锁存数据、只产生 start pulse 的外层状态已并入前级完成周期。
+
+相对旧功能较少的 scheduler，新策略新增资源中必要部分包括 28-entry frozen
+profile decode、精确 bound/regime score、target-aware S4PF SINGLE/BOTH BW trial、
+aggregate histogram/counters、hot9+cold5 refill 窗口、锁存式双拍 refill 以及
+八项 task FIFO。已经删除的
+非必要部分包括旧 candidate 模块链、不可达 partial-cache reservation、重复
+cache/S2PF endpoint 状态、replay `profile_slot`/target `s4pf_count` 和复位型
+FIFO payload FF。task FIFO 使用八个 47-bit compact FF entry；时间域、split
+offset 和 block sum 分别按已证明的协议上界压缩。尝试过的
+C2/C3 request 寄存共享与显式 comparator 共享均因综合后 LUT/FF 增加而撤回。
+基于 28 个固定 profile 特化 child-head compaction 可将最坏逻辑级数从 42 降到
+34，但 OOC LUT 增至 7298，超过 15% 上限，因此也已撤回，当前实现保留共享的
+顺序 compaction 电路。

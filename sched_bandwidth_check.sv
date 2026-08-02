@@ -85,7 +85,7 @@ module sched_bandwidth_check (
                        sn.s2_end, sn.dma3_end, sn.dma_s3);
       segment_o[2] = make_segment(sn.valid && sn.s4pf_valid,
                                   sn.dma3_end,
-                                  sn.dma3_end + S4PF_DMA_TICKS,
+                                  sn.dma3_end + s4pf_dma_ticks(sn.s4pf_dma),
                                   sn.s4pf_dma);
     end
   endtask
@@ -232,13 +232,17 @@ module sched_bandwidth_check (
   task automatic assert_side_contract(input snap_bw_view_t sn);
     begin
       assert (!sn.s2pf_valid ||
-              ((sn.s2pf_start >= sn.dma1_end) &&
-               (sn.s2pf_end <= sn.s2_end) &&
-               (sn.s2pf_dma == DMA_BOTH) &&
+              ((sn.s2pf_start == sn.dma1_end) &&
+               ((sn.s2pf_dma == DMA_IDMA) ||
+                (sn.s2pf_dma == DMA_XDMA) ||
+                (sn.s2pf_dma == DMA_BOTH)) &&
+               ((sn.s2pf_end - sn.s2pf_start) ==
+                s3_dma_ticks(sn.s2pf_dma)) &&
                (sn.dma_s3 == DMA_NONE)))
         else $error("invalid S2PF timeline contract");
-      assert (!sn.s4pf_valid || (sn.s4pf_dma == DMA_BOTH))
-        else $error("S4PF must use the BOTH-DMA binding");
+      assert (!sn.s4pf_valid ||
+              (sn.s4pf_dma inside {DMA_IDMA, DMA_XDMA, DMA_BOTH}))
+        else $error("invalid S4PF DMA binding");
     end
   endtask
 

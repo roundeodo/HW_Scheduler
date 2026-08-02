@@ -10,28 +10,31 @@
 // 当前 RTL 直接在各使用点以小整数 tick 实现 stage duration / DMA duration，
 // 不在 package 中保留通用 shape timing helper。
 //
-// task_end 累积上界（E≤16 expert，M_total≤256 token）：
-//   单任务最大 ≈ 399 ticks（约 4.5 M cc）
-//   单 cluster 串行 16 expert ≤ 16×399 = 6384 ticks
-//   → ceil(log2(6384)) = 13 bits 足够
-//
-// E_MAX=64 时，task_end 和 total_parallel_work 上界都会超过 13 bit。因此 T_W
-// 跟随 E_MAX 自动放大；E_MAX=64 时使用 16 bit，仍远小于 32-bit raw-CC。
+// distilled RTL 的时间上界由 M_total≤256 控制。一个新任务的起点不超过
+// 当前 makespan；单 cluster 最多 64 个任务且 token 总和不超过 256，累计
+// task duration < 896 ticks。bound 再加 3*block_sum≤480 后也小于 1376，
+// 因此 13-bit tick 域对 E_MAX≤64 保留了充分余量。
 // ─────────────────────────────────────────────────────────────────────────────
 
 package sched_pkg;
 
   // ── 基本位宽参数 ─────────────────────────────────────────────────────────
   localparam int unsigned E_MAX     = 64; // 最大 expert 数；小规模实验可改回 16
-  localparam int unsigned T_W       = (E_MAX <= 16) ? 13 :
-                                      (E_MAX <= 32) ? 15 :
-                                      (E_MAX <= 64) ? 16 : 17;
+  localparam int unsigned T_W       = (E_MAX <= 64) ? 13 : 17;
   localparam int unsigned DMA_BIND_W = 2; // {xDMA, iDMA} 物理资源占用掩码
   localparam int unsigned NTOK_W    = 9;  // token 数宽度（≤511）
+  localparam int unsigned TOK_START_W = 8; // split offset≤floor(256/2)=128
+  localparam int unsigned TASK_COUNT_W = 8; // M_total<=256 -> ceil(M/2)<=128
   localparam int unsigned CAND_ID_W = 4;  // 单轮候选 ID（当前最大 id=12）
   localparam int unsigned SLOT_W    = 6;  // dynamic args slot_id ABI: ctrl[19:14], 0..63
-  // Dense task FIFO: each entry stores one independently consumable 64-bit
-  // task word.  Eight entries provide 512 bits of payload capacity.
+  localparam int unsigned TOP_VISIBLE     = 5;
+  localparam int unsigned BOTTOM_VISIBLE  = 1;
+  localparam int unsigned TOP_RESERVE     = 4;
+  localparam int unsigned BOTTOM_RESERVE  = 4;
+  localparam int unsigned HOT_CAPACITY    = TOP_VISIBLE + TOP_RESERVE;
+  localparam int unsigned COLD_CAPACITY   = BOTTOM_VISIBLE + BOTTOM_RESERVE;
+  // The compact FF FIFO batches task streaming events.  Depth eight also
+  // absorbs the four-entry final-round release without a mid-flush drain.
   localparam int unsigned TASKQ_DEPTH = 8;
 
   // ── 唯一容量配置点：只改 E_MAX，EID_W/NR_W/T_W 自动推导 ─────────────────
@@ -43,6 +46,7 @@ package sched_pkg;
   typedef logic [T_W-1:0]    time_t;
   typedef logic [DMA_BIND_W-1:0] dma_binding_t;
   typedef logic [NTOK_W-1:0] ntok_t;
+  typedef logic [TOK_START_W-1:0] tok_start_t;
   typedef logic [1:0]        shape_t;
   typedef logic [NTOK_W:0]   best_ticks_t;
   typedef logic [EID_W-1:0]  pf_eid_t;
@@ -90,11 +94,38 @@ package sched_pkg;
     endcase
   endfunction
 
-  // ── S4 prefetch window ───────────────────────────────────────────────────
-  // S2PF/S4PF 都固定使用 iDMA+xDMA（128 B/cc）。S2PF 搬运
-  // 1 tick，S4PF 从 dma3_end 开始搬运 2 ticks。
-  localparam time_t S2PF_DMA_TICKS = time_t'(1);
-  localparam time_t S4PF_DMA_TICKS = time_t'(2);
+  // ── Prefetch DMA duration ────────────────────────────────────────────────
+  // S2PF uses the stage-3 transfer duration below: 2 ticks on one lane and
+  // 1 tick on BOTH.  S4PF moves twice that payload: 4 ticks or 2 ticks.
+  localparam time_t S4PF_SINGLE_DMA_TICKS = time_t'(4);
+  localparam time_t S4PF_BOTH_DMA_TICKS   = time_t'(2);
+
+  function automatic time_t s4pf_dma_ticks(input dma_binding_t dma_binding);
+    unique case (dma_binding)
+      DMA_IDMA, DMA_XDMA: s4pf_dma_ticks = S4PF_SINGLE_DMA_TICKS;
+      DMA_BOTH:           s4pf_dma_ticks = S4PF_BOTH_DMA_TICKS;
+      DMA_NONE:           s4pf_dma_ticks = '0;
+      default:            s4pf_dma_ticks = 'x;
+    endcase
+  endfunction
+
+  function automatic time_t s1_dma_ticks(input dma_binding_t dma_binding);
+    unique case (dma_binding)
+      DMA_IDMA, DMA_XDMA: s1_dma_ticks = time_t'(4);
+      DMA_BOTH:           s1_dma_ticks = time_t'(2);
+      DMA_NONE:           s1_dma_ticks = '0;
+      default:            s1_dma_ticks = 'x;
+    endcase
+  endfunction
+
+  function automatic time_t s3_dma_ticks(input dma_binding_t dma_binding);
+    unique case (dma_binding)
+      DMA_IDMA, DMA_XDMA: s3_dma_ticks = time_t'(2);
+      DMA_BOTH:           s3_dma_ticks = time_t'(1);
+      DMA_NONE:           s3_dma_ticks = '0;
+      default:            s3_dma_ticks = 'x;
+    endcase
+  endfunction
 
   // ── ceil-div helpers / best_*（tick 域，纯移位+小修正）───────────────
   // C 模型是 best_s4(r)=((r+1)/2)*11264，即 tick 域 ceil(r/2)。
@@ -237,7 +268,8 @@ package sched_pkg;
   function automatic snap_timeline_t apply_s2pf_patch_timeline(
     input snap_timeline_t timeline,
     input logic           apply_prefetch,
-    input ntok_t          ntok
+    input ntok_t          ntok,
+    input dma_binding_t   prefetch_dma
   );
     snap_timeline_t updated_timeline;
     begin
@@ -245,11 +277,14 @@ package sched_pkg;
       if (apply_prefetch) begin
         updated_timeline.s2pf_valid = 1'b1;
         updated_timeline.s2pf_start = timeline.dma1_end;
-        updated_timeline.s2pf_end   = timeline.dma1_end + S2PF_DMA_TICKS;
-        updated_timeline.s2pf_dma   = DMA_BOTH;
-        updated_timeline.dma3_end   = timeline.s2_end;
+        updated_timeline.s2pf_end   = timeline.dma1_end +
+                                      s3_dma_ticks(prefetch_dma);
+        updated_timeline.s2pf_dma   = prefetch_dma;
+        updated_timeline.dma3_end   =
+            (timeline.s2_end > updated_timeline.s2pf_end) ?
+            timeline.s2_end : updated_timeline.s2pf_end;
         updated_timeline.dma_s3     = DMA_NONE;
-        updated_timeline.task_end   = timeline.s2_end +
+        updated_timeline.task_end   = updated_timeline.dma3_end +
                                       time_t'(best_s4_ticks(ntok));
       end
       apply_s2pf_patch_timeline = updated_timeline;
@@ -310,13 +345,13 @@ package sched_pkg;
   // 单个 task 的 token/control 对，core-local commit 子状态机生成 task_desc_t。
   //
   // 位宽（E_MAX=64）：
-  //   winner_token_t  = eid6 + ntok9 + tok_start9 = 24 bits
+  //   winner_token_t  = eid6 + ntok9 + tok_start8 = 23 bits
   //   task_control_t  = cluster1 + s1/s3 4 + skip2 + has_s2pf1 = 8 bits
   //   winner_plan_t   = task_valid2 + 2*(24+8) = 66 bits
   typedef struct packed {
     logic [EID_RAW_W-1:0] eid;
     ntok_t                 ntok;
-    ntok_t                 tok_start;
+    tok_start_t            tok_start;
   } winner_token_t;
 
   typedef struct packed {
@@ -326,6 +361,8 @@ package sched_pkg;
     logic                  skip_s1;
     logic                  skip_s3;
     logic                  has_s2pf;
+    logic                  dma_s1_both;
+    logic                  dma_late_both;
   } task_control_t;
 
   typedef struct packed {
@@ -340,19 +377,21 @@ package sched_pkg;
   // wrapper FIFO 的每个 entry 已经规范化成单个 cluster task。
   //
   // 位宽（E_MAX=64, EID_RAW_W=6）：
-  //   cluster + eid + ntok + tok_start + s1 + s3 + skip_s1 + skip_s3 + has_s2pf
-  // = 1 + 6 + 9 + 9 + 2 + 2 + 1 + 1 + 1 = 32 bits
+  //   cluster + eid + ntok + tok_start + s1 + s3 + skip flags + DMA flags
+  // = 1 + 6 + 9 + 8 + 2 + 2 + 5 = 33 bits
   typedef struct packed {
     logic                 cluster;     // 0=C2, 1=C3
     logic [EID_RAW_W-1:0] eid;
     logic [NTOK_W-1:0]    ntok;
-    logic [NTOK_W-1:0]    tok_start;
+    tok_start_t           tok_start;
     logic [1:0]           shape_s1;
     logic [1:0]           shape_s3;
     logic                 skip_s1;
     logic                 skip_s3;
     logic                 has_s2pf;
-  } task_desc_t;                       // 32 bits when E_MAX=64
+    logic                 dma_s1_both;
+    logic                 dma_late_both;
+  } task_desc_t;
 
   // ── MMIO task word layout ───────────────────────────────────────────────
   //
@@ -367,11 +406,22 @@ package sched_pkg;
   localparam int unsigned TASK_WORD_M_S2_LSB        = TASK_WORD_CTRL_LSB + TASK_WORD_CTRL_W;
   localparam int unsigned TASK_WORD_M_S4_LSB        = TASK_WORD_M_S2_LSB + NTOK_W;
   localparam int unsigned TASK_WORD_S4PF_DESC_LSB   = TASK_WORD_M_S4_LSB + NTOK_W;
+  localparam int unsigned TASK_WORD_S1_BOTH_LSB     = TASK_WORD_M_S2_LSB + TASK_COUNT_W;
+  localparam int unsigned TASK_WORD_LATE_BOTH_LSB   = TASK_WORD_M_S4_LSB + TASK_COUNT_W;
 
-  // High-byte S4PF descriptor: valid/no-copy/target-eid.  target_eid belongs
-  // to this task's future S4 prefetch, not to the current task itself.
-  localparam int unsigned S4PF_DESC_VALID_LSB      = 0;
-  localparam int unsigned S4PF_DESC_NO_COPY_LSB    = 1;
+  // High-byte S4PF descriptor: 2-bit operation + 6-bit target eid.  The
+  // operation encodes NONE/NO_COPY/SINGLE/BOTH without increasing task width.
+  // 01 keeps the old valid-copy encoding and 11 keeps old valid-no-copy;
+  // the previously unused 10 code adds BOTH without changing field positions.
+  // target_eid belongs to this task's future S4 prefetch.
+  typedef enum logic [1:0] {
+    S4PF_DESC_OP_NONE    = 2'd0,
+    S4PF_DESC_OP_SINGLE  = 2'd1,
+    S4PF_DESC_OP_BOTH    = 2'd2,
+    S4PF_DESC_OP_NO_COPY = 2'd3
+  } s4pf_desc_op_t;
+  localparam int unsigned S4PF_DESC_OP_LSB         = 0;
+  localparam int unsigned S4PF_DESC_OP_W           = 2;
   localparam int unsigned S4PF_DESC_TARGET_EID_LSB = 2;
 
   // ── Fixed S2PF policy ───────────────────────────────────────────────────
@@ -381,15 +431,15 @@ package sched_pkg;
   // 和无效中间结果。
   typedef enum logic [1:0] {
     S2PF_DISABLED           = 2'd0, // 不尝试 S2PF，只检查原始 BW
-    S2PF_PAIR        = 2'd1, // PAIR: both@dma1_end, raw
-    S2PF_SPLIT       = 2'd2, // SPLIT: both@dma1_end, B-only@dma1_end, raw
+    S2PF_PAIR        = 2'd1, // PAIR: A+B@dma1_end, raw
+    S2PF_SPLIT       = 2'd2, // SPLIT: A+B@dma1_end, B-only@dma1_end, raw
     S2PF_ACTIVE_SIDE = 2'd3  // one active side: active@dma1_end, raw
   } s2pf_policy_t;
 
   // ── 1-lane 架构存储原则 ────────────────────────────────────────────────
   // E_MAX=64 时，完整 rem_eid/ntok/order 和完整 plan list 放在 L3/CVA6
-  // 软件内存；scheduler 寄存器侧只保留本轮 top6、reserve6、两个 cluster snap、
-  // compact best_token/best_score、depth=8 dense task FIFO 和 FSM。
+  // 软件内存；scheduler 寄存器侧只保留 top5+bottom1 可见窗口、4+4 reserve、
+  // 两个 cluster state、compact best token/score、depth=8 compact task FIFO 和 FSM。
   // 时序字段仍使用 tick 域，不回退到 32-bit raw-CC。
 
 endpackage
