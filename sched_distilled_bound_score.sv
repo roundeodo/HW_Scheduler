@@ -25,8 +25,6 @@ module sched_distilled_bound_score (
 
   typedef enum logic [3:0] {
     ST_IDLE,
-    ST_C_DIV,
-    ST_C_FINISH,
     ST_H_HEAD,
     ST_H_HIST,
     ST_H_OVERFLOW,
@@ -50,12 +48,15 @@ module sched_distilled_bound_score (
   time_t compute_q, compute_d;
   distilled_bound_t dma_q, dma_d;
 
-  localparam int unsigned SCRATCH_W = 2*DIV_W + 3 + $clog2(DIV_W);
+  localparam int unsigned HIST_SCRATCH_W = 4*DIST_HIST_W + 5;
+  localparam int unsigned DMA_SCRATCH_W = DIST_BOUND_W + DMA_WORK_W + 2 +
+                                         $bits(dma_binding_t) + 1;
+  localparam int unsigned SCRATCH_W = (HIST_SCRATCH_W > DMA_SCRATCH_W) ?
+                                      HIST_SCRATCH_W : DMA_SCRATCH_W;
   logic [SCRATCH_W-1:0] scratch_q, scratch_d;
-  logic [DIV_W-1:0] dividend_q, dividend_d;
-  logic [DIV_W-1:0] quotient_q, quotient_d;
-  logic [2:0] div_remainder_q, div_remainder_d;
-  logic [$clog2(DIV_W)-1:0] div_bit_q, div_bit_d;
+  logic [DIV_W-1:0] crossing_dividend;
+  logic [DIV_W-1:0] crossing_quotient;
+  logic [2:0] crossing_remainder;
   logic [DIST_BLOCK_SUM_W-1:0] crossing_k_floor;
   logic [2:0] crossing_remainder_adjust;
 
@@ -66,6 +67,11 @@ module sched_distilled_bound_score (
   logic [2:0] h_head_index_q, h_head_index_d;
   logic [1:0] h_bucket_q, h_bucket_d;
   logic [T_W+1:0] h_total_work;
+  logic [T_W+1:0] h_sum_a;
+  logic [T_W+1:0] h_sum_b;
+  logic [T_W+1:0] h_sum_c;
+  logic [T_W+1:0] h_csa_sum;
+  logic [T_W+1:0] h_csa_carry;
   time_t h_balanced_end;
 
   distilled_bound_t d_time_q, d_time_d;
@@ -73,12 +79,8 @@ module sched_distilled_bound_score (
   logic [1:0] d_interval_q, d_interval_d;
   dma_binding_t d_used_q, d_used_d;
   logic d_next_valid_q, d_next_valid_d;
-  logic scratch_c_we, scratch_h_we, scratch_d_we;
+  logic scratch_h_we, scratch_d_we;
 
-  assign dividend_q = scratch_q[0 +: DIV_W];
-  assign quotient_q = scratch_q[DIV_W +: DIV_W];
-  assign div_remainder_q = scratch_q[2*DIV_W +: 3];
-  assign div_bit_q = scratch_q[2*DIV_W + 3 +: $clog2(DIV_W)];
   assign h_hist_q = scratch_q[0 +: 4*DIST_HIST_W];
   assign h_head_index_q = scratch_q[4*DIST_HIST_W +: 3];
   assign h_bucket_q = scratch_q[4*DIST_HIST_W + 3 +: 2];
@@ -112,10 +114,6 @@ module sched_distilled_bound_score (
   logic h_c2_is_lower;
 
   interval_t intervals [0:3];
-  interval_t d_interval;
-  logic d_interval_event_valid;
-  distilled_bound_t d_interval_event_value;
-  logic d_interval_active;
   logic [1:0] free_lanes;
   distilled_bound_t interval_span;
   logic [DMA_WORK_W+DIST_BOUND_W-1:0] interval_capacity;
@@ -179,9 +177,13 @@ module sched_distilled_bound_score (
   end
 
   always_comb begin
-    crossing_k_floor = quotient_q[DIST_BLOCK_SUM_W-1:0];
-    crossing_remainder_adjust = (div_remainder_q > 3'd3) ?
-                                3'd3 : div_remainder_q;
+    crossing_dividend = DIV_W'(child_c3_i.task_end + three_blocks -
+                               child_c2_i.task_end);
+    crossing_quotient = crossing_dividend / DIV_W'(6);
+    crossing_remainder = crossing_dividend % DIV_W'(6);
+    crossing_k_floor = crossing_quotient[DIST_BLOCK_SUM_W-1:0];
+    crossing_remainder_adjust = (crossing_remainder > 3'd3) ?
+                                3'd3 : crossing_remainder;
     // For D = 6*q+r, floor ends at A+r and ceil at A+3, where
     // A = c2_end+3*q.  The best endpoint is A+min(r,3).
     c_balanced_end = child_c2_i.task_end +
@@ -191,9 +193,13 @@ module sched_distilled_bound_score (
   end
 
   always_comb begin
-    h_total_work = {2'b0, h_load_c2_q} +
-                   {2'b0, h_load_c3_q} +
-                   {{2{1'b0}}, h_tail_work_q};
+    h_sum_a = {2'b0, h_load_c2_q};
+    h_sum_b = {2'b0, h_load_c3_q};
+    h_sum_c = {2'b0, h_tail_work_q};
+    h_csa_sum = h_sum_a ^ h_sum_b ^ h_sum_c;
+    h_csa_carry = (h_sum_a & h_sum_b) | (h_sum_a & h_sum_c) |
+                  (h_sum_b & h_sum_c);
+    h_total_work = h_csa_sum + (h_csa_carry << 1);
     h_balanced_end = time_t'(h_total_work[T_W+1:1]) +
                      time_t'(h_total_work[0]);
     h_balanced_end = max_t(max_t(h_load_c2_q, h_load_c3_q),
@@ -249,14 +255,6 @@ module sched_distilled_bound_score (
                       child_c3_i.s2_end,
                       child_c3_i.dma3_end,
                       child_c3_i.dma_s3);
-    d_interval = intervals[d_interval_q];
-    d_interval_event_valid = d_interval.valid &&
-                             (d_interval.hi > d_time_q);
-    d_interval_event_value = (d_interval.lo > d_time_q) ?
-                             d_interval.lo : d_interval.hi;
-    d_interval_active = d_interval.valid &&
-                        (d_interval.lo <= d_time_q) &&
-                        (d_time_q < d_interval.hi);
     free_lanes = 2'd2 - {1'b0, |(d_used_q & DMA_IDMA)} -
                          {1'b0, |(d_used_q & DMA_XDMA)};
     interval_span = d_next_valid_q ? (dma_q - d_time_q) : '0;
@@ -276,10 +274,6 @@ module sched_distilled_bound_score (
     h_d = h_q;
     compute_d = compute_q;
     dma_d = dma_q;
-    dividend_d = dividend_q;
-    quotient_d = quotient_q;
-    div_remainder_d = div_remainder_q;
-    div_bit_d = div_bit_q;
     h_load_c2_d = h_load_c2_q;
     h_load_c3_d = h_load_c3_q;
     h_hist_d = h_hist_q;
@@ -291,7 +285,6 @@ module sched_distilled_bound_score (
     d_interval_d = d_interval_q;
     d_used_d = d_used_q;
     d_next_valid_d = d_next_valid_q;
-    scratch_c_we = 1'b0;
     scratch_h_we = 1'b0;
     scratch_d_we = 1'b0;
 
@@ -323,37 +316,14 @@ module sched_distilled_bound_score (
             compute_d = child_c3_i.task_end;
             st_d = ST_H_HEAD;
           end else begin
-            dividend_d = DIV_W'(child_c3_i.task_end + three_blocks -
-                                child_c2_i.task_end);
-            quotient_d = '0;
-            div_remainder_d = '0;
-            div_bit_d = $clog2(DIV_W)'(DIV_W-1);
-            scratch_c_we = 1'b1;
-            st_d = ST_C_DIV;
+            compute_d = c_balanced_end;
+            h_hist_d = child_counters_i.small_hist;
+            h_head_index_d = '0;
+            h_bucket_d = 2'd3;
+            scratch_h_we = 1'b1;
+            st_d = ST_H_HEAD;
           end
         end
-      end
-
-      ST_C_DIV: begin
-        logic [3:0] shifted_remainder;
-        shifted_remainder = {div_remainder_q, dividend_q[div_bit_q]};
-        quotient_d[div_bit_q] = (shifted_remainder >= 4'd6);
-        div_remainder_d = (shifted_remainder >= 4'd6) ?
-                          shifted_remainder - 4'd6 : shifted_remainder[2:0];
-        if (div_bit_q == '0)
-          st_d = ST_C_FINISH;
-        else
-          div_bit_d = div_bit_q - 1'b1;
-        scratch_c_we = 1'b1;
-      end
-
-      ST_C_FINISH: begin
-        compute_d = c_balanced_end;
-        h_hist_d = child_counters_i.small_hist;
-        h_head_index_d = '0;
-        h_bucket_d = 2'd3;
-        scratch_h_we = 1'b1;
-        st_d = ST_H_HEAD;
       end
 
       ST_H_HEAD: begin
@@ -377,14 +347,45 @@ module sched_distilled_bound_score (
       end
 
       ST_H_HIST: begin
+        time_t load_c2_next;
+        time_t load_c3_next;
+        time_t tail_work_next;
+        logic [3:0][DIST_HIST_W-1:0] hist_next;
+        logic take_second;
         scratch_h_we = 1'b1;
         if (h_hist_q[h_bucket_q] != DIST_HIST_W'(0)) begin
-          if (h_c2_is_lower)
-            h_load_c2_d = h_load_c2_q + h_item_work;
+          load_c2_next = h_load_c2_q;
+          load_c3_next = h_load_c3_q;
+          tail_work_next = h_tail_work_q;
+          hist_next = h_hist_q;
+          take_second = h_hist_q[h_bucket_q] >= DIST_HIST_W'(2);
+
+          if (load_c2_next <= load_c3_next)
+            load_c2_next = load_c2_next + h_item_work;
           else
-            h_load_c3_d = h_load_c3_q + h_item_work;
-          h_tail_work_d = h_tail_work_q - h_item_work;
-          h_hist_d[h_bucket_q] = h_hist_q[h_bucket_q] - 1'b1;
+            load_c3_next = load_c3_next + h_item_work;
+          tail_work_next = tail_work_next - h_item_work;
+          hist_next[h_bucket_q] = hist_next[h_bucket_q] - 1'b1;
+
+          if (take_second) begin
+            if (load_c2_next <= load_c3_next)
+              load_c2_next = load_c2_next + h_item_work;
+            else
+              load_c3_next = load_c3_next + h_item_work;
+            tail_work_next = tail_work_next - h_item_work;
+            hist_next[h_bucket_q] = hist_next[h_bucket_q] - 1'b1;
+          end
+
+          h_load_c2_d = load_c2_next;
+          h_load_c3_d = load_c3_next;
+          h_tail_work_d = tail_work_next;
+          h_hist_d = hist_next;
+          if (h_hist_q[h_bucket_q] <= DIST_HIST_W'(2)) begin
+            if (h_bucket_q == 2'd0)
+              st_d = ST_H_OVERFLOW;
+            else
+              h_bucket_d = h_bucket_q - 1'b1;
+          end
         end else if (h_bucket_q == 2'd0) begin
           st_d = ST_H_OVERFLOW;
         end else begin
@@ -415,18 +416,35 @@ module sched_distilled_bound_score (
       end
 
       ST_D_SCAN: begin
+        dma_binding_t used_next;
+        logic next_valid;
+        distilled_bound_t next_event;
         scratch_d_we = 1'b1;
-        if (d_interval_active)
-          d_used_d = d_used_q | d_interval.mask;
-        if (d_interval_event_valid &&
-            (!d_next_valid_q || (d_interval_event_value < dma_q))) begin
-          dma_d = d_interval_event_value;
-          d_next_valid_d = 1'b1;
+        used_next = d_used_q;
+        next_valid = d_next_valid_q;
+        next_event = dma_q;
+        for (int lane = 0; lane < 2; lane++) begin
+          interval_t scan_interval;
+          distilled_bound_t event_value;
+          scan_interval = intervals[d_interval_q + lane];
+          event_value = (scan_interval.lo > d_time_q) ?
+                        scan_interval.lo : scan_interval.hi;
+          if (scan_interval.valid && (scan_interval.lo <= d_time_q) &&
+              (d_time_q < scan_interval.hi))
+            used_next |= scan_interval.mask;
+          if (scan_interval.valid && (scan_interval.hi > d_time_q) &&
+              (!next_valid || (event_value < next_event))) begin
+            next_event = event_value;
+            next_valid = 1'b1;
+          end
         end
-        if (d_interval_q == 2'd3)
+        d_used_d = used_next;
+        dma_d = next_event;
+        d_next_valid_d = next_valid;
+        if (d_interval_q == 2'd2)
           st_d = ST_D_APPLY;
         else
-          d_interval_d = d_interval_q + 1'b1;
+          d_interval_d = d_interval_q + 2'd2;
       end
 
       ST_D_APPLY: begin
@@ -478,12 +496,7 @@ module sched_distilled_bound_score (
 
   always_comb begin
     scratch_d = scratch_q;
-    if (scratch_c_we) begin
-      scratch_d[0 +: DIV_W] = dividend_d;
-      scratch_d[DIV_W +: DIV_W] = quotient_d;
-      scratch_d[2*DIV_W +: 3] = div_remainder_d;
-      scratch_d[2*DIV_W + 3 +: $clog2(DIV_W)] = div_bit_d;
-    end else if (scratch_h_we) begin
+    if (scratch_h_we) begin
       scratch_d[0 +: 4*DIST_HIST_W] = h_hist_d;
       scratch_d[4*DIST_HIST_W +: 3] = h_head_index_d;
       scratch_d[4*DIST_HIST_W + 3 +: 2] = h_bucket_d;

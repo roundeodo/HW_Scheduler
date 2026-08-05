@@ -67,7 +67,7 @@ module sched_distilled_start_iter (
   assign profile_s2pf = active_c3 ? profile_i.c3_s2pf : profile_i.c2_s2pf;
   assign s1_cached = force_s1_hit_i ||
                      distilled_cache_s1_hit(own_i, eid_i);
-  assign s3_cached = s1_cached;
+  assign s3_cached = distilled_cache_s3_hit(own_i, eid_i);
 
   always_comb begin
     unique case (shape_s1)

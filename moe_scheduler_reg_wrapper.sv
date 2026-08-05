@@ -44,7 +44,6 @@ module moe_scheduler_reg_wrapper
   localparam logic [3:0] REG_TASK_STREAM   = 4'h6;
   localparam logic [3:0] REG_AGGREGATE     = 4'h7;
   localparam logic [3:0] REG_WINDOW3_START = 4'h8;
-  localparam logic [3:0] TASK_DRAIN_WATERMARK = 4'd6;
 
   localparam int unsigned DESC_NTOK_LSB = 0;
   localparam int unsigned DESC_EID_LSB = DESC_NTOK_LSB + NTOK_W;
@@ -64,7 +63,6 @@ module moe_scheduler_reg_wrapper
   assign write_req = reg_req_i.valid && reg_req_i.write;
   assign read_req = reg_req_i.valid && !reg_req_i.write;
   assign wr_data = reg_req_i.wdata;
-  assign window_start_write = write_req && (word_addr == REG_WINDOW3_START);
   assign refill_write = write_req && (word_addr == REG_REFILL_QUAD);
   assign event_read = read_req && (word_addr == REG_EVENT_WAIT);
   assign task_read = read_req && (word_addr == REG_TASK_STREAM);
@@ -171,26 +169,83 @@ module moe_scheduler_reg_wrapper
   logic [3:0] initial_hot_count;
   logic [2:0] initial_cold_count;
 
+  logic [HOT_CAPACITY-1:0] hot_keep;
+  logic [COLD_CAPACITY-1:0] cold_keep;
+  logic [3:0] hot_prefix [0:4][HOT_CAPACITY-1:0];
+  logic [2:0] cold_prefix [0:3][COLD_CAPACITY-1:0];
+
+  always_comb begin
+    window_start_write = 1'b0;
+    if (write_req) begin
+      if (active_count_q <= NR_W'(4))
+        window_start_write = word_addr == REG_WINDOW0;
+      else if (active_count_q <= NR_W'(8))
+        window_start_write = word_addr == REG_WINDOW1;
+      else if (active_count_q <= NR_W'(12))
+        window_start_write = word_addr == REG_WINDOW2;
+      else
+        window_start_write = word_addr == REG_WINDOW3_START;
+    end
+  end
+
+  for (genvar slot = 0; slot < HOT_CAPACITY; slot++) begin : gen_hot_prefix
+    assign hot_keep[slot] = hot_q[slot].valid &&
+        (hot_q[slot].eid != remove_eid_a) &&
+        ((remove_count != 2'd2) || (hot_q[slot].eid != remove_eid_b));
+    assign hot_prefix[0][slot] = 4'(hot_keep[slot]);
+    if (slot >= 1)
+      assign hot_prefix[1][slot] = hot_prefix[0][slot] + hot_prefix[0][slot-1];
+    else
+      assign hot_prefix[1][slot] = hot_prefix[0][slot];
+    if (slot >= 2)
+      assign hot_prefix[2][slot] = hot_prefix[1][slot] + hot_prefix[1][slot-2];
+    else
+      assign hot_prefix[2][slot] = hot_prefix[1][slot];
+    if (slot >= 4)
+      assign hot_prefix[3][slot] = hot_prefix[2][slot] + hot_prefix[2][slot-4];
+    else
+      assign hot_prefix[3][slot] = hot_prefix[2][slot];
+    if (slot >= 8)
+      assign hot_prefix[4][slot] = hot_prefix[3][slot] + hot_prefix[3][slot-8];
+    else
+      assign hot_prefix[4][slot] = hot_prefix[3][slot];
+  end
+
+  for (genvar slot = 0; slot < COLD_CAPACITY; slot++) begin : gen_cold_prefix
+    assign cold_keep[slot] = cold_q[slot].valid &&
+        (cold_q[slot].eid != remove_eid_a) &&
+        ((remove_count != 2'd2) || (cold_q[slot].eid != remove_eid_b));
+    assign cold_prefix[0][slot] = 3'(cold_keep[slot]);
+    if (slot >= 1)
+      assign cold_prefix[1][slot] = cold_prefix[0][slot] + cold_prefix[0][slot-1];
+    else
+      assign cold_prefix[1][slot] = cold_prefix[0][slot];
+    if (slot >= 2)
+      assign cold_prefix[2][slot] = cold_prefix[1][slot] + cold_prefix[1][slot-2];
+    else
+      assign cold_prefix[2][slot] = cold_prefix[1][slot];
+    if (slot >= 4)
+      assign cold_prefix[3][slot] = cold_prefix[2][slot] + cold_prefix[2][slot-4];
+    else
+      assign cold_prefix[3][slot] = cold_prefix[2][slot];
+  end
+
   always_comb begin
     compact_hot = '{default: '0};
     compact_cold = '{default: '0};
-    compact_hot_count = '0;
-    compact_cold_count = '0;
+    compact_hot_count = hot_prefix[4][HOT_CAPACITY-1];
+    compact_cold_count = cold_prefix[3][COLD_CAPACITY-1];
     for (int slot = 0; slot < HOT_CAPACITY; slot++) begin
-      if (hot_q[slot].valid &&
-          (hot_q[slot].eid != remove_eid_a) &&
-          ((remove_count != 2'd2) || (hot_q[slot].eid != remove_eid_b))) begin
-        compact_hot[compact_hot_count] = hot_q[slot];
-        compact_hot_count++;
-      end
+      for (int destination = 0; destination < HOT_CAPACITY; destination++)
+        if (hot_keep[slot] &&
+            (hot_prefix[4][slot] == 4'(destination + 1)))
+          compact_hot[destination] = hot_q[slot];
     end
     for (int slot = 0; slot < COLD_CAPACITY; slot++) begin
-      if (cold_q[slot].valid &&
-          (cold_q[slot].eid != remove_eid_a) &&
-          ((remove_count != 2'd2) || (cold_q[slot].eid != remove_eid_b))) begin
-        compact_cold[compact_cold_count] = cold_q[slot];
-        compact_cold_count++;
-      end
+      for (int destination = 0; destination < COLD_CAPACITY; destination++)
+        if (cold_keep[slot] &&
+            (cold_prefix[3][slot] == 3'(destination + 1)))
+          compact_cold[destination] = cold_q[slot];
     end
 
     active_after_remove = active_count_q - NR_W'(remove_count);
@@ -327,7 +382,7 @@ module moe_scheduler_reg_wrapper
   end
 
   assign event_pending = refill_active_q || refill_request ||
-                         (task_count >= TASK_DRAIN_WATERMARK) ||
+                         task_valid ||
                          ((active_count_q == NR_W'(0)) && !core_busy);
 
   always_comb begin
@@ -399,12 +454,6 @@ module moe_scheduler_reg_wrapper
           REG_WINDOW3_START: begin
             cold_q[3] <= mmio_entries[0];
             cold_q[4] <= mmio_entries[1];
-            hot_count_q <= initial_hot_count;
-            cold_count_q <= initial_cold_count;
-            auto_run_q <= 1'b1;
-            refill_active_q <= 1'b0;
-            refill_top_remaining_q <= '0;
-            refill_bottom_remaining_q <= '0;
           end
           REG_REFILL_QUAD: begin
             if (refill_active_q) begin
@@ -438,6 +487,15 @@ module moe_scheduler_reg_wrapper
           default: begin
           end
         endcase
+      end
+
+      if (window_start_write) begin
+        hot_count_q <= initial_hot_count;
+        cold_count_q <= initial_cold_count;
+        auto_run_q <= 1'b1;
+        refill_active_q <= 1'b0;
+        refill_top_remaining_q <= '0;
+        refill_bottom_remaining_q <= '0;
       end
 
       if (!refill_active_q && refill_request) begin

@@ -46,6 +46,12 @@ module sched_distilled_pair_compare (
 
   logic key_different;
   logic key_rhs_better;
+  logic second_different;
+  logic second_rhs_better;
+  logic [3:0] last_field;
+  logic pair_different;
+  logic pair_rhs_better;
+  logic pair_done;
   key_t active_key;
   logic need_progress;
   logic need_hotspot;
@@ -61,6 +67,112 @@ module sched_distilled_pair_compare (
     lower_rhs = rhs < lhs;
   endfunction
 
+  function automatic logic [1:0] compare_field(
+    input key_t                    key,
+    input logic [3:0]              field,
+    input distilled_mode_t         mode,
+    input distilled_score_record_t lhs,
+    input distilled_score_record_t rhs
+  );
+    logic valid;
+    logic rhs_high;
+    logic [DIST_BOUND_W-1:0] lhs_value;
+    logic [DIST_BOUND_W-1:0] rhs_value;
+    begin
+      valid = 1'b1;
+      rhs_high = 1'b0;
+      lhs_value = '0;
+      rhs_value = '0;
+      unique case (key)
+        KEY_BASE: begin
+          unique case (field)
+            4'd0: begin lhs_value = lhs.f; rhs_value = rhs.f; end
+            4'd1: begin lhs_value = lhs.h; rhs_value = rhs.h; end
+            4'd2: begin lhs_value = lhs.compute_bound;
+                        rhs_value = rhs.compute_bound; end
+            4'd3: begin lhs_value = lhs.dma_bound;
+                        rhs_value = rhs.dma_bound; end
+            4'd4: begin
+              if (mode == DIST_MODE_SYNC) begin
+                lhs_value = lhs.selected_max;
+                rhs_value = rhs.selected_max;
+                rhs_high = 1'b1;
+              end else begin
+                lhs_value = lhs.late_end;
+                rhs_value = rhs.late_end;
+              end
+            end
+            4'd5: begin
+              if (mode == DIST_MODE_SYNC) begin
+                lhs_value = lhs.selected_sum;
+                rhs_value = rhs.selected_sum;
+              end else begin
+                lhs_value = lhs.early_end;
+                rhs_value = rhs.early_end;
+              end
+            end
+            4'd6: begin
+              if (mode == DIST_MODE_SYNC) begin
+                lhs_value = lhs.late_end;
+                rhs_value = rhs.late_end;
+              end else begin
+                lhs_value = lhs.selected_sum;
+                rhs_value = rhs.selected_sum;
+              end
+            end
+            4'd7: begin lhs_value = lhs.s2pf_count;
+                        rhs_value = rhs.s2pf_count; rhs_high = 1'b1; end
+            4'd8: begin lhs_value = lhs.remaining_count;
+                        rhs_value = rhs.remaining_count;
+                        valid = mode != DIST_MODE_SYNC; end
+            default: valid = 1'b0;
+          endcase
+        end
+        KEY_PROGRESS: begin
+          unique case (field)
+            4'd0: begin lhs_value = lhs.f; rhs_value = rhs.f; end
+            4'd1: begin lhs_value = lhs.h; rhs_value = rhs.h; end
+            4'd2: begin lhs_value = lhs.s2pf_count;
+                        rhs_value = rhs.s2pf_count; rhs_high = 1'b1; end
+            4'd3: begin lhs_value = lhs.selected_sum;
+                        rhs_value = rhs.selected_sum; rhs_high = 1'b1; end
+            4'd4: begin lhs_value = lhs.compute_bound;
+                        rhs_value = rhs.compute_bound; end
+            4'd5: begin lhs_value = lhs.dma_bound;
+                        rhs_value = rhs.dma_bound; end
+            4'd6: begin lhs_value = lhs.late_end; rhs_value = rhs.late_end; end
+            4'd7: begin lhs_value = lhs.early_end; rhs_value = rhs.early_end; end
+            4'd8: begin lhs_value = lhs.selected_max;
+                        rhs_value = rhs.selected_max; rhs_high = 1'b1; end
+            default: valid = 1'b0;
+          endcase
+        end
+        KEY_HOTSPOT: begin
+          unique case (field)
+            4'd0: begin lhs_value = lhs.f; rhs_value = rhs.f; end
+            4'd1: begin lhs_value = lhs.h; rhs_value = rhs.h; end
+            4'd2: begin lhs_value = lhs.selected_max;
+                        rhs_value = rhs.selected_max; rhs_high = 1'b1; end
+            4'd3: begin lhs_value = lhs.selected_sum;
+                        rhs_value = rhs.selected_sum; end
+            4'd4: begin lhs_value = lhs.compute_bound;
+                        rhs_value = rhs.compute_bound; end
+            4'd5: begin lhs_value = lhs.dma_bound;
+                        rhs_value = rhs.dma_bound; end
+            4'd6: begin lhs_value = lhs.late_end; rhs_value = rhs.late_end; end
+            4'd7: begin lhs_value = lhs.s2pf_count;
+                        rhs_value = rhs.s2pf_count; rhs_high = 1'b1; end
+            default: valid = 1'b0;
+          endcase
+        end
+        default: valid = 1'b0;
+      endcase
+      compare_field[1] = valid && (lhs_value != rhs_value);
+      compare_field[0] = valid && (rhs_high ? (rhs_value > lhs_value) :
+                                             (rhs_value < lhs_value));
+    end
+  endfunction
+
   always_comb begin
     active_key = KEY_BASE;
     unique case (st_q)
@@ -69,6 +181,24 @@ module sched_distilled_pair_compare (
       default: begin
       end
     endcase
+  end
+
+  always_comb begin
+    logic [1:0] second_compare;
+    second_compare = compare_field(active_key, field_q + 1'b1,
+                                   mode_i, lhs_i, rhs_i);
+    second_different = second_compare[1];
+    second_rhs_better = second_compare[0];
+    unique case (active_key)
+      KEY_BASE: last_field = (mode_i == DIST_MODE_SYNC) ? 4'd7 : 4'd8;
+      KEY_PROGRESS: last_field = 4'd8;
+      KEY_HOTSPOT: last_field = 4'd7;
+      default: last_field = '0;
+    endcase
+    pair_different = key_different ||
+                     ((field_q < last_field) && second_different);
+    pair_rhs_better = key_different ? key_rhs_better : second_rhs_better;
+    pair_done = pair_different || ((field_q + 1'b1) >= last_field);
   end
 
   // The FSM exits a key as soon as the first unequal field is observed.
@@ -214,10 +344,8 @@ module sched_distilled_pair_compare (
       end
 
       ST_BASE: begin
-        if (key_different ||
-            ((mode_i == DIST_MODE_SYNC) && (field_q == 4'd7)) ||
-            ((mode_i != DIST_MODE_SYNC) && (field_q == 4'd8))) begin
-          base_rhs_d = key_different && key_rhs_better;
+        if (pair_done) begin
+          base_rhs_d = pair_different && pair_rhs_better;
           field_d = '0;
           if (need_progress)
             st_d = ST_PROGRESS;
@@ -226,27 +354,27 @@ module sched_distilled_pair_compare (
           else
             st_d = ST_OVERRIDE;
         end else begin
-          field_d = field_q + 1'b1;
+          field_d = field_q + 2'd2;
         end
       end
 
       ST_PROGRESS: begin
-        if (key_different || (field_q == 4'd8)) begin
-          progress_rhs_d = key_different && key_rhs_better;
+        if (pair_done) begin
+          progress_rhs_d = pair_different && pair_rhs_better;
           field_d = '0;
           st_d = need_hotspot ? ST_HOTSPOT : ST_OVERRIDE;
         end else begin
-          field_d = field_q + 1'b1;
+          field_d = field_q + 2'd2;
         end
       end
 
       ST_HOTSPOT: begin
-        if (key_different || (field_q == 4'd7)) begin
-          hotspot_rhs_d = key_different && key_rhs_better;
+        if (pair_done) begin
+          hotspot_rhs_d = pair_different && pair_rhs_better;
           field_d = '0;
           st_d = ST_OVERRIDE;
         end else begin
-          field_d = field_q + 1'b1;
+          field_d = field_q + 2'd2;
         end
       end
 

@@ -30,10 +30,10 @@ shared start iterator -> shared transition/BW evaluator
 per-logical-action baseline/target reducer
             |
             v
-shared bound scorer -> shared regime comparator
+shared bound scorer -> shared two-field comparator
             |
             v
-winner replay/commit -> pending S4PF target resolution
+winner endpoint rebuild/commit -> pending S4PF target resolution
             |
             v
 eight-entry compact FF FIFO
@@ -45,9 +45,10 @@ winner bank。宽 timeline 和 plan 不做 per-candidate 复制。baseline 与
 targeted-S4PF 复用同一 transition evaluator，target 只有使当前 `max_end`
 严格减小时才替换 baseline。
 
-状态机允许以下条件跳过：非法 selector、缓存条件不符、无可用 start、BW
-失败、S4PF 剩余 expert 少于 9、计算窗口不足、无 logical winner，以及无需
-refill 的轮次。不存在为了固定拍数而继续执行的空 pass。
+状态机在进入 evaluator 前跳过 descriptor 数量、valid、eid 和 split 奇偶性已
+证明不合法的 profile，并继续跳过缓存条件不符、无可用 start、BW 失败、S4PF
+剩余 expert 少于 9、计算窗口不足、无 logical winner，以及无需 refill 的轮次。
+不存在为了固定拍数而继续执行的空 pass。
 
 ## DMA 与 prefetch
 
@@ -66,22 +67,26 @@ refill 的轮次。不存在为了固定拍数而继续执行的空 pass。
 | Offset | 名称 | 方向 | 语义 |
 |---:|---|---|---|
 | `0x00` | `CONFIG` | W | cache eid、active count |
-| `0x08` | `WINDOW0` | W | `hot[0:3]` |
-| `0x10` | `WINDOW1` | W | `hot[4:7]` |
-| `0x18` | `WINDOW2` | W | 初始化序列 `[8:11]` |
+| `0x08` | `WINDOW0` | W | `[0:3]`；active count 1..4 时 init/start |
+| `0x10` | `WINDOW1` | W | `[4:7]`；active count 5..8 时 init/start |
+| `0x18` | `WINDOW2` | W | `[8:11]`；active count 9..12 时 init/start |
 | `0x20` | `REFILL_QUAD` | W | 同一 refill 连续写 1..2 个 quad |
-| `0x28` | `EVENT_WAIT` | R | 阻塞到 refill、FIFO watermark 或 batch done |
+| `0x28` | `EVENT_WAIT` | R | 阻塞到 refill、finalized task 或 batch done |
 | `0x30` | `TASK_STREAM` | R | 阻塞读 FIFO head，握手即 pop |
 | `0x38` | `AGGREGATE` | W | token/block/histogram counters |
-| `0x40` | `WINDOW3_START` | W | 初始化序列 `[12:13]`，并 init/start |
+| `0x40` | `WINDOW3_START` | W | `[12:13]`；active count 13..14 时 init/start |
 
 `EVENT_WAIT` 返回：`done[0]`、`refill_req[1]`、`top_count[4:2]`、
-`bottom_count[7:5]`、`task_count[11:8]`。初始化序列固定为最多 9 项 top prefix，
-随后最多 5 项 cold-to-hot bottom suffix。单次 refill 每侧不超过 4、合计不超过
-6；软件将 top 放在前、bottom 放在后，连续写一个或两个 `REFILL_QUAD`。RTL
+`bottom_count[7:5]`、`task_count[11:8]`。初始化窗口仍为最多 9 项 top prefix，
+随后最多 5 项 cold-to-hot bottom suffix，但最后一个有效 WINDOW write 按
+`active_count` 自动启动。软件先写 CONFIG、AGGREGATE 和更早的有效窗口，执行
+一次 fence，再写触发窗口并执行第二次 fence；不再发送空 WINDOW。8-expert
+序列因此为 `CONFIG + AGGREGATE + WINDOW0 + WINDOW1`。单次 refill 每侧不超过
+4、合计不超过 6；软件将 top 放在前、bottom 放在后，连续写一个或两个
+`REFILL_QUAD`。RTL
 锁存 credit，最后一拍写握手就是 refill completion，不需要 ACK、TASK_POP 或
-轮询 status。output FIFO watermark 为 6，refill、output 和 done 共用同一个
-阻塞 event。
+轮询 status。output FIFO 中首个 finalized task 可用时立即唤醒 CVA6；
+refill、output 和 done 共用同一个阻塞 event。
 
 64-bit `TASK_STREAM` 保留原有低位 task/control 排列。仅将原先空闲的 bit
 定义为 `S1_BOTH[46]` 和 `LATE_BOTH[55]`；`M_S2[45:38]`、`M_S4[54:47]`
@@ -97,10 +102,10 @@ refill 的轮次。不存在为了固定拍数而继续执行的空 pass。
 - `sched_bandwidth_check.sv`: pointer-based ordered DMA interval sweep。
 - `sched_distilled_transition_eval.sv`: 共享 transition evaluator。
 - `sched_distilled_target_s4pf.sv`: target-aware SINGLE/BOTH/OFF trial。
-- `sched_distilled_bound_score.sv`: 顺序 compute/DMA lower bound scorer。
+- `sched_distilled_bound_score.sv`: 两项/拍 histogram 与 DMA lower bound scorer。
 - `sched_distilled_regime_classify.sv`: frozen regime predicates。
-- `sched_distilled_pair_compare.sv`: 单个全局 comparator。
-- `sched_distilled_round_engine.sv`: local reduction、global score 和 replay。
+- `sched_distilled_pair_compare.sv`: 每拍最多两个相邻字段的全局 comparator。
+- `sched_distilled_round_engine.sv`: local reduction、global score 和端点重建。
 - `moe_scheduler_core.sv`: persistent state、pending target 和 task FIFO。
 - `moe_scheduler_reg_wrapper.sv`: hot/cold 窗口、refill 和 blocking MMIO。
 
@@ -134,12 +139,18 @@ make -C Scheduler_hw/tb verify-wrapper
 | 协议升级前资源优化版 | 6300 | 1382 | 0 | +14.150 ns | 41 |
 | 4+4 reserve / FIFO8 初版 | 7136 | 1711 | 0 | +13.835 ns | 42 |
 | 当前条件跳过 / FIFO8 版 | 7117 | 1707 | 0 | +14.036 ns | 42 |
+| 当前增量 target / FIFO8 版 | 7057 | 1707 | 0 | +13.937 ns | 42 |
+| 当前执行流 / 前缀 compact 版 | 7592 | 1685 | 0 | +14.618 ns | 39 |
 
-当前版相对原始基线增加 897 LUT（14.42%）和 117 FF（7.36%），满足放宽后的
-15% LUT/FF 上限；LUTRAM、SRL、BRAM 和 DSP 均为 0。相对协议升级前版本的增量
-用于 `hot9+cold5` 本地窗口、锁存式双拍 refill transaction 和八个 47-bit FF
-output entry。主要策略侧收益仍来自共享 DMA checker、删除不可达 partial-cache
-状态以及压缩时间/计数/replay/task entry 位宽。当前控制还会跳过不可能的 S4PF
-搜索、S3 cached 下六个恒无效 offset，以及三个只负责启动下级 FSM 的空状态。
-1849-round 回归由 `8,904,780 ns` 降至 `8,302,020 ns`，即减少 60,276 个
-10 ns 测试时钟周期（6.77%）。
+当前版为 7592 LUT、1685 FF，分别低于 8000 LUT 和 1750 FF 上限；LUTRAM、
+SRL、BRAM、URAM 和 DSP 均为 0。完整保存 global winner child/plan 的实验为
+7675 LUT / 1851 FF，复制组合重建数据通路的实验为 8772 LUT / 1683 FF，均未
+采用。最终版本复用 transition evaluator，只重建 global winner 的 1..2 个
+timeline endpoint，不执行 BW sweep、gain、bound 或 comparator。
+
+bound 的除 6 使用精确常数组合除法，histogram 和 DMA interval 每拍各处理最多
+两项，三操作数 work reduction 使用显式 3:2 carry-save compressor；其余二输入
+加法保留 `+` 以便映射 FPGA carry chain。window 删除后的稳定 compact 使用
+offset 1/2/4/8 的并行前缀计数。1849-round 回归由 `8,267,470 ns` 降至
+`4,089,370 ns`，减少 417,810 个 10 ns 测试时钟（50.54%）；48 个 S4 定向
+round 由 `303,840 ns` 降至 `208,520 ns`，减少 9,532 个时钟（31.37%）。

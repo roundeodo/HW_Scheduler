@@ -31,10 +31,8 @@ module sched_distilled_round_engine (
     ST_IDLE,
     ST_PROFILE_SETUP,
     ST_START_WAIT,
-    ST_EVAL_START,
     ST_EVAL_WAIT,
     ST_S4_WAIT,
-    ST_TARGET_START_BEGIN,
     ST_TARGET_START_WAIT,
     ST_TARGET_EVAL_START,
     ST_TARGET_EVAL_WAIT,
@@ -44,8 +42,8 @@ module sched_distilled_round_engine (
     ST_BOUND_WAIT,
     ST_COMPARE_WAIT,
     ST_SCORE_NEXT,
-    ST_COMMIT_START,
-    ST_COMMIT_WAIT,
+    ST_COMMIT_REBUILD_START,
+    ST_COMMIT_REBUILD_WAIT,
     ST_DONE
   } state_t;
 
@@ -72,6 +70,7 @@ module sched_distilled_round_engine (
   logic token_phase;
   head_ctx_t selected_descriptor;
   head_ctx_t selected_descriptor_b;
+  logic profile_structural_valid;
   distilled_cluster_state_t iter_own;
   distilled_cluster_state_t iter_peer;
 
@@ -83,8 +82,11 @@ module sched_distilled_round_engine (
   time_t start_iter_value;
 
   logic eval_start;
+  time_t eval_start_time;
+  logic eval_assignment_swap;
   logic eval_done;
   logic eval_feasible;
+  logic eval_strict_gain;
   logic transition_bw_start;
   snap_bw_view_t transition_bw_c2;
   snap_bw_view_t transition_bw_c3;
@@ -181,9 +183,11 @@ module sched_distilled_round_engine (
   assign profile_limit = distilled_mode_profile_limit(mode_q);
   assign score_phase = (st_q >= ST_SCORE_EVAL_START) &&
                        (st_q <= ST_SCORE_NEXT);
-  assign replay_phase = score_phase || (st_q == ST_COMMIT_START) ||
-                        (st_q == ST_COMMIT_WAIT) || (st_q == ST_DONE);
-  assign target_phase = (st_q >= ST_TARGET_START_BEGIN) &&
+  assign replay_phase = score_phase ||
+                        (st_q == ST_COMMIT_REBUILD_START) ||
+                        (st_q == ST_COMMIT_REBUILD_WAIT) ||
+                        (st_q == ST_DONE);
+  assign target_phase = (st_q >= ST_TARGET_START_WAIT) &&
                         (st_q <= ST_TARGET_EVAL_WAIT);
   assign token_phase = replay_phase || target_phase;
   always_comb begin
@@ -207,6 +211,37 @@ module sched_distilled_round_engine (
       decoded_profile.selector_a, hot_i, bottom_i);
   assign selected_descriptor_b = resolve_selector(
       decoded_profile.selector_b, hot_i, bottom_i);
+  always_comb begin
+    profile_structural_valid = 1'b0;
+    unique case (decoded_profile.family)
+      DIST_FAMILY_SINGLE: begin
+        profile_structural_valid = selected_descriptor.valid &&
+            (decoded_profile.c2_active ^ decoded_profile.c3_active);
+        if (base_c2_i.task_end < base_c3_i.task_end)
+          profile_structural_valid &= decoded_profile.c2_active;
+        else if (base_c3_i.task_end < base_c2_i.task_end)
+          profile_structural_valid &= decoded_profile.c3_active;
+        else
+          profile_structural_valid &= decoded_profile.c2_active ||
+              (decoded_profile.c3_active && (base_c2_i != base_c3_i));
+      end
+      DIST_FAMILY_PAIR: begin
+        profile_structural_valid = selected_descriptor.valid &&
+            selected_descriptor_b.valid &&
+            (selected_descriptor.eid != selected_descriptor_b.eid) &&
+            decoded_profile.c2_active && decoded_profile.c3_active;
+      end
+      DIST_FAMILY_SPLIT: begin
+        profile_structural_valid = selected_descriptor.valid &&
+            decoded_profile.c2_active && decoded_profile.c3_active &&
+            (selected_descriptor.ntok >= ntok_t'(2));
+        if (!decoded_profile.split_balanced)
+          profile_structural_valid &= !selected_descriptor.ntok[0];
+      end
+      default: begin
+      end
+    endcase
+  end
   assign iter_own = decoded_profile.c3_active && !decoded_profile.c2_active ?
                     base_c3_i : base_c2_i;
   assign iter_peer = decoded_profile.c3_active && !decoded_profile.c2_active ?
@@ -222,13 +257,32 @@ module sched_distilled_round_engine (
     .profile_i  (decoded_profile),
     .eid_i      (selected_descriptor.eid),
     .ntok_i     (selected_descriptor.ntok),
-    .force_s1_hit_i (target_phase),
+    .force_s1_hit_i (target_phase || ((st_q == ST_S4_WAIT) && s4_done)),
     .own_i      (iter_own),
     .peer_i     (iter_peer),
     .valid_o    (start_iter_valid),
     .done_o     (start_iter_done),
     .start_o    (start_iter_value)
   );
+
+  always_comb begin
+    eval_start_time = token_phase ? active_token.start : candidate_start_q;
+    eval_assignment_swap = token_phase ? active_token.assignment_swap :
+                                         assignment_swap_q;
+    if (!token_phase) begin
+      if ((st_q == ST_PROFILE_SETUP) &&
+          (decoded_profile.family != DIST_FAMILY_SINGLE)) begin
+        eval_start_time = (base_c2_i.task_end >= base_c3_i.task_end) ?
+                          base_c2_i.task_end : base_c3_i.task_end;
+      end else if ((st_q == ST_START_WAIT) && start_iter_valid) begin
+        eval_start_time = start_iter_value;
+      end
+      if ((st_q == ST_NEXT_ACTION) &&
+          (decoded_profile.family == DIST_FAMILY_PAIR) &&
+          !assignment_swap_q)
+        eval_assignment_swap = 1'b1;
+    end
+  end
 
   sched_distilled_transition_eval i_transition_eval (
     .clk_i                (clk_i),
@@ -238,10 +292,12 @@ module sched_distilled_round_engine (
     .done_o               (eval_done),
     .feasible_o           (eval_feasible),
     .profile_i            (decoded_profile),
-    .assignment_swap_i    (token_phase ? active_token.assignment_swap :
-                                          assignment_swap_q),
-    .start_time_i         (token_phase ? active_token.start :
-                                          candidate_start_q),
+    .assignment_swap_i    (eval_assignment_swap),
+    .start_time_i         (eval_start_time),
+    .incremental_i        (target_phase),
+    .rebuild_only_i       ((st_q == ST_COMMIT_REBUILD_START) ||
+                           (st_q == ST_COMMIT_REBUILD_WAIT)),
+    .gain_ok_i            (eval_strict_gain),
     .force_s1_hit_c2_i    (token_phase &&
                            (active_token.targeted_s4pf_c2 != DMA_NONE)),
     .force_s1_hit_c3_i    (token_phase &&
@@ -271,6 +327,8 @@ module sched_distilled_round_engine (
                         eval_child_c2.task_end : eval_child_c3.task_end;
   assign eval_sum_end = {1'b0, eval_child_c2.task_end} +
                         {1'b0, eval_child_c3.task_end};
+  assign eval_strict_gain = group_local_q.valid &&
+                            (eval_max_end < group_local_q.max_end);
 
   assign s4_count = {1'b0, s4_c2_binding != DMA_NONE} +
                     {1'b0, s4_c3_binding != DMA_NONE};
@@ -522,28 +580,30 @@ module sched_distilled_round_engine (
 
       ST_PROFILE_SETUP: begin
         assignment_swap_d = 1'b0;
-        if (decoded_profile.family == DIST_FAMILY_SINGLE) begin
+        if (!profile_structural_valid) begin
+          // PAIR profiles normally evaluate both assignments. Mark the swap as
+          // consumed so ST_NEXT_ACTION advances or closes the logical group.
+          assignment_swap_d = decoded_profile.family == DIST_FAMILY_PAIR;
+          st_d = ST_NEXT_ACTION;
+        end else if (decoded_profile.family == DIST_FAMILY_SINGLE) begin
           start_iter_begin = 1'b1;
           st_d = ST_START_WAIT;
         end else begin
           candidate_start_d = (base_c2_i.task_end >= base_c3_i.task_end) ?
                               base_c2_i.task_end : base_c3_i.task_end;
-          st_d = ST_EVAL_START;
+          eval_start = 1'b1;
+          st_d = ST_EVAL_WAIT;
         end
       end
 
       ST_START_WAIT: begin
         if (start_iter_valid) begin
           candidate_start_d = start_iter_value;
-          st_d = ST_EVAL_START;
+          eval_start = 1'b1;
+          st_d = ST_EVAL_WAIT;
         end else if (start_iter_done) begin
           st_d = ST_NEXT_ACTION;
         end
-      end
-
-      ST_EVAL_START: begin
-        eval_start = 1'b1;
-        st_d = ST_EVAL_WAIT;
       end
 
       ST_EVAL_WAIT: begin
@@ -593,16 +653,12 @@ module sched_distilled_round_engine (
           if ((s4_c2_binding == DMA_NONE) && (s4_c3_binding == DMA_NONE)) begin
             st_d = ST_NEXT_ACTION;
           end else if (decoded_profile.family == DIST_FAMILY_SINGLE) begin
-            st_d = ST_TARGET_START_BEGIN;
+            start_iter_begin = 1'b1;
+            st_d = ST_TARGET_START_WAIT;
           end else begin
             st_d = ST_TARGET_EVAL_START;
           end
         end
-      end
-
-      ST_TARGET_START_BEGIN: begin
-        start_iter_begin = 1'b1;
-        st_d = ST_TARGET_START_WAIT;
       end
 
       ST_TARGET_START_WAIT: begin
@@ -629,7 +685,10 @@ module sched_distilled_round_engine (
             group_target_d.s2pf_count = eval_s2pf_count;
           end
           if (decoded_profile.family == DIST_FAMILY_SINGLE) begin
-            if (eval_feasible) begin
+            if (!eval_strict_gain) begin
+              start_iter_stop = 1'b1;
+              st_d = ST_NEXT_ACTION;
+            end else if (eval_feasible) begin
               start_iter_stop = 1'b1;
               st_d = ST_NEXT_ACTION;
             end else begin
@@ -646,7 +705,8 @@ module sched_distilled_round_engine (
         if ((decoded_profile.family == DIST_FAMILY_PAIR) &&
             !assignment_swap_q) begin
           assignment_swap_d = 1'b1;
-          st_d = ST_EVAL_START;
+          eval_start = 1'b1;
+          st_d = ST_EVAL_WAIT;
         end else begin
           if (decoded_profile.logical_last) begin
             if (group_local_q.valid && group_target_q.valid &&
@@ -662,14 +722,14 @@ module sched_distilled_round_engine (
               st_d = ST_PROFILE_SETUP;
             end else begin
               group_local_d = '0;
-              st_d = global_valid_q ? ST_COMMIT_START : ST_DONE;
+              st_d = global_valid_q ? ST_COMMIT_REBUILD_START : ST_DONE;
             end
           end else if ((profile_addr_q + 1'b1) < profile_limit) begin
             profile_addr_d = profile_addr_q + 1'b1;
             assignment_swap_d = 1'b0;
             st_d = ST_PROFILE_SETUP;
           end else begin
-            st_d = global_valid_q ? ST_COMMIT_START : ST_DONE;
+            st_d = global_valid_q ? ST_COMMIT_REBUILD_START : ST_DONE;
           end
         end
       end
@@ -722,19 +782,18 @@ module sched_distilled_round_engine (
           assignment_swap_d = 1'b0;
           st_d = ST_PROFILE_SETUP;
         end else begin
-          st_d = global_valid_q ? ST_COMMIT_START : ST_DONE;
+          st_d = global_valid_q ? ST_COMMIT_REBUILD_START : ST_DONE;
         end
       end
 
-      ST_COMMIT_START: begin
+      ST_COMMIT_REBUILD_START: begin
         eval_start = 1'b1;
-        st_d = ST_COMMIT_WAIT;
+        st_d = ST_COMMIT_REBUILD_WAIT;
       end
 
-      ST_COMMIT_WAIT: begin
-        if (eval_done) begin
+      ST_COMMIT_REBUILD_WAIT: begin
+        if (eval_done)
           st_d = ST_DONE;
-        end
       end
 
       default: st_d = ST_IDLE;
@@ -785,17 +844,15 @@ module sched_distilled_round_engine (
       assert (!(transition_bw_start && target_bw_start));
       if (s4_start)
         assert (s4_candidate_possible);
-      if (st_q == ST_COMMIT_WAIT && eval_done)
-        assert (eval_feasible);
     end
   end
 `endif
 
   assign done_o = (st_q == ST_DONE);
-  assign feasible_o = eval_feasible;
-  assign child_c2_o = eval_child_c2;
-  assign child_c3_o = eval_child_c3;
+  assign feasible_o = global_valid_q;
   always_comb begin
+    child_c2_o = eval_child_c2;
+    child_c3_o = eval_child_c3;
     child_counters_o = eval_child_counters;
     child_counters_o.parent_bound = global_score_q.f;
     selected_token_o = '0;

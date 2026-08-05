@@ -15,6 +15,9 @@ module sched_distilled_transition_eval (
   input  wire distilled_profile_t    profile_i,
   input  logic                       assignment_swap_i,
   input  time_t                      start_time_i,
+  input  logic                       incremental_i,
+  input  logic                       rebuild_only_i,
+  input  logic                       gain_ok_i,
   input  logic                       force_s1_hit_c2_i,
   input  logic                       force_s1_hit_c3_i,
   input  wire head_ctx_t             selected_a_i,
@@ -44,6 +47,7 @@ module sched_distilled_transition_eval (
     ST_IDLE,
     ST_BUILD_C2,
     ST_BUILD_C3,
+    ST_GAIN_CHECK,
     ST_BW_START,
     ST_BW_WAIT,
     ST_DONE
@@ -83,6 +87,8 @@ module sched_distilled_transition_eval (
   endpoint_t c2_endpoint_q, c2_endpoint_d;
   endpoint_t c3_endpoint_q, c3_endpoint_d;
   logic feasible_q, feasible_d;
+  logic rebuild_c2;
+  logic rebuild_c3;
 
   logic timeline_side_c3;
   side_request_t timeline_req;
@@ -247,6 +253,13 @@ module sched_distilled_transition_eval (
   assign built_endpoint.s2_end = built_timeline.s2_end;
   assign built_endpoint.dma3_end = built_timeline.dma3_end;
 
+  // Baseline endpoints remain latched after ST_DONE.  A targeted replay has
+  // the same physical profile and rebuilds only the side whose S1 becomes hit.
+  assign rebuild_c2 = c2_req.valid &&
+                      (!incremental_i || force_s1_hit_c2_i);
+  assign rebuild_c3 = c3_req.valid &&
+                      (!incremental_i || force_s1_hit_c3_i);
+
   always_comb begin
     bw_c2_o = c2_req.valid ? endpoint_bw_view(c2_req, c2_endpoint_q,
                                               start_time_i) :
@@ -269,22 +282,42 @@ module sched_distilled_transition_eval (
           feasible_d = decode_valid;
           if (!decode_valid) begin
             st_d = ST_DONE;
-          end else if (c2_req.valid) begin
+          end else if (rebuild_c2) begin
             st_d = ST_BUILD_C2;
-          end else begin
+          end else if (rebuild_c3) begin
             st_d = ST_BUILD_C3;
+          end else begin
+            st_d = rebuild_only_i ? ST_DONE :
+                   (incremental_i ? ST_GAIN_CHECK : ST_BW_START);
           end
         end
       end
 
       ST_BUILD_C2: begin
         c2_endpoint_d = built_endpoint;
-        st_d = c3_req.valid ? ST_BUILD_C3 : ST_BW_START;
+        if (rebuild_c3) begin
+          st_d = ST_BUILD_C3;
+        end else begin
+          st_d = rebuild_only_i ? ST_DONE :
+                 (incremental_i ? ST_GAIN_CHECK : ST_BW_START);
+        end
       end
 
       ST_BUILD_C3: begin
         c3_endpoint_d = built_endpoint;
-        st_d = ST_BW_START;
+        st_d = rebuild_only_i ? ST_DONE :
+               (incremental_i ? ST_GAIN_CHECK : ST_BW_START);
+      end
+
+      ST_GAIN_CHECK: begin
+        // The round engine reuses its existing max-end comparator here.  This
+        // avoids a second wide comparator inside the transition evaluator.
+        if (gain_ok_i) begin
+          st_d = ST_BW_START;
+        end else begin
+          feasible_d = 1'b0;
+          st_d = ST_DONE;
+        end
       end
 
       ST_BW_START: begin
@@ -326,6 +359,18 @@ module sched_distilled_transition_eval (
       feasible_q <= feasible_d;
     end
   end
+
+`ifndef SYNTHESIS
+  always_ff @(posedge clk_i) begin
+    if (rst_ni) begin
+      if (start_i && incremental_i)
+        assert ((c2_req.valid && force_s1_hit_c2_i) ||
+                (c3_req.valid && force_s1_hit_c3_i));
+      if (st_q == ST_GAIN_CHECK)
+        assert (incremental_i);
+    end
+  end
+`endif
 
   always_comb begin
     child_c2_o = c2_req.valid ?

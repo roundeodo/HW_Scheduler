@@ -31,6 +31,7 @@ module tb_scheduler_reg_wrapper;
   int refill_events;
   int refill_write_beats;
   int task_reads;
+  int early_task_events;
   int refill_top [0:255];
   int refill_bottom [0:255];
   int refill_beats [0:255];
@@ -93,6 +94,7 @@ module tb_scheduler_reg_wrapper;
     refill_events = 0;
     refill_write_beats = 0;
     task_reads = 0;
+    early_task_events = 0;
     repeat (5) @(negedge clk_i);
     rst_ni = 1'b1;
 
@@ -104,6 +106,7 @@ module tb_scheduler_reg_wrapper;
       int task_count;
       int refill_index;
       int task_index;
+      int active_count;
       logic done;
       if ($fscanf(fd, "%h %h %h %h %h %h %d %d\n", cfg, aggregate,
           window0, window1, window2, window3,
@@ -120,10 +123,22 @@ module tb_scheduler_reg_wrapper;
 
       write_word(7'h00, cfg);
       write_word(7'h38, aggregate);
-      write_word(7'h08, window0);
-      write_word(7'h10, window1);
-      write_word(7'h18, window2);
-      write_word(7'h40, window3);
+      active_count = cfg[16 +: NR_W];
+      if (active_count <= 4) begin
+        write_word(7'h08, window0);
+      end else if (active_count <= 8) begin
+        write_word(7'h08, window0);
+        write_word(7'h10, window1);
+      end else if (active_count <= 12) begin
+        write_word(7'h08, window0);
+        write_word(7'h10, window1);
+        write_word(7'h18, window2);
+      end else begin
+        write_word(7'h08, window0);
+        write_word(7'h10, window1);
+        write_word(7'h18, window2);
+        write_word(7'h40, window3);
+      end
       refill_index = 0;
       task_index = 0;
       done = 1'b0;
@@ -133,6 +148,8 @@ module tb_scheduler_reg_wrapper;
         event_reads++;
         if (event_word[11:8] > max_task_batch)
           max_task_batch = event_word[11:8];
+        if (!event_word[0] && event_word[11:8] != 0 && event_word[11:8] < 6)
+          early_task_events++;
         if (event_word[11:8] > TASKQ_DEPTH)
           $fatal(1, "event task count exceeds FIFO depth");
         if (event_word[1]) begin
@@ -189,14 +206,14 @@ module tb_scheduler_reg_wrapper;
       rst_ni = 1'b1;
     end
     $fclose(fd);
-    if (multibeat_refills == 0 || max_task_batch < 6) begin
-      $display("[FAIL] protocol coverage multibeat=%0d max_task_batch=%0d",
-               multibeat_refills, max_task_batch);
+    if (multibeat_refills == 0 || early_task_events == 0) begin
+      $display("[FAIL] protocol coverage multibeat=%0d early_task_events=%0d",
+               multibeat_refills, early_task_events);
       failures++;
     end
     if (failures == 0)
-      $display("[RESULT] PASS distilled_wrapper cases=%0d multibeat=%0d max_task_batch=%0d event_reads=%0d refill_events=%0d refill_beats=%0d task_reads=%0d",
-               cases, multibeat_refills, max_task_batch, event_reads,
+      $display("[RESULT] PASS distilled_wrapper cases=%0d multibeat=%0d early_task_events=%0d max_task_batch=%0d event_reads=%0d refill_events=%0d refill_beats=%0d task_reads=%0d",
+               cases, multibeat_refills, early_task_events, max_task_batch, event_reads,
                refill_events, refill_write_beats, task_reads);
     else
       $display("[RESULT] FAIL distilled_wrapper failures=%0d", failures);

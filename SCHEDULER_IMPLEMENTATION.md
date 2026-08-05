@@ -26,8 +26,11 @@ group 结束后立即 replay/score，并与单个 global incumbent 比较；没�
 final-token bank。
 
 SINGLE profile 复用 `sched_distilled_start_iter` 枚举有效起点。PAIR/SPLIT 没有
-动态起点时直接进入 transition。selector 无效、profile mode 不匹配或 start
-iterator 无输出时直接跳到下一 profile。
+动态起点时直接进入 transition。进入 evaluator 前，硬件按 family 检查 selector
+valid、PAIR eid 不同、有效 cluster 数、SPLIT 最小 token 数和不平衡 split 的
+偶数约束；结构上不可能合法的 profile 直接跳过。profile mode 不匹配或 start
+iterator 无输出时同样直接进入下一 profile。PAIR 的第二 assignment 从
+`ST_NEXT_ACTION` 直接启动 evaluator，不经过独立 start state。
 
 ## 3. Shared datapaths
 
@@ -39,8 +42,9 @@ iterator 无输出时直接跳到下一 profile。
 - compute/DMA bound scorer；
 - regime classifier 和 global comparator。
 
-S4PF baseline 与 target trial 顺序复用 transition evaluator。global 阶段只
-replay 每个 logical winner，不再次展开 28 个 profile。bound 输入在
+S4PF baseline 与 target trial 顺序复用 transition evaluator。score 阶段只对
+每个 logical winner 做一次完整 replay，不再次展开该 group 的 physical
+profiles。bound 输入在
 `ST_SCORE_EVAL_WAIT -> ST_BOUND_START` 边界寄存，截断 profile/selector 到
 bound 的长组合路径；这个边界使用已有状态转换，不增加额外 FSM state。
 
@@ -58,21 +62,26 @@ checker。owner 位只在发起检查时更新，两个 client 在状态机上�
 
 ## 5. Bounds and comparison
 
-bound scorer 使用多拍 FSM：常数除法逐 bit 执行，top5 和 histogram 顺序
-累计；DMA lower bound 每轮依次扫描 4 个现有 DMA 区间，再在 APPLY 周期消费
-下一个 event。它不实例化组合除法器、8-event 最小值树、乘法器或 per-head
-并行 scorer。
+bound scorer 保留一套多拍数据通路，但将除 6 改为精确的常数组合商/余数，
+删除 bit-serial divisor 状态和寄存器。top5 仍顺序消费；同一 histogram bucket
+每拍最多执行两次有依赖的 greedy assignment，DMA lower bound 每拍扫描两个
+interval。三项 work 求和先用显式 3:2 carry-save compressor 压成 sum/carry，
+再进行一次 carry-propagate addition；没有适合 4:2 compressor 的四个同宽独立
+操作数，因此不增加该网络。
 
-global comparator 每拍比较一个 key field，严格按 frozen F/H/C/D、regime 和
-tie-break 顺序执行，并在首个不同字段立即结束当前 key。无 winner 时直接
-结束，不进入 commit。
+global comparator 每拍按 frozen F/H/C/D、regime 和 tie-break 顺序比较最多两个
+相邻字段，第二字段只在第一字段相等时生效，并在首个不同字段立即结束当前
+key。无 winner 时直接结束，不进入 commit。
 
 ## 6. Commit and FIFO
 
-winning token 只 replay 一次以生成 child state 和 normalized plan。core 先与
-同 cluster pending task 解析 S4PF target，再写 FIFO；当前 task 随后成为新的
-pending。batch 结束按 C2、C3 顺序 flush，未找到 consumer 的 descriptor 为
-OFF。
+logical winner 的完整 score replay 结果被直接用于 global compare。最终 global
+winner 提交时复用同一 transition evaluator 的 `rebuild_only` 模式，只构造 1..2 个
+timeline endpoint、child state、normalized plan、remove 信息和 counter；该路径
+跳过 BW、gain、bound 和 comparator。这样不需要为完整 child/plan 增加 winner
+寄存器，也不复制 timeline 组合数据通路。core 先与同 cluster pending task 解析
+S4PF target，再写 FIFO；当前 task 随后成为新的 pending。batch 结束按 C2、C3
+顺序 flush，未找到 consumer 的 descriptor 为 OFF。
 
 FIFO 使用 3-bit head/tail 和 4-bit count；push 只写 tail，pop 只推进 head，
 同拍 pop/push 不会覆盖或跳过 entry。payload 显式约束为 FF 实现，禁止 LUTRAM
@@ -80,15 +89,23 @@ FIFO 使用 3-bit head/tail 和 4-bit count；push 只写 tail，pop 只推进 h
 
 ## 7. Window and refill
 
-提交删除 1 或 2 个 eid 后，wrapper 分别 compact hot/cold。若所有剩余 expert
-已装入本地窗口，可从 cold 尾部移到 hot 尾部；存在 hidden expert 时保持 top
+提交删除 1 或 2 个 eid 后，wrapper 分别 compact hot/cold。keep bit 通过
+offset 1/2/4/8（cold 为 1/2/4）的并行前缀网络生成稳定目的下标，再并行写入
+compact view；该网络是组合 wire，不新增 queue storage。若所有剩余 expert 已
+装入本地窗口，可从 cold 尾部移到 hot 尾部；存在 hidden expert 时保持 top
 stream 与 bottom stream 的独立顺序。
+
+初始化 start write 由 `active_count` 决定：1..4 为 WINDOW0、5..8 为 WINDOW1、
+9..12 为 WINDOW2、13..14 为 WINDOW3_START。软件仅写到最后一个有效窗口，
+因此 8-expert 序列不再写空 WINDOW2 和 WINDOW3_START；前后两个 fence 保留，
+等待完整 SoC 上进一步证明 CVA6/MMIO ordering 后再缩减。
 
 refill 仅在 hidden 非零且 top 或 bottom 候补不超过 1 时请求。top deficit 优先，
 剩余配额给 bottom；每侧最多 4、合计最多 6。RTL 锁存本次 top/bottom credit，
 软件按 top 后 bottom 的顺序向同一 `REFILL_QUAD` 连续写 1 或 2 拍，最后一拍
-完成事务，无单独 ACK。窗口未就绪、refill 未完成或 FIFO 满时只产生
-backpressure，不运行无效 round。
+完成事务，无单独 ACK。第一个 finalized task 进入 FIFO 后立即唤醒 CVA6，
+使完整 task record lowering 与后续 RTL round 重叠。窗口未就绪、refill 未完成
+或 FIFO 满时只产生 backpressure，不运行无效 round。
 
 ## 8. Synthesis interpretation
 
@@ -105,13 +122,20 @@ backpressure，不运行无效 round。
 | 协议升级前资源优化版 | 6300 | 1382 | 0 | +14.150 ns | 41 |
 | 4+4 reserve / FIFO8 初版 | 7136 | 1711 | 0 | +13.835 ns | 42 |
 | 当前条件跳过 / FIFO8 版 | 7117 | 1707 | 0 | +14.036 ns | 42 |
+| 当前增量 target / FIFO8 版 | 7057 | 1707 | 0 | +13.937 ns | 42 |
+| 当前执行流 / 前缀 compact 版 | 7592 | 1685 | 0 | +14.618 ns | 39 |
 
-当前版相对原始基线增加 897 LUT（14.42%）和 117 FF（7.36%），在放宽后的
-15% 上限内；LUTRAM、SRL、BRAM 和 DSP 均为 0。40 MHz OOC setup slack 为
-+14.036 ns。1849-round 回归由 `8,904,780 ns` 降至 `8,302,020 ns`，减少
-60,276 个 10 ns 测试时钟周期（6.77%）。除 release group 跳过外，S3 cached
-时每个 release 只检查唯一可达的 offset；没有任何可行 S4PF binding 时不启动
-target FSM；三个不锁存数据、只产生 start pulse 的外层状态已并入前级完成周期。
+当前版为 7592 LUT、1685 FF，满足 8000 LUT / 1750 FF 上限；LUTRAM、SRL、
+BRAM、URAM 和 DSP 均为 0，40 MHz OOC setup slack 为 +14.618 ns。round engine
+为 6852 LUT / 590 FF，其中本体 3064 LUT / 290 FF；bound、pair comparator 和
+transition evaluator 分别为 1224/131、403/10 和 1471/108 LUT/FF。
+
+1849-round 回归由本轮优化前的 `8,267,470 ns` 降至 `4,089,370 ns`，减少
+417,810 个 10 ns 测试时钟（50.54%）。48 个 S4 定向 round 从 `303,840 ns`
+降至 `208,520 ns`，减少 9,532 个时钟（31.37%）。除结构无效 profile 与 release
+group 跳过外，S3 cached 时每个 release 只检查唯一可达的 offset；没有可行 S4PF
+binding 时不启动 target FSM；target rebuild 复用 baseline endpoint，只重建 S1
+由 miss 变为 hit 的 cluster。
 
 相对旧功能较少的 scheduler，新策略新增资源中必要部分包括 28-entry frozen
 profile decode、精确 bound/regime score、target-aware S4PF SINGLE/BOTH BW trial、
@@ -120,8 +144,7 @@ aggregate histogram/counters、hot9+cold5 refill 窗口、锁存式双拍 refill
 非必要部分包括旧 candidate 模块链、不可达 partial-cache reservation、重复
 cache/S2PF endpoint 状态、replay `profile_slot`/target `s4pf_count` 和复位型
 FIFO payload FF。task FIFO 使用八个 47-bit compact FF entry；时间域、split
-offset 和 block sum 分别按已证明的协议上界压缩。尝试过的
-C2/C3 request 寄存共享与显式 comparator 共享均因综合后 LUT/FF 增加而撤回。
-基于 28 个固定 profile 特化 child-head compaction 可将最坏逻辑级数从 42 降到
-34，但 OOC LUT 增至 7298，超过 15% 上限，因此也已撤回，当前实现保留共享的
-顺序 compaction 电路。
+offset 和 block sum 分别按已证明的协议上界压缩。完整锁存 global winner 的
+child/plan/counter 实验为 7675 LUT / 1851 FF，超过 FF 上限；复制两套组合
+timeline 重建单元为 8772 LUT / 1683 FF，超过 LUT 上限。最终共享 endpoint-only
+rebuild 为 7592 LUT / 1685 FF，是同时满足两个资源约束的实现。
