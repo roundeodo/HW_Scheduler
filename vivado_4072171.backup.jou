@@ -1,0 +1,25 @@
+#-----------------------------------------------------------
+# Vivado v2025.2 (64-bit)
+# SW Build 6299465 on Fri Nov 14 12:34:56 MST 2025
+# IP Build 6300035 on Fri Nov 14 10:48:45 MST 2025
+# SharedData Build 6298862 on Thu Nov 13 04:50:51 MST 2025
+# Start of session at: Tue Aug 18 18:58:00 2026
+# Process ID         : 4072171
+# Current directory  : /esat/studscratch/r1015673/Thesis/Scheduler_hw
+# Command line       : vivado -mode batch -source synth_distilled_ooc.tcl -tclargs .gen/ooc_iterB_200mhz 5.000
+# Log file           : /esat/studscratch/r1015673/Thesis/Scheduler_hw/vivado.log
+# Journal file       : /esat/studscratch/r1015673/Thesis/Scheduler_hw/vivado.jou
+# Running On         : amazone.esat.kuleuven.be
+# Platform           : RockyLinux
+# Operating System   : Rocky Linux 9.8 (Blue Onyx)
+# Processor Detail   : Intel(R) Xeon(R) CPU E5-2690 v3 @ 2.60GHz
+# CPU Frequency      : 3000.252 MHz
+# CPU Physical cores : 24
+# CPU Logical cores  : 48
+# Host memory        : 388195 MB
+# Swap memory        : 68719 MB
+# Total Virtual      : 456914 MB
+# Available Virtual  : 431712 MB
+#-----------------------------------------------------------
+source synth_distilled_ooc.tcl
+validate_noc  -part xcvp1802-lsvc4072-2MP-e-S -no_compile 

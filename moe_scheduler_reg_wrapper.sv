@@ -129,14 +129,17 @@ module moe_scheduler_reg_wrapper
   head_ctx_t [COLD_CAPACITY-1:0] compact_cold;
   logic [3:0] compact_hot_count;
   logic [2:0] compact_cold_count;
-  head_ctx_t [HOT_CAPACITY-1:0] next_hot;
-  head_ctx_t [COLD_CAPACITY-1:0] next_cold;
-  logic [3:0] next_hot_count;
-  logic [2:0] next_cold_count;
   logic [NR_W-1:0] active_after_remove;
   logic [4:0] loaded_after_remove;
   logic [NR_W-1:0] hidden_after_remove;
   logic [3:0] desired_hot_after_remove;
+  logic rebalance_pending_q;
+  logic [2:0] rebalance_take;
+  logic [3:0] rebalance_deficit;
+  head_ctx_t [HOT_CAPACITY-1:0] rebalance_hot;
+  head_ctx_t [COLD_CAPACITY-1:0] rebalance_cold;
+  logic [3:0] rebalance_hot_count;
+  logic [2:0] rebalance_cold_count;
 
   logic [4:0] loaded_count;
   logic [NR_W-1:0] hidden_count;
@@ -153,6 +156,10 @@ module moe_scheduler_reg_wrapper
   logic [3:0] refill_remaining_count;
   logic [2:0] refill_top_take;
   logic [2:0] refill_bottom_take;
+  logic [3:0] refill_hot_after_append;
+  logic [2:0] refill_cold_after_append;
+  logic [3:0] refill_promote_deficit;
+  logic [2:0] refill_promote_take;
   logic [3:0] desired_hot_count;
   logic [2:0] desired_cold_count;
   logic [3:0] top_deficit;
@@ -249,25 +256,34 @@ module moe_scheduler_reg_wrapper
     end
 
     active_after_remove = active_count_q - NR_W'(remove_count);
-    next_hot = compact_hot;
-    next_cold = compact_cold;
-    next_hot_count = compact_hot_count;
-    next_cold_count = compact_cold_count;
     loaded_after_remove = compact_hot_count + compact_cold_count;
     hidden_after_remove = (active_after_remove > NR_W'(loaded_after_remove)) ?
                           (active_after_remove - NR_W'(loaded_after_remove)) : '0;
     desired_hot_after_remove = (active_after_remove >= NR_W'(HOT_CAPACITY)) ?
                                4'(HOT_CAPACITY) : 4'(active_after_remove);
-    if (hidden_after_remove == NR_W'(0)) begin
-      for (int move = 0; move < COLD_CAPACITY; move++) begin
-        if ((next_hot_count < desired_hot_after_remove) &&
-            (next_cold_count != 3'd0)) begin
-          next_hot[next_hot_count] = next_cold[next_cold_count-1'b1];
-          next_cold[next_cold_count-1'b1] = '0;
-          next_hot_count++;
-          next_cold_count--;
-        end
-      end
+  end
+
+  always_comb begin
+    rebalance_hot = hot_q;
+    rebalance_cold = cold_q;
+    rebalance_hot_count = hot_count_q;
+    rebalance_cold_count = cold_count_q;
+    rebalance_deficit = (desired_hot_count > hot_count_q) ?
+                        (desired_hot_count - hot_count_q) : '0;
+    rebalance_take = (rebalance_deficit > {1'b0, cold_count_q}) ?
+                     cold_count_q : 3'(rebalance_deficit);
+
+    if (rebalance_take >= 3'd1) begin
+      rebalance_hot[hot_count_q] = cold_q[cold_count_q-1'b1];
+      rebalance_cold[cold_count_q-1'b1] = '0;
+      rebalance_hot_count = hot_count_q + 1'b1;
+      rebalance_cold_count = cold_count_q - 1'b1;
+    end
+    if (rebalance_take >= 3'd2) begin
+      rebalance_hot[hot_count_q+1'b1] = cold_q[cold_count_q-2'd2];
+      rebalance_cold[cold_count_q-2'd2] = '0;
+      rebalance_hot_count = hot_count_q + 2'd2;
+      rebalance_cold_count = cold_count_q - 2'd2;
     end
   end
 
@@ -334,40 +350,57 @@ module moe_scheduler_reg_wrapper
     refill_cold_count_next = cold_count_q;
     refill_top_take = '0;
     refill_bottom_take = '0;
+    refill_hot_after_append = hot_count_q;
+    refill_cold_after_append = cold_count_q;
+    refill_promote_deficit = '0;
+    refill_promote_take = '0;
     if (refill_write && refill_active_q) begin
       refill_top_take = (mmio_count > refill_top_remaining_q) ?
                         refill_top_remaining_q : mmio_count;
       refill_bottom_take = mmio_count - refill_top_take;
+      refill_hot_after_append = hot_count_q + 4'(refill_top_take);
+      refill_cold_after_append = cold_count_q + refill_bottom_take;
       for (int slot = 0; slot < 4; slot++) begin
         if (slot < refill_top_take) begin
-          refill_hot[refill_hot_count_next] = mmio_entries[slot];
-          refill_hot_count_next++;
+          refill_hot[hot_count_q + 4'(slot)] = mmio_entries[slot];
         end else if (slot < mmio_count) begin
-          refill_cold[refill_cold_count_next] = mmio_entries[slot];
-          refill_cold_count_next++;
+          refill_cold[cold_count_q + 3'(slot) - refill_top_take] =
+              mmio_entries[slot];
         end
       end
+      refill_hot_count_next = refill_hot_after_append;
+      refill_cold_count_next = refill_cold_after_append;
 
       if ((4'(mmio_count) == refill_remaining_count) &&
           (hidden_count == NR_W'(mmio_count))) begin
-        for (int move = 0; move < COLD_CAPACITY; move++) begin
-          if ((refill_hot_count_next < desired_hot_count) &&
-              (refill_cold_count_next != 3'd0)) begin
-            refill_hot[refill_hot_count_next] =
-                refill_cold[refill_cold_count_next-1'b1];
-            refill_cold[refill_cold_count_next-1'b1] = '0;
-            refill_hot_count_next++;
-            refill_cold_count_next--;
+        refill_promote_deficit =
+            (desired_hot_count > refill_hot_after_append) ?
+            (desired_hot_count - refill_hot_after_append) : '0;
+        refill_promote_take =
+            (refill_promote_deficit > {1'b0, refill_cold_after_append}) ?
+            refill_cold_after_append : 3'(refill_promote_deficit);
+        // Refill blocks the next round at the reserve threshold, which bounds
+        // the final cold-to-hot deficit to four entries.
+        for (int move = 0; move < 4; move++) begin
+          if (move < refill_promote_take) begin
+            refill_hot[refill_hot_after_append + 4'(move)] =
+                refill_cold[refill_cold_after_append - 3'(move + 1)];
+            refill_cold[refill_cold_after_append - 3'(move + 1)] = '0;
           end
         end
+        refill_hot_count_next =
+            refill_hot_after_append + 4'(refill_promote_take);
+        refill_cold_count_next =
+            refill_cold_after_append - refill_promote_take;
       end
     end
   end
 
-  assign remove_ready = auto_run_q && remove_valid && !refill_write;
+  assign remove_ready = auto_run_q && remove_valid && !refill_write &&
+                        !rebalance_pending_q;
   assign run_start = auto_run_q && !core_busy && !remove_valid &&
                      (active_count_q != NR_W'(0)) && !refill_request &&
-                     !refill_active_q &&
+                     !refill_active_q && !rebalance_pending_q &&
                      window_ready && !task_full && !window_start_write;
   assign core_init = window_start_write;
   assign core_start = run_start;
@@ -419,7 +452,16 @@ module moe_scheduler_reg_wrapper
       refill_active_q <= 1'b0;
       refill_top_remaining_q <= '0;
       refill_bottom_remaining_q <= '0;
+      rebalance_pending_q <= 1'b0;
     end else begin
+      if (rebalance_pending_q) begin
+        hot_q <= rebalance_hot;
+        cold_q <= rebalance_cold;
+        hot_count_q <= rebalance_hot_count;
+        cold_count_q <= rebalance_cold_count;
+        rebalance_pending_q <= 1'b0;
+      end
+
       if (write_req) begin
         unique case (word_addr)
           REG_CONFIG: begin
@@ -440,6 +482,7 @@ module moe_scheduler_reg_wrapper
             refill_active_q <= 1'b0;
             refill_top_remaining_q <= '0;
             refill_bottom_remaining_q <= '0;
+            rebalance_pending_q <= 1'b0;
           end
           REG_WINDOW1: begin
             for (int slot = 0; slot < 4; slot++)
@@ -496,6 +539,7 @@ module moe_scheduler_reg_wrapper
         refill_active_q <= 1'b0;
         refill_top_remaining_q <= '0;
         refill_bottom_remaining_q <= '0;
+        rebalance_pending_q <= 1'b0;
       end
 
       if (!refill_active_q && refill_request) begin
@@ -505,11 +549,15 @@ module moe_scheduler_reg_wrapper
       end
 
       if (remove_ready) begin
-        hot_q <= next_hot;
-        cold_q <= next_cold;
-        hot_count_q <= next_hot_count;
-        cold_count_q <= next_cold_count;
+        hot_q <= compact_hot;
+        cold_q <= compact_cold;
+        hot_count_q <= compact_hot_count;
+        cold_count_q <= compact_cold_count;
         active_count_q <= active_after_remove;
+        rebalance_pending_q <=
+            (hidden_after_remove == NR_W'(0)) &&
+            (compact_hot_count < desired_hot_after_remove) &&
+            (compact_cold_count != 3'd0);
         if (active_after_remove == NR_W'(0))
           auto_run_q <= 1'b0;
       end
@@ -517,6 +565,15 @@ module moe_scheduler_reg_wrapper
   end
 
 `ifndef SYNTHESIS
+  longint unsigned trace_cycle_q;
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni)
+      trace_cycle_q <= 0;
+    else
+      trace_cycle_q <= trace_cycle_q + 1;
+  end
+
   always_ff @(posedge clk_i) begin
     if (rst_ni) begin
       assert (hot_count_q <= 4'(HOT_CAPACITY));
@@ -534,9 +591,35 @@ module moe_scheduler_reg_wrapper
         assert (mmio_count != 3'd0);
         assert (4'(mmio_count) <= refill_remaining_count);
         assert (refill_bottom_take <= refill_bottom_remaining_q);
+        assert (refill_promote_take <= 3'd4);
+        assert ((refill_hot_after_append + 4'(refill_promote_take)) <=
+                4'(HOT_CAPACITY));
       end
       if (remove_ready)
         assert (remove_count inside {2'd1, 2'd2});
+      if (rebalance_pending_q)
+        assert (rebalance_take inside {3'd1, 3'd2});
+
+      if ($test$plusargs("MOE_SCHED_RTL_TRACE")) begin
+        if (core_init)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=wrapper event=INIT active=%0d",
+                   $realtime, trace_cycle_q, active_count_q);
+        if (core_start)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=wrapper event=CORE_START active=%0d fifo=%0d",
+                   $realtime, trace_cycle_q, active_count_q, task_count);
+        if (!refill_active_q && refill_request)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=wrapper event=REFILL_START top=%0d bottom=%0d hidden=%0d",
+                   $realtime, trace_cycle_q, refill_top_count,
+                   refill_bottom_count, hidden_count);
+        if (refill_write)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=wrapper event=REFILL_WRITE supplied=%0d remaining_before=%0d",
+                   $realtime, trace_cycle_q, mmio_count,
+                   refill_remaining_count);
+        if (refill_write && refill_active_q &&
+            (4'(mmio_count) == refill_remaining_count))
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=wrapper event=REFILL_DONE",
+                   $realtime, trace_cycle_q);
+      end
     end
   end
 `endif

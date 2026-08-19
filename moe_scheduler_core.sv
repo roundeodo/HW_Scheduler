@@ -74,6 +74,9 @@ module moe_scheduler_core (
   logic [1:0] round_remove_count;
   logic [EID_RAW_W-1:0] round_remove_eid_a;
   logic [EID_RAW_W-1:0] round_remove_eid_b;
+  logic [1:0] commit_remove_count_q;
+  logic [EID_RAW_W-1:0] commit_remove_eid_a_q;
+  logic [EID_RAW_W-1:0] commit_remove_eid_b_q;
   distilled_action_token_t round_token;
   distilled_score_record_t round_score;
 
@@ -370,6 +373,22 @@ module moe_scheduler_core (
     end
   end
 
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      commit_remove_count_q <= '0;
+      commit_remove_eid_a_q <= '0;
+      commit_remove_eid_b_q <= '0;
+    end else if (init_i) begin
+      commit_remove_count_q <= '0;
+      commit_remove_eid_a_q <= '0;
+      commit_remove_eid_b_q <= '0;
+    end else if ((st_q == ST_ROUND_WAIT) && round_done) begin
+      commit_remove_count_q <= round_remove_count;
+      commit_remove_eid_a_q <= round_remove_eid_a;
+      commit_remove_eid_b_q <= round_remove_eid_b;
+    end
+  end
+
   always_ff @(posedge clk_i) begin
     if ((st_q == ST_ROUND_WAIT) && round_done) begin
       commit_task_q[0] <= make_task_desc(round_plan.token[0],
@@ -401,6 +420,17 @@ module moe_scheduler_core (
   end
 
 `ifndef SYNTHESIS
+  longint unsigned trace_cycle_q;
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni)
+      trace_cycle_q <= 0;
+    else if (init_i)
+      trace_cycle_q <= 0;
+    else
+      trace_cycle_q <= trace_cycle_q + 1;
+  end
+
   always_ff @(posedge clk_i) begin
     if (rst_ni && !init_i) begin
       assert (task_count_q <= TASKQ_COUNT_W'(TASKQ_DEPTH));
@@ -413,14 +443,36 @@ module moe_scheduler_core (
       if (task_push && task_pop)
         assert (task_count_d == task_count_q);
       assert ((1 << TASKQ_PTR_W) == TASKQ_DEPTH);
+
+      if ($test$plusargs("MOE_SCHED_RTL_TRACE")) begin
+        if (round_start)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=core event=ROUND_START remaining=%0d fifo=%0d",
+                   $realtime, trace_cycle_q, counters_q.count, task_count_q);
+        if ((st_q == ST_ROUND_WAIT) && round_done)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=core event=ROUND_DONE remaining_before=%0d remove=%0d fifo=%0d",
+                   $realtime, trace_cycle_q, counters_q.count,
+                   round_remove_count, task_count_q);
+        if (remove_ready_i)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=core event=REMOVE_COMMIT remaining_before=%0d remove=%0d",
+                   $realtime, trace_cycle_q, counters_q.count,
+                   commit_remove_count_q);
+        if (task_push)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=core event=TASK_PUSH fifo_before=%0d fifo_after=%0d eid=%0d",
+                   $realtime, trace_cycle_q, task_count_q, task_count_d,
+                   task_push_entry.desc.eid);
+        if (task_pop)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=core event=TASK_POP fifo_before=%0d fifo_after=%0d eid=%0d",
+                   $realtime, trace_cycle_q, task_count_q, task_count_d,
+                   task_mem_q[task_head_q].desc.eid);
+      end
     end
   end
 `endif
 
   assign remove_valid_o = (st_q == ST_WAIT_REMOVE);
-  assign remove_count_o = round_remove_count;
-  assign remove_eid_a_o = round_remove_eid_a;
-  assign remove_eid_b_o = round_remove_eid_b;
+  assign remove_count_o = commit_remove_count_q;
+  assign remove_eid_a_o = commit_remove_eid_a_q;
+  assign remove_eid_b_o = commit_remove_eid_b_q;
   assign task_fifo_valid_o = (task_count_q != '0);
   assign task_fifo_read_data_o = packed_word;
   assign task_fifo_full_o = (task_count_q == TASKQ_COUNT_W'(TASKQ_DEPTH));

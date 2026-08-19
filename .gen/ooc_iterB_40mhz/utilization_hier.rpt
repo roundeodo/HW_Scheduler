@@ -1,0 +1,39 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Tue Aug 18 18:57:05 2026
+| Host         : amazone.esat.kuleuven.be running 64-bit Rocky Linux 9.8 (Blue Onyx)
+| Command      : report_utilization -hierarchical -file .gen/ooc_iterB_40mhz/utilization_hier.rpt
+| Design       : moe_scheduler_reg_wrapper
+| Device       : xcvp1802-lsvc4072-2MP-e-S
+| Speed File   : -2MP
+| Design State : Synthesized
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++-------------------------------+---------------------------------+------------+------------+---------+------+------+--------+--------+------+------------+
+|            Instance           |              Module             | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs | RAMB36 | RAMB18 | URAM | DSP Blocks |
++-------------------------------+---------------------------------+------------+------------+---------+------+------+--------+--------+------+------------+
+| moe_scheduler_reg_wrapper     |                           (top) |       7093 |       7093 |       0 |    0 | 1832 |      0 |      0 |    0 |          0 |
+|   (moe_scheduler_reg_wrapper) |                           (top) |         24 |         24 |       0 |    0 |  313 |      0 |      0 |    0 |          0 |
+|   i_scheduler_core            |              moe_scheduler_core |       7069 |       7069 |       0 |    0 | 1519 |      0 |      0 |    0 |          0 |
+|     (i_scheduler_core)        |              moe_scheduler_core |       2919 |       2919 |       0 |    0 |  797 |      0 |      0 |    0 |          0 |
+|     i_round_engine            |    sched_distilled_round_engine |       4150 |       4150 |       0 |    0 |  722 |      0 |      0 |    0 |          0 |
+|       (i_round_engine)        |    sched_distilled_round_engine |        348 |        348 |       0 |    0 |  294 |      0 |      0 |    0 |          0 |
+|       i_bandwidth_check       |           sched_bandwidth_check |        117 |        117 |       0 |    0 |    8 |      0 |      0 |    0 |          0 |
+|       i_bound_score           |     sched_distilled_bound_score |       1514 |       1514 |       0 |    0 |  144 |      0 |      0 |    0 |          0 |
+|       i_pair_compare          |    sched_distilled_pair_compare |        431 |        431 |       0 |    0 |   10 |      0 |      0 |    0 |          0 |
+|       i_start_iter            |      sched_distilled_start_iter |        447 |        447 |       0 |    0 |  122 |      0 |      0 |    0 |          0 |
+|       i_target_s4pf           |     sched_distilled_target_s4pf |        128 |        128 |       0 |    0 |    8 |      0 |      0 |    0 |          0 |
+|       i_transition_eval       | sched_distilled_transition_eval |       1165 |       1165 |       0 |    0 |  136 |      0 |      0 |    0 |          0 |
++-------------------------------+---------------------------------+------------+------------+---------+------+------+--------+--------+------+------------+
+
+

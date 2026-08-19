@@ -1,0 +1,32 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Tue Aug 18 20:47:50 2026
+| Host         : amazone.esat.kuleuven.be running 64-bit Rocky Linux 9.8 (Blue Onyx)
+| Command      : report_high_fanout_nets -fanout_greater_than 32 -timing -file .gen/ooc_iterF_eval_req_200mhz/high_fanout.rpt
+| Design       : moe_scheduler_reg_wrapper
+| Device       : xcvp1802
+| Design State : Synthesized
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+High Fan-out Nets Information
+
+1. Summary
+----------
+
++-------------------------------------------------------------------------------+--------+-------------+-----------------+-----------------+
+| Net Name                                                                      | Fanout | Driver Type | Worst Slack(ns) | Worst Delay(ns) |
++-------------------------------------------------------------------------------+--------+-------------+-----------------+-----------------+
+| i_scheduler_core/i_round_engine/i_transition_eval/rst_ni_0                    |   1467 | LUT1        |             inf |           0.227 |
+| i_scheduler_core/i_round_engine/i_transition_eval/reg_req_i[write]_1          |    819 | LUT6        |           2.278 |           0.145 |
+| i_scheduler_core/hot_q[8][eid][0]_i_4_n_0                                     |    274 | LUT6        |           1.335 |           0.145 |
+| i_scheduler_core/remove_ready                                                 |    258 | LUT4        |           2.865 |           0.145 |
+| i_scheduler_core/counters_q[0]                                                |    233 | LUT3        |           2.387 |           0.203 |
+| i_scheduler_core/i_round_engine/i_bound_score/compute_q_reg[12]_i_5_n_3       |    223 | LOOKAHEAD8  |           0.510 |           0.277 |
+| i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_1               |    177 | FDCE        |           1.994 |           0.182 |
+| i_scheduler_core/i_round_engine/i_transition_eval/c2_req_q_reg[valid]_rep_n_0 |    175 | FDCE        |           0.587 |           0.182 |
+| i_scheduler_core/i_round_engine/target_compare_phase                          |    174 | FDCE        |           0.801 |           0.253 |
+| i_scheduler_core/i_round_engine/i_transition_eval/FSM_sequential_st_q_reg[3]  |    173 | LUT6        |           1.758 |           0.210 |
++-------------------------------------------------------------------------------+--------+-------------+-----------------+-----------------+
+
+

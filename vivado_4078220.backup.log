@@ -1,0 +1,1224 @@
+#-----------------------------------------------------------
+# Vivado v2025.2 (64-bit)
+# SW Build 6299465 on Fri Nov 14 12:34:56 MST 2025
+# IP Build 6300035 on Fri Nov 14 10:48:45 MST 2025
+# SharedData Build 6298862 on Thu Nov 13 04:50:51 MST 2025
+# Start of session at: Tue Aug 18 19:07:37 2026
+# Process ID         : 4078220
+# Current directory  : /esat/studscratch/r1015673/Thesis/Scheduler_hw
+# Command line       : vivado -mode batch -source synth_distilled_ooc.tcl -tclargs .gen/ooc_iterC_200mhz 5.000
+# Log file           : /esat/studscratch/r1015673/Thesis/Scheduler_hw/vivado.log
+# Journal file       : /esat/studscratch/r1015673/Thesis/Scheduler_hw/vivado.jou
+# Running On         : amazone.esat.kuleuven.be
+# Platform           : RockyLinux
+# Operating System   : Rocky Linux 9.8 (Blue Onyx)
+# Processor Detail   : Intel(R) Xeon(R) CPU E5-2690 v3 @ 2.60GHz
+# CPU Frequency      : 3000.312 MHz
+# CPU Physical cores : 24
+# CPU Logical cores  : 48
+# Host memory        : 388195 MB
+# Swap memory        : 68719 MB
+# Total Virtual      : 456914 MB
+# Available Virtual  : 431360 MB
+#-----------------------------------------------------------
+source synth_distilled_ooc.tcl
+# set output_dir [expr {$argc > 0 ? [lindex $argv 0] : "/tmp/scheduler_distilled_ooc"}]
+# set clock_period [expr {$argc > 1 ? [lindex $argv 1] : 25.000}]
+# file mkdir $output_dir
+# set scheduler_dir [file dirname [file normalize [info script]]]
+# set sources [list \
+#   $scheduler_dir/sched_pkg.sv \
+#   $scheduler_dir/sched_distilled_pkg.sv \
+#   $scheduler_dir/sched_distilled_profile_decode.sv \
+#   $scheduler_dir/sched_distilled_timeline.sv \
+#   $scheduler_dir/sched_bandwidth_check.sv \
+#   $scheduler_dir/sched_distilled_transition_eval.sv \
+#   $scheduler_dir/sched_distilled_bound_score.sv \
+#   $scheduler_dir/sched_distilled_pair_compare.sv \
+#   $scheduler_dir/sched_distilled_regime_classify.sv \
+#   $scheduler_dir/sched_distilled_start_iter.sv \
+#   $scheduler_dir/sched_distilled_target_s4pf.sv \
+#   $scheduler_dir/sched_distilled_round_engine.sv \
+#   $scheduler_dir/sched_task_word_pack.sv \
+#   $scheduler_dir/moe_scheduler_core.sv \
+#   $scheduler_dir/moe_scheduler_reg_wrapper.sv]
+# read_verilog -sv $sources
+# set clock_xdc $output_dir/scheduler_clock.xdc
+# set clock_xdc_fd [open $clock_xdc w]
+# puts $clock_xdc_fd "create_clock -name scheduler_clk -period $clock_period \[get_ports clk_i\]"
+# close $clock_xdc_fd
+# read_xdc $clock_xdc
+# synth_design -top moe_scheduler_reg_wrapper \
+#   -part xcvp1802-lsvc4072-2MP-e-S -mode out_of_context \
+#   -flatten_hierarchy rebuilt
+Command: synth_design -top moe_scheduler_reg_wrapper -part xcvp1802-lsvc4072-2MP-e-S -mode out_of_context -flatten_hierarchy rebuilt
+Starting synth_design
+Attempting to get a license for feature 'Synthesis' and/or device 'xcvp1802'
+INFO: [Common 17-349] Got license for feature 'Synthesis' and/or device 'xcvp1802'
+INFO: [Device 21-403] Loading part xcvp1802-lsvc4072-2MP-e-S
+INFO: [Synth 8-7079] Multithreading enabled for synth_design using a maximum of 7 processes.
+INFO: [Synth 8-7078] Launching helper process for spawning children vivado processes
+INFO: [Synth 8-7075] Helper process launched with PID 4078622
+---------------------------------------------------------------------------------
+Starting RTL Elaboration : Time (s): cpu = 00:00:05 ; elapsed = 00:00:05 . Memory (MB): peak = 3935.941 ; gain = 123.688 ; free physical = 322496 ; free virtual = 408879
+---------------------------------------------------------------------------------
+INFO: [Synth 8-6157] synthesizing module 'moe_scheduler_reg_wrapper' [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_reg_wrapper.sv:18]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_reg_wrapper.sv:85]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_reg_wrapper.sv:446]
+INFO: [Synth 8-6157] synthesizing module 'moe_scheduler_core' [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:7]
+INFO: [Synth 8-6157] synthesizing module 'sched_distilled_round_engine' [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_round_engine.sv:7]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_pkg.sv:327]
+INFO: [Synth 8-6157] synthesizing module 'sched_distilled_profile_decode' [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_profile_decode.sv:7]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_profile_decode.sv:15]
+INFO: [Synth 8-6155] done synthesizing module 'sched_distilled_profile_decode' (0#1) [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_profile_decode.sv:7]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_round_engine.sv:168]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_round_engine.sv:227]
+INFO: [Synth 8-6157] synthesizing module 'sched_distilled_start_iter' [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_start_iter.sv:7]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_start_iter.sv:87]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:113]
+INFO: [Synth 8-226] default block is never used [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:113]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_start_iter.sv:111]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_start_iter.sv:179]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_start_iter.sv:198]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_start_iter.sv:260]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:122]
+INFO: [Synth 8-226] default block is never used [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:122]
+INFO: [Synth 8-6155] done synthesizing module 'sched_distilled_start_iter' (0#1) [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_start_iter.sv:7]
+INFO: [Synth 8-6157] synthesizing module 'sched_distilled_transition_eval' [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_transition_eval.sv:7]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_transition_eval.sv:149]
+INFO: [Synth 8-6157] synthesizing module 'sched_distilled_timeline' [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_timeline.sv:9]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_timeline.sv:35]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_timeline.sv:49]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:113]
+INFO: [Synth 8-226] default block is never used [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:113]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:122]
+INFO: [Synth 8-226] default block is never used [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:122]
+INFO: [Synth 8-6155] done synthesizing module 'sched_distilled_timeline' (0#1) [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_timeline.sv:9]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:122]
+INFO: [Synth 8-226] default block is never used [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:122]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_transition_eval.sv:279]
+INFO: [Synth 8-6155] done synthesizing module 'sched_distilled_transition_eval' (0#1) [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_transition_eval.sv:7]
+INFO: [Synth 8-6157] synthesizing module 'sched_distilled_target_s4pf' [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_target_s4pf.sv:7]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_target_s4pf.sv:110]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:122]
+INFO: [Synth 8-226] default block is never used [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:122]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_target_s4pf.sv:131]
+INFO: [Synth 8-6155] done synthesizing module 'sched_distilled_target_s4pf' (0#1) [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_target_s4pf.sv:7]
+INFO: [Synth 8-6157] synthesizing module 'sched_bandwidth_check' [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_bandwidth_check.sv:13]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:104]
+INFO: [Synth 8-226] default block is never used [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:104]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_bandwidth_check.sv:145]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_bandwidth_check.sv:114]
+INFO: [Synth 8-6155] done synthesizing module 'sched_bandwidth_check' (0#1) [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_bandwidth_check.sv:13]
+INFO: [Synth 8-6157] synthesizing module 'sched_distilled_bound_score' [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_bound_score.sv:7]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:122]
+INFO: [Synth 8-226] default block is never used [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_pkg.sv:122]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_bound_score.sv:295]
+INFO: [Synth 8-6155] done synthesizing module 'sched_distilled_bound_score' (0#1) [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_bound_score.sv:7]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_round_engine.sv:183]
+INFO: [Synth 8-6157] synthesizing module 'sched_distilled_regime_classify' [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_regime_classify.sv:7]
+INFO: [Synth 8-6155] done synthesizing module 'sched_distilled_regime_classify' (0#1) [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_regime_classify.sv:7]
+INFO: [Synth 8-6157] synthesizing module 'sched_distilled_pair_compare' [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_pair_compare.sv:7]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_pair_compare.sv:178]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_pair_compare.sv:86]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_pair_compare.sv:88]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_pair_compare.sv:132]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_pair_compare.sv:151]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_pair_compare.sv:192]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_pair_compare.sv:208]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_pair_compare.sv:210]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_pair_compare.sv:264]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_pair_compare.sv:289]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_pair_compare.sv:334]
+INFO: [Synth 8-6155] done synthesizing module 'sched_distilled_pair_compare' (0#1) [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_pair_compare.sv:7]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_round_engine.sv:597]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_pkg.sv:316]
+INFO: [Synth 8-6155] done synthesizing module 'sched_distilled_round_engine' (0#1) [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_round_engine.sv:7]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:197]
+INFO: [Synth 8-6157] synthesizing module 'sched_task_word_pack' [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_task_word_pack.sv:12]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_task_word_pack.sv:33]
+INFO: [Synth 8-6155] done synthesizing module 'sched_task_word_pack' (0#1) [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_task_word_pack.sv:12]
+INFO: [Synth 8-294] found qualifier unique on case statement: implementing as parallel_case [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:247]
+INFO: [Synth 8-6155] done synthesizing module 'moe_scheduler_core' (0#1) [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:7]
+INFO: [Synth 8-6155] done synthesizing module 'moe_scheduler_reg_wrapper' (0#1) [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_reg_wrapper.sv:18]
+WARNING: [Synth 8-3936] Found unconnected internal register 'crossing_quotient_reg' and it is trimmed from '15' to '8' bits. [/esat/studscratch/r1015673/Thesis/Scheduler_hw/sched_distilled_bound_score.sv:184]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[0][desc][cluster] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[0][desc][eid] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[0][desc][ntok] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[0][desc][tok_start] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[0][desc][shape_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[0][desc][shape_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[0][desc][skip_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[0][desc][skip_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[0][desc][has_s2pf] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[0][desc][dma_s1_both] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[0][desc][dma_late_both] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[0][local_slot] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[0][s4pf_desc] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[1][desc][cluster] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[1][desc][eid] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[1][desc][ntok] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[1][desc][tok_start] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[1][desc][shape_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[1][desc][shape_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[1][desc][skip_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[1][desc][skip_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[1][desc][has_s2pf] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[1][desc][dma_s1_both] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[1][desc][dma_late_both] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[1][local_slot] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[1][s4pf_desc] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[2][desc][cluster] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[2][desc][eid] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[2][desc][ntok] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[2][desc][tok_start] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[2][desc][shape_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[2][desc][shape_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[2][desc][skip_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[2][desc][skip_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[2][desc][has_s2pf] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[2][desc][dma_s1_both] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[2][desc][dma_late_both] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[2][local_slot] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[2][s4pf_desc] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[3][desc][cluster] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[3][desc][eid] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[3][desc][ntok] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[3][desc][tok_start] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[3][desc][shape_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[3][desc][shape_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[3][desc][skip_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[3][desc][skip_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[3][desc][has_s2pf] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[3][desc][dma_s1_both] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[3][desc][dma_late_both] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[3][local_slot] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[3][s4pf_desc] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[4][desc][cluster] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[4][desc][eid] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[4][desc][ntok] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[4][desc][tok_start] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[4][desc][shape_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[4][desc][shape_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[4][desc][skip_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[4][desc][skip_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[4][desc][has_s2pf] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[4][desc][dma_s1_both] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[4][desc][dma_late_both] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[4][local_slot] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[4][s4pf_desc] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[5][desc][cluster] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[5][desc][eid] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[5][desc][ntok] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[5][desc][tok_start] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[5][desc][shape_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[5][desc][shape_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[5][desc][skip_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[5][desc][skip_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[5][desc][has_s2pf] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[5][desc][dma_s1_both] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[5][desc][dma_late_both] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[5][local_slot] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[5][s4pf_desc] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[6][desc][cluster] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[6][desc][eid] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[6][desc][ntok] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[6][desc][tok_start] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[6][desc][shape_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[6][desc][shape_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[6][desc][skip_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[6][desc][skip_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[6][desc][has_s2pf] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[6][desc][dma_s1_both] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[6][desc][dma_late_both] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[6][local_slot] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[6][s4pf_desc] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[7][desc][cluster] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[7][desc][eid] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[7][desc][ntok] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[7][desc][tok_start] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[7][desc][shape_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[7][desc][shape_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[7][desc][skip_s1] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[7][desc][skip_s3] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+WARNING: [Synth 8-7137] Register task_mem_q_reg[7][desc][has_s2pf] in module moe_scheduler_core has both Set and reset with same priority. This may cause simulation mismatches. Consider rewriting code  [/esat/studscratch/r1015673/Thesis/Scheduler_hw/moe_scheduler_core.sv:218]
+INFO: [Common 17-14] Message 'Synth 8-7137' appears 100 times and further instances of the messages will be disabled. Use the Tcl command set_msg_config to change the current settings.
+WARNING: [Synth 8-3917] design moe_scheduler_reg_wrapper has port reg_rsp_o[error] driven by constant 0
+WARNING: [Synth 8-7129] Port profile_i[profile_slot][4] in module sched_distilled_transition_eval is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[profile_slot][3] in module sched_distilled_transition_eval is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[profile_slot][2] in module sched_distilled_transition_eval is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[profile_slot][1] in module sched_distilled_transition_eval is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[profile_slot][0] in module sched_distilled_transition_eval is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[logical_id][2] in module sched_distilled_transition_eval is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[logical_id][1] in module sched_distilled_transition_eval is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[logical_id][0] in module sched_distilled_transition_eval is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[logical_last] in module sched_distilled_transition_eval is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[selector_a][2] in module sched_distilled_transition_eval is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[selector_a][1] in module sched_distilled_transition_eval is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[selector_a][0] in module sched_distilled_transition_eval is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[selector_b][2] in module sched_distilled_transition_eval is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[selector_b][1] in module sched_distilled_transition_eval is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[selector_b][0] in module sched_distilled_transition_eval is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[profile_slot][4] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[profile_slot][3] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[profile_slot][2] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[profile_slot][1] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[profile_slot][0] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[logical_id][2] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[logical_id][1] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[logical_id][0] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[logical_last] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[family][1] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[family][0] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[selector_a][2] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[selector_a][1] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[selector_a][0] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[selector_b][2] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[selector_b][1] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[selector_b][0] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[split_balanced] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[c2_shape_s3][1] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[c2_shape_s3][0] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[c3_shape_s3][1] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port profile_i[c3_shape_s3][0] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[cur_valid] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[task_start][12] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[task_start][11] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[task_start][10] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[task_start][9] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[task_start][8] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[task_start][7] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[task_start][6] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[task_start][5] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[task_start][4] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[task_start][3] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[task_start][2] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[task_start][1] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[task_start][0] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma1_end][12] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma1_end][11] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma1_end][10] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma1_end][9] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma1_end][8] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma1_end][7] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma1_end][6] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma1_end][5] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma1_end][4] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma1_end][3] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma1_end][2] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma1_end][1] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma1_end][0] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[s2_end][12] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[s2_end][11] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[s2_end][10] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[s2_end][9] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[s2_end][8] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[s2_end][7] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[s2_end][6] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[s2_end][5] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[s2_end][4] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[s2_end][3] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[s2_end][2] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[s2_end][1] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[s2_end][0] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma3_end][12] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma3_end][11] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma3_end][10] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma3_end][9] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma3_end][8] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma3_end][7] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma3_end][6] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma3_end][5] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma3_end][4] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma3_end][3] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma3_end][2] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma3_end][1] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma3_end][0] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma_s1][1] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma_s1][0] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma_s3][1] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[dma_s3][0] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[s2pf_dma][1] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port own_i[s2pf_dma][0] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port peer_i[s2_end][12] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port peer_i[s2_end][11] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port peer_i[s2_end][10] in module sched_distilled_start_iter is either unconnected or has no load
+WARNING: [Synth 8-7129] Port peer_i[s2_end][9] in module sched_distilled_start_iter is either unconnected or has no load
+INFO: [Common 17-14] Message 'Synth 8-7129' appears 100 times and further instances of the messages will be disabled. Use the Tcl command set_msg_config to change the current settings.
+---------------------------------------------------------------------------------
+Finished RTL Elaboration : Time (s): cpu = 00:00:11 ; elapsed = 00:00:12 . Memory (MB): peak = 4184.480 ; gain = 372.227 ; free physical = 322183 ; free virtual = 408569
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Handling Custom Attributes
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Handling Custom Attributes : Time (s): cpu = 00:00:12 ; elapsed = 00:00:13 . Memory (MB): peak = 4184.480 ; gain = 372.227 ; free physical = 322184 ; free virtual = 408570
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished RTL Optimization Phase 1 : Time (s): cpu = 00:00:12 ; elapsed = 00:00:13 . Memory (MB): peak = 4184.480 ; gain = 372.227 ; free physical = 322184 ; free virtual = 408570
+---------------------------------------------------------------------------------
+Netlist sorting complete. Time (s): cpu = 00:00:00.09 ; elapsed = 00:00:00.09 . Memory (MB): peak = 4184.480 ; gain = 0.000 ; free physical = 322184 ; free virtual = 408570
+INFO: [IP_Flow 19-234] Refreshing IP repositories
+INFO: [IP_Flow 19-1704] No user IP repositories specified
+INFO: [IP_Flow 19-2313] Loaded Vivado IP repository '/esat/micas-data/software/Xilinx/vitis_2025.2/2025.2/data/ip'.
+INFO: [Constraints 18-5720] The default GCLK Deskew mode is Off.
+INFO: [Device 21-9335] Optimized delay calculation is enabled for this device.
+INFO: [Constraints 18-13227] Created floorplan with Advanced Flow Feature Set
+INFO: [Project 1-570] Preparing netlist for logic optimization
+
+Processing XDC Constraints
+Initializing timing engine
+Parsing XDC File [/esat/studscratch/r1015673/Thesis/Scheduler_hw/.gen/ooc_iterC_200mhz/scheduler_clock.xdc]
+create_clock: Time (s): cpu = 00:00:13 ; elapsed = 00:00:13 . Memory (MB): peak = 4546.465 ; gain = 106.562 ; free physical = 321935 ; free virtual = 408321
+Finished Parsing XDC File [/esat/studscratch/r1015673/Thesis/Scheduler_hw/.gen/ooc_iterC_200mhz/scheduler_clock.xdc]
+Completed Processing XDC Constraints
+
+INFO: [Ipconfig 75-709] Read and Merge Traffic Stats:  Before Read: 0 insts (0 INI), 0 paths (0 INI). Read In: 0 insts (0 INI), 0 paths (0 INI). After Merge: 0 insts (0 INI), 0 paths (0 INI). 0 error slaves
+INFO: [Ipconfig 75-709] Read and Merge Traffic Stats:  Before Read: 0 insts (0 INI), 0 paths (0 INI). Read In: 8 insts (0 INI), 12 paths (0 INI). After Merge: 8 insts (0 INI), 12 paths (0 INI). 0 error slaves
+Netlist sorting complete. Time (s): cpu = 00:00:00 ; elapsed = 00:00:00 . Memory (MB): peak = 4560.340 ; gain = 0.000 ; free physical = 321925 ; free virtual = 408311
+INFO: [Project 1-111] Unisim Transformation Summary:
+No Unisim elements were transformed.
+
+validate_noc  -part xcvp1802-lsvc4072-2MP-e-S -no_compile 
+INFO: [Vivado 12-29114] Run validate_noc command, to invoke NoC compiler, catch the DRC at design entry & populate the project level NoC view
+Constraint Validation Runtime : Time (s): cpu = 00:00:00.09 ; elapsed = 00:00:00.05 . Memory (MB): peak = 4572.215 ; gain = 0.000 ; free physical = 321924 ; free virtual = 408310
+---------------------------------------------------------------------------------
+Finished Constraint Validation : Time (s): cpu = 00:00:38 ; elapsed = 00:00:40 . Memory (MB): peak = 4572.215 ; gain = 759.961 ; free physical = 321940 ; free virtual = 408327
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Loading Part and Timing Information
+---------------------------------------------------------------------------------
+Loading part: xcvp1802-lsvc4072-2MP-e-S
+INFO: [Synth 8-6742] Reading net delay rules and data
+---------------------------------------------------------------------------------
+Finished Loading Part and Timing Information : Time (s): cpu = 00:00:38 ; elapsed = 00:00:40 . Memory (MB): peak = 4580.219 ; gain = 767.965 ; free physical = 321940 ; free virtual = 408327
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Applying 'set_property' XDC Constraints
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished applying 'set_property' XDC Constraints : Time (s): cpu = 00:00:38 ; elapsed = 00:00:40 . Memory (MB): peak = 4580.219 ; gain = 767.965 ; free physical = 321930 ; free virtual = 408317
+---------------------------------------------------------------------------------
+INFO: [Synth 8-802] inferred FSM for state register 'st_q_reg' in module 'sched_distilled_start_iter'
+INFO: [Synth 8-802] inferred FSM for state register 'st_q_reg' in module 'sched_distilled_transition_eval'
+INFO: [Synth 8-802] inferred FSM for state register 'st_q_reg' in module 'sched_distilled_target_s4pf'
+INFO: [Synth 8-802] inferred FSM for state register 'st_q_reg' in module 'sched_distilled_bound_score'
+INFO: [Synth 8-802] inferred FSM for state register 'st_q_reg' in module 'sched_distilled_pair_compare'
+INFO: [Synth 8-802] inferred FSM for state register 'st_q_reg' in module 'sched_distilled_round_engine'
+INFO: [Synth 8-802] inferred FSM for state register 'st_q_reg' in module 'moe_scheduler_core'
+---------------------------------------------------------------------------------------------------
+                   State |                     New Encoding |                Previous Encoding 
+---------------------------------------------------------------------------------------------------
+                 ST_IDLE |                            00001 |                              000
+               ST_DIRECT |                            00010 |                              001
+                 ST_SCAN |                            01000 |                              010
+                 ST_EMIT |                            10000 |                              011
+                 ST_DONE |                            00100 |                              100
+---------------------------------------------------------------------------------------------------
+INFO: [Synth 8-3354] encoded FSM with state register 'st_q_reg' using encoding 'one-hot' in module 'sched_distilled_start_iter'
+---------------------------------------------------------------------------------------------------
+                   State |                     New Encoding |                Previous Encoding 
+---------------------------------------------------------------------------------------------------
+                 ST_IDLE |                              000 |                              000
+             ST_BUILD_C2 |                              001 |                              001
+             ST_BUILD_C3 |                              010 |                              010
+           ST_GAIN_CHECK |                              011 |                              011
+             ST_BW_START |                              100 |                              100
+              ST_BW_WAIT |                              101 |                              101
+                 ST_DONE |                              110 |                              110
+---------------------------------------------------------------------------------------------------
+INFO: [Synth 8-3354] encoded FSM with state register 'st_q_reg' using encoding 'sequential' in module 'sched_distilled_transition_eval'
+---------------------------------------------------------------------------------------------------
+                   State |                     New Encoding |                Previous Encoding 
+---------------------------------------------------------------------------------------------------
+                 ST_IDLE |                             0000 |                             0000
+       ST_C2_LOCAL_START |                             0001 |                             0001
+        ST_C2_LOCAL_WAIT |                             0010 |                             0010
+        ST_C2_BOTH_START |                             0011 |                             0011
+         ST_C2_BOTH_WAIT |                             0100 |                             0100
+       ST_C3_LOCAL_START |                             0101 |                             0101
+        ST_C3_LOCAL_WAIT |                             0110 |                             0110
+        ST_C3_BOTH_START |                             0111 |                             0111
+         ST_C3_BOTH_WAIT |                             1000 |                             1000
+                 ST_DONE |                             1001 |                             1001
+---------------------------------------------------------------------------------------------------
+INFO: [Synth 8-3354] encoded FSM with state register 'st_q_reg' using encoding 'sequential' in module 'sched_distilled_target_s4pf'
+---------------------------------------------------------------------------------------------------
+                   State |                     New Encoding |                Previous Encoding 
+---------------------------------------------------------------------------------------------------
+                 ST_IDLE |                             0000 |                             0000
+           ST_BASE_BOUND |                             0001 |                             0001
+               ST_H_HEAD |                             0010 |                             0010
+               ST_H_HIST |                             0011 |                             0011
+           ST_H_OVERFLOW |                             0100 |                             0100
+               ST_D_INIT |                             0101 |                             0101
+               ST_D_SCAN |                             0110 |                             0110
+              ST_D_APPLY |                             0111 |                             0111
+               ST_FINISH |                             1000 |                             1000
+                 ST_DONE |                             1001 |                             1001
+---------------------------------------------------------------------------------------------------
+INFO: [Synth 8-3354] encoded FSM with state register 'st_q_reg' using encoding 'sequential' in module 'sched_distilled_bound_score'
+---------------------------------------------------------------------------------------------------
+                   State |                     New Encoding |                Previous Encoding 
+---------------------------------------------------------------------------------------------------
+                 ST_IDLE |                              000 |                              000
+                 ST_BASE |                              001 |                              001
+             ST_PROGRESS |                              010 |                              010
+              ST_HOTSPOT |                              011 |                              011
+             ST_OVERRIDE |                              100 |                              100
+                 ST_DONE |                              101 |                              101
+---------------------------------------------------------------------------------------------------
+INFO: [Synth 8-3354] encoded FSM with state register 'st_q_reg' using encoding 'sequential' in module 'sched_distilled_pair_compare'
+---------------------------------------------------------------------------------------------------
+                   State |                     New Encoding |                Previous Encoding 
+---------------------------------------------------------------------------------------------------
+                 ST_IDLE |               000000010000000000 |                            00000
+        ST_PROFILE_SETUP |               000000000000000010 |                            00001
+            ST_EVAL_WAIT |               000000000001000000 |                            00011
+              ST_S4_WAIT |               000000000010000000 |                            00100
+    ST_TARGET_EVAL_START |               010000000000000000 |                            00110
+     ST_TARGET_EVAL_WAIT |               000100000000000000 |                            00111
+    ST_TARGET_START_WAIT |               001000000000000000 |                            00101
+           ST_START_WAIT |               000000001000000000 |                            00010
+          ST_NEXT_ACTION |               000000000100000000 |                            01000
+   ST_SCORE_BYPASS_START |               000001000000000000 |                            01011
+     ST_SCORE_EVAL_START |               100000000000000000 |                            01001
+      ST_SCORE_EVAL_WAIT |               000010000000000000 |                            01010
+           ST_BOUND_WAIT |               000000000000100000 |                            01100
+         ST_COMPARE_WAIT |               000000000000010000 |                            01101
+           ST_SCORE_NEXT |               000000000000000001 |                            01110
+ ST_COMMIT_REBUILD_START |               000000000000001000 |                            01111
+  ST_COMMIT_REBUILD_WAIT |               000000100000000000 |                            10000
+                 ST_DONE |               000000000000000100 |                            10001
+---------------------------------------------------------------------------------------------------
+INFO: [Synth 8-3354] encoded FSM with state register 'st_q_reg' using encoding 'one-hot' in module 'sched_distilled_round_engine'
+---------------------------------------------------------------------------------------------------
+                   State |                     New Encoding |                Previous Encoding 
+---------------------------------------------------------------------------------------------------
+                 ST_IDLE |                        000000001 |                             0000
+          ST_ROUND_START |                        000000010 |                             0001
+           ST_ROUND_WAIT |                        000000100 |                             0010
+          ST_WAIT_REMOVE |                        000001000 |                             0011
+        ST_EMIT_PREVIOUS |                        000010000 |                             0100
+        ST_STORE_CURRENT |                        000100000 |                             0101
+         ST_COMMIT_STATE |                        001000000 |                             0110
+             ST_FLUSH_C2 |                        010000000 |                             0111
+             ST_FLUSH_C3 |                        100000000 |                             1000
+---------------------------------------------------------------------------------------------------
+INFO: [Synth 8-3354] encoded FSM with state register 'st_q_reg' using encoding 'one-hot' in module 'moe_scheduler_core'
+---------------------------------------------------------------------------------
+Finished RTL Optimization Phase 2 : Time (s): cpu = 00:00:45 ; elapsed = 00:00:47 . Memory (MB): peak = 4580.219 ; gain = 767.965 ; free physical = 321951 ; free virtual = 408340
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start RTL Component Statistics 
+---------------------------------------------------------------------------------
+Detailed RTL Component Info : 
++---Adders : 
+	   2 Input   15 Bit       Adders := 1     
+	   4 Input   15 Bit       Adders := 1     
+	   3 Input   15 Bit       Adders := 2     
+	   3 Input   14 Bit       Adders := 11    
+	   2 Input   14 Bit       Adders := 4     
+	   2 Input   13 Bit       Adders := 23    
+	   3 Input   13 Bit       Adders := 12    
+	   4 Input   13 Bit       Adders := 3     
+	   5 Input   13 Bit       Adders := 1     
+	   3 Input   12 Bit       Adders := 1     
+	   2 Input   11 Bit       Adders := 4     
+	   3 Input   11 Bit       Adders := 1     
+	   2 Input   10 Bit       Adders := 1     
+	   2 Input    9 Bit       Adders := 8     
+	   3 Input    9 Bit       Adders := 1     
+	   4 Input    9 Bit       Adders := 1     
+	   4 Input    8 Bit       Adders := 3     
+	   2 Input    8 Bit       Adders := 1     
+	   3 Input    7 Bit       Adders := 6     
+	   2 Input    7 Bit       Adders := 7     
+	   4 Input    7 Bit       Adders := 2     
+	   2 Input    6 Bit       Adders := 2     
+	   2 Input    5 Bit       Adders := 4     
+	   3 Input    5 Bit       Adders := 1     
+	   2 Input    4 Bit       Adders := 7     
+	   3 Input    4 Bit       Adders := 4     
+	   4 Input    4 Bit       Adders := 1     
+	   5 Input    4 Bit       Adders := 2     
+	   6 Input    4 Bit       Adders := 2     
+	   7 Input    4 Bit       Adders := 2     
+	   8 Input    4 Bit       Adders := 2     
+	   9 Input    4 Bit       Adders := 2     
+	   2 Input    3 Bit       Adders := 12    
+	   3 Input    3 Bit       Adders := 9     
+	   5 Input    3 Bit       Adders := 2     
+	   6 Input    3 Bit       Adders := 1     
+	   7 Input    3 Bit       Adders := 1     
+	   8 Input    3 Bit       Adders := 1     
+	   9 Input    3 Bit       Adders := 1     
+	   4 Input    3 Bit       Adders := 3     
+	  10 Input    3 Bit       Adders := 1     
+	   2 Input    2 Bit       Adders := 7     
+	   3 Input    2 Bit       Adders := 1     
+	   4 Input    2 Bit       Adders := 1     
+	   2 Input    1 Bit       Adders := 1     
++---XORs : 
+	   3 Input     15 Bit         XORs := 1     
+	   2 Input      1 Bit         XORs := 2     
++---Registers : 
+	               33 Bit    Registers := 1     
+	               14 Bit    Registers := 10    
+	               13 Bit    Registers := 39    
+	               10 Bit    Registers := 1     
+	                9 Bit    Registers := 30    
+	                8 Bit    Registers := 22    
+	                7 Bit    Registers := 17    
+	                6 Bit    Registers := 42    
+	                5 Bit    Registers := 5     
+	                4 Bit    Registers := 3     
+	                3 Bit    Registers := 9     
+	                2 Bit    Registers := 49    
+	                1 Bit    Registers := 118   
++---Muxes : 
+	   2 Input   64 Bit        Muxes := 1     
+	   3 Input   64 Bit        Muxes := 1     
+	   2 Input   33 Bit        Muxes := 4     
+	   2 Input   30 Bit        Muxes := 1     
+	  47 Input   18 Bit        Muxes := 1     
+	   2 Input   14 Bit        Muxes := 42    
+	   3 Input   14 Bit        Muxes := 3     
+	   4 Input   14 Bit        Muxes := 4     
+	  10 Input   14 Bit        Muxes := 5     
+	  17 Input   14 Bit        Muxes := 6     
+	   2 Input   13 Bit        Muxes := 128   
+	   3 Input   13 Bit        Muxes := 2     
+	   5 Input   13 Bit        Muxes := 5     
+	   4 Input   13 Bit        Muxes := 2     
+	  10 Input   13 Bit        Muxes := 4     
+	  17 Input   13 Bit        Muxes := 8     
+	   2 Input   11 Bit        Muxes := 3     
+	  10 Input   11 Bit        Muxes := 2     
+	   2 Input   10 Bit        Muxes := 5     
+	  17 Input   10 Bit        Muxes := 1     
+	   2 Input    9 Bit        Muxes := 359   
+	   4 Input    9 Bit        Muxes := 3     
+	  10 Input    9 Bit        Muxes := 1     
+	  17 Input    9 Bit        Muxes := 1     
+	  14 Input    9 Bit        Muxes := 1     
+	   8 Input    9 Bit        Muxes := 5     
+	   4 Input    8 Bit        Muxes := 5     
+	   2 Input    8 Bit        Muxes := 11    
+	   4 Input    7 Bit        Muxes := 4     
+	   2 Input    7 Bit        Muxes := 38    
+	  10 Input    7 Bit        Muxes := 8     
+	   7 Input    7 Bit        Muxes := 2     
+	  17 Input    7 Bit        Muxes := 3     
+	   2 Input    6 Bit        Muxes := 354   
+	   4 Input    6 Bit        Muxes := 5     
+	   8 Input    6 Bit        Muxes := 5     
+	   2 Input    5 Bit        Muxes := 17    
+	   5 Input    5 Bit        Muxes := 1     
+	  11 Input    5 Bit        Muxes := 1     
+	   4 Input    5 Bit        Muxes := 1     
+	  17 Input    5 Bit        Muxes := 4     
+	  18 Input    5 Bit        Muxes := 1     
+	   2 Input    4 Bit        Muxes := 26    
+	  27 Input    4 Bit        Muxes := 1     
+	  17 Input    4 Bit        Muxes := 1     
+	   4 Input    4 Bit        Muxes := 2     
+	   6 Input    4 Bit        Muxes := 1     
+	   3 Input    4 Bit        Muxes := 1     
+	   9 Input    4 Bit        Muxes := 1     
+	   8 Input    4 Bit        Muxes := 1     
+	  29 Input    3 Bit        Muxes := 3     
+	   5 Input    3 Bit        Muxes := 5     
+	   2 Input    3 Bit        Muxes := 53    
+	   4 Input    3 Bit        Muxes := 1     
+	  21 Input    3 Bit        Muxes := 1     
+	   3 Input    3 Bit        Muxes := 8     
+	  10 Input    3 Bit        Muxes := 2     
+	  12 Input    3 Bit        Muxes := 1     
+	   6 Input    3 Bit        Muxes := 1     
+	   8 Input    3 Bit        Muxes := 3     
+	  29 Input    2 Bit        Muxes := 3     
+	   2 Input    2 Bit        Muxes := 97    
+	   3 Input    2 Bit        Muxes := 11    
+	   4 Input    2 Bit        Muxes := 6     
+	  10 Input    2 Bit        Muxes := 8     
+	   5 Input    2 Bit        Muxes := 4     
+	  17 Input    2 Bit        Muxes := 10    
+	   9 Input    2 Bit        Muxes := 2     
+	  29 Input    1 Bit        Muxes := 1     
+	   2 Input    1 Bit        Muxes := 1029  
+	   3 Input    1 Bit        Muxes := 5     
+	   5 Input    1 Bit        Muxes := 10    
+	   4 Input    1 Bit        Muxes := 16    
+	   7 Input    1 Bit        Muxes := 6     
+	  10 Input    1 Bit        Muxes := 23    
+	  13 Input    1 Bit        Muxes := 1     
+	   9 Input    1 Bit        Muxes := 12    
+	   6 Input    1 Bit        Muxes := 13    
+	  17 Input    1 Bit        Muxes := 30    
+	   8 Input    1 Bit        Muxes := 40    
+---------------------------------------------------------------------------------
+Finished RTL Component Statistics 
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Part Resource Summary
+---------------------------------------------------------------------------------
+Part Resources:
+DSPs: 14352 (col length:149)
+BRAMs: 9882 (col length: RAMB18 600 RAMB36 300)
+---------------------------------------------------------------------------------
+Finished Part Resource Summary
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Cross Boundary and Area Optimization
+---------------------------------------------------------------------------------
+WARNING: [Synth 8-3917] design moe_scheduler_reg_wrapper has port reg_rsp_o[error] driven by constant 0
+---------------------------------------------------------------------------------
+Finished Cross Boundary and Area Optimization : Time (s): cpu = 00:02:11 ; elapsed = 00:02:15 . Memory (MB): peak = 4892.180 ; gain = 1079.926 ; free physical = 321647 ; free virtual = 408037
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start ROM, RAM, DSP, Shift Register and Retiming Reporting
+---------------------------------------------------------------------------------
+
+ROM: Preliminary Mapping Report
++-------------------------------+------------+---------------+----------------+
+|Module Name                    | RTL Object | Depth x Width | Implemented As | 
++-------------------------------+------------+---------------+----------------+
+|sched_distilled_profile_decode | profile_o  | 32x5          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x1          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x1          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x1          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x2          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x2          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x2          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x2          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x2          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x2          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x2          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x2          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x2          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x2          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x2          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x2          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x2          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x2          | LUT            | 
+|sched_distilled_profile_decode | profile_o  | 32x2          | LUT            | 
++-------------------------------+------------+---------------+----------------+
+
+---------------------------------------------------------------------------------
+Finished ROM, RAM, DSP, Shift Register and Retiming Reporting
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Applying XDC Timing Constraints
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Applying XDC Timing Constraints : Time (s): cpu = 00:02:46 ; elapsed = 00:02:51 . Memory (MB): peak = 5739.879 ; gain = 1927.625 ; free physical = 320837 ; free virtual = 407226
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Timing Optimization
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Timing Optimization : Time (s): cpu = 00:03:03 ; elapsed = 00:03:09 . Memory (MB): peak = 5902.535 ; gain = 2090.281 ; free physical = 320671 ; free virtual = 407060
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Technology Mapping
+---------------------------------------------------------------------------------
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[task_end][1] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[task_end][11] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[task_end][9] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[task_end][7] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[task_end][5] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[task_end][3] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[task_end][12] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[task_end][10] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[task_end][8] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[task_end][6] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[task_end][4] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[task_end][2] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[task_end][0] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][11]_bret__6 from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][9]_bret__6 from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][7]_bret__6 from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][5]_bret__6 from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][3]_bret__6 from retiming_backward is deleted already 
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][11]_bret__6) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][9]_bret__6) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][7]_bret__6) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][5]_bret__6) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][3]_bret__6) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][12]_bret__6) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][10]_bret__6) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][8]_bret__6) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][6]_bret__6) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][4]_bret__6) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][2]_bret__6) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][0]_bret__6) is unused and will be removed from module moe_scheduler_reg_wrapper.
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[dma3_end][12] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[dma3_end][11] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[dma3_end][10] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[dma3_end][9] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[dma3_end][8] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[dma3_end][7] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[dma3_end][6] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[dma3_end][5] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[dma3_end][4] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[dma3_end][3] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[dma3_end][2] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[dma3_end][1] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[dma3_end][0] from retiming_backward is deleted already 
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__15) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__17) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__19) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__21) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__23) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__25) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret) is unused and will be removed from module moe_scheduler_reg_wrapper.
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[s2_end][11] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[s2_end][9] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[s2_end][7] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[s2_end][5] from retiming_backward is deleted already 
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[s2_end][3] from retiming_backward is deleted already 
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__1) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[12]_bret__2) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[5]_bret__2) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[4]_bret__2) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[3]_bret__2) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[11]_bret__1) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[10]_bret__1) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[9]_bret__1) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[8]_bret__1) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[7]_bret__1) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[2]_bret__1) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_pair_compare/progress_rhs_q_reg_bret__0) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__0) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_pair_compare/hotspot_rhs_q_reg_bret__0) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__3) is unused and will be removed from module moe_scheduler_reg_wrapper.
+WARNING: [Synth 8-3332] Sequential element (i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__4) is unused and will be removed from module moe_scheduler_reg_wrapper.
+INFO: [Synth 8-5816] Retiming module `moe_scheduler_reg_wrapper`
+   Worst Slack before retiming is -6.935 ns and worst slack after retiming is -3.856 ns
+   Numbers of local forward move = 0, and local backward move = 79
+
+	Retimed registers names:
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[0]_bret__0
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[0]_bret__2
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[0]_bret__3
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[10]_bret__1_bret
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[10]_bret__1_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[10]_bret__3
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[10]_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[11]_bret__1_bret
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[11]_bret__1_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[11]_bret__3
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[11]_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[12]_bret__0
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[12]_bret__2_bret
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[12]_bret__2_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[12]_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__0
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret__2
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[1]_bret__1
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[1]_bret__3
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[1]_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[2]_bret__1_bret
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[2]_bret__1_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[2]_bret__3
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[2]_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[3]_bret__0
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[3]_bret__2_bret
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[3]_bret__2_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[3]_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[4]_bret__0
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[4]_bret__2_bret
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[4]_bret__2_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[4]_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[5]_bret__0
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[5]_bret__2_bret
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[5]_bret__2_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[5]_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__0
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__1
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__0
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__3
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__3
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[7]_bret__1_bret
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[7]_bret__1_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[7]_bret__3
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[7]_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[8]_bret__1_bret
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[8]_bret__1_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[8]_bret__3
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[8]_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[9]_bret__1_bret
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[9]_bret__1_bret__4
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[9]_bret__3
+		i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[9]_bret__4
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__0_bret__1
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__0_bret__3
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__0_bret__4
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__1
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__2
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__3_bret
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__3_bret__0
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__3_bret__1
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__3_bret__2
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__3_bret__3
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__3_bret__4
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__4_bret
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__4_bret__0
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__4_bret__1
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__4_bret__2
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__4_bret__3
+		i_scheduler_core/i_round_engine/i_pair_compare/base_rhs_q_reg_bret__4_bret__4
+		i_scheduler_core/i_round_engine/i_pair_compare/field_q_reg[1]_bret
+		i_scheduler_core/i_round_engine/i_pair_compare/field_q_reg[2]_bret
+		i_scheduler_core/i_round_engine/i_pair_compare/field_q_reg[2]_bret__0
+		i_scheduler_core/i_round_engine/i_pair_compare/field_q_reg[2]_bret__1
+		i_scheduler_core/i_round_engine/i_pair_compare/field_q_reg[2]_bret__2
+		i_scheduler_core/i_round_engine/i_pair_compare/field_q_reg[2]_bret__3
+		i_scheduler_core/i_round_engine/i_pair_compare/field_q_reg[2]_bret__4
+		i_scheduler_core/i_round_engine/i_pair_compare/field_q_reg[3]_bret
+		i_scheduler_core/i_round_engine/i_pair_compare/hotspot_rhs_q_reg_bret
+		i_scheduler_core/i_round_engine/i_pair_compare/hotspot_rhs_q_reg_bret__0_bret__4
+		i_scheduler_core/i_round_engine/i_pair_compare/progress_rhs_q_reg_bret
+		i_scheduler_core/i_round_engine/i_pair_compare/progress_rhs_q_reg_bret__0_bret
+		i_scheduler_core/i_round_engine/i_pair_compare/progress_rhs_q_reg_bret__0_bret__0
+		i_scheduler_core/i_round_engine/i_pair_compare/progress_rhs_q_reg_bret__0_bret__1
+		i_scheduler_core/i_round_engine/i_pair_compare/progress_rhs_q_reg_bret__0_bret__4
+		i_scheduler_core/i_round_engine/i_pair_compare/progress_rhs_q_reg_bret__1
+		i_scheduler_core/i_round_engine/i_pair_compare/progress_rhs_q_reg_bret__2
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][0]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][0]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][0]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][10]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][10]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][10]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][11]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][11]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][11]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][12]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][12]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][12]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][1]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][1]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][1]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][2]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][2]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][2]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][3]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][3]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][3]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][4]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][4]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][4]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][4]_bret__6
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][4]_bret__8
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][5]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][5]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][5]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][6]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][6]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][6]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][6]_bret__6
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][6]_bret__8
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][7]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][7]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][7]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][7]_bret__6
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][7]_bret__8
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][8]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][8]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][8]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][9]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][9]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[dma3_end][9]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][11]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][11]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][3]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][3]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][5]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][5]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][7]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][7]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][9]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][9]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][0]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][0]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][0]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][10]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][10]_bret__0
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][10]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][10]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][11]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][11]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][11]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][12]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][12]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][12]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__2
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__5
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__10
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__11
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__13
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__14
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__16
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__18
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__2
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__20
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__21_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__21_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__22
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__23_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__23_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__24
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__25_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__25_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__26
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__27
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret__0
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret__2
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret__3
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__0
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__1_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__1_bret__0
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__1_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__1_bret__2
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__1_bret__3
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__1_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__2
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__3
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__29
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__30
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__31
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__33
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__34
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__5
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__7
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__8
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][2]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][2]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][2]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][3]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][3]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][3]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][4]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][4]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][4]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][5]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][5]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][5]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][6]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][6]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][6]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][7]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][7]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][7]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][8]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][8]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][8]_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][9]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][9]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][9]_bret__4
+ 
+
+INFO: [Synth 8-5816] Retiming module `moe_scheduler_reg_wrapper' done
+
+
+---------------------------------------------------------------------------------
+Finished Technology Mapping : Time (s): cpu = 00:03:15 ; elapsed = 00:03:21 . Memory (MB): peak = 6131.543 ; gain = 2319.289 ; free physical = 320455 ; free virtual = 406844
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start IO Insertion
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Flattening Before IO Insertion
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Flattening Before IO Insertion
+---------------------------------------------------------------------------------
+RETIMING: backward move register i_scheduler_core/i_round_engine/i_transition_eval/c3_endpoint_q_reg[s2_end][12] from retiming_backward is deleted already 
+INFO: [Synth 8-5816] Retiming module `moe_scheduler_reg_wrapper`
+   Worst Slack before retiming is -2.384 ns and worst slack after retiming is -2.384 ns
+   Numbers of local forward move = 0, and local backward move = 2
+
+	Retimed registers names:
+		i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret
+		i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret__0
+		i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret__1
+		i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret__2
+		i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret__3
+		i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret__4
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][12]_bret
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][12]_bret__0
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][12]_bret__1
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][12]_bret__2
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][12]_bret__3
+		i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[s2_end][12]_bret__4
+ 
+
+INFO: [Synth 8-5816] Retiming module `moe_scheduler_reg_wrapper' done
+
+
+---------------------------------------------------------------------------------
+Start Final Netlist Cleanup
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Final Netlist Cleanup
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished IO Insertion : Time (s): cpu = 00:03:28 ; elapsed = 00:03:34 . Memory (MB): peak = 6131.543 ; gain = 2319.289 ; free physical = 320454 ; free virtual = 406844
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Renaming Generated Instances
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Renaming Generated Instances : Time (s): cpu = 00:03:28 ; elapsed = 00:03:34 . Memory (MB): peak = 6131.543 ; gain = 2319.289 ; free physical = 320454 ; free virtual = 406844
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Rebuilding User Hierarchy
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Rebuilding User Hierarchy : Time (s): cpu = 00:03:28 ; elapsed = 00:03:35 . Memory (MB): peak = 6131.543 ; gain = 2319.289 ; free physical = 320455 ; free virtual = 406844
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Renaming Generated Ports
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Renaming Generated Ports : Time (s): cpu = 00:03:28 ; elapsed = 00:03:35 . Memory (MB): peak = 6131.543 ; gain = 2319.289 ; free physical = 320455 ; free virtual = 406844
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Handling Custom Attributes
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Handling Custom Attributes : Time (s): cpu = 00:03:29 ; elapsed = 00:03:35 . Memory (MB): peak = 6131.543 ; gain = 2319.289 ; free physical = 320455 ; free virtual = 406844
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Renaming Generated Nets
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Renaming Generated Nets : Time (s): cpu = 00:03:29 ; elapsed = 00:03:35 . Memory (MB): peak = 6131.543 ; gain = 2319.289 ; free physical = 320455 ; free virtual = 406844
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start ROM, RAM, DSP, Shift Register and Retiming Reporting
+---------------------------------------------------------------------------------
+
+Retiming Report:
++--------------------+-----+
+|Retiming summary:   |     | 
++--------------------+-----+
+|Forward Retiming    | 0   | 
+|Backward Retiming   | 81  | 
+|New registers added | 249 | 
+|Registers deleted   | 85  | 
++--------------------+-----+
+
+---------------------------------------------------------------------------------
+Finished ROM, RAM, DSP, Shift Register and Retiming Reporting
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Writing Synthesis Report
+---------------------------------------------------------------------------------
+
+Report BlackBoxes: 
++-+--------------+----------+
+| |BlackBox name |Instances |
++-+--------------+----------+
++-+--------------+----------+
+
+Report Cell Usage: 
++------+-----------+------+
+|      |Cell       |Count |
++------+-----------+------+
+|1     |LOOKAHEAD8 |   198|
+|8     |LUT1       |    11|
+|9     |LUT2       |   706|
+|10    |LUT3       |  1289|
+|11    |LUT4       |   986|
+|12    |LUT5       |  1811|
+|13    |LUT6       |  2915|
+|14    |LUT6CY     |  1338|
+|15    |LUT6       |    59|
+|16    |FDCE       |  1500|
+|17    |FDPE       |    24|
+|18    |FDRE       |   439|
+|19    |FDSE       |     1|
++------+-----------+------+
+---------------------------------------------------------------------------------
+Finished Writing Synthesis Report : Time (s): cpu = 00:03:29 ; elapsed = 00:03:35 . Memory (MB): peak = 6131.543 ; gain = 2319.289 ; free physical = 320455 ; free virtual = 406844
+---------------------------------------------------------------------------------
+Synthesis finished with 0 errors, 0 critical warnings and 251 warnings.
+Synthesis Optimization Runtime : Time (s): cpu = 00:03:10 ; elapsed = 00:03:16 . Memory (MB): peak = 6131.543 ; gain = 1931.555 ; free physical = 320453 ; free virtual = 406842
+Synthesis Optimization Complete : Time (s): cpu = 00:03:30 ; elapsed = 00:03:36 . Memory (MB): peak = 6131.543 ; gain = 2319.289 ; free physical = 320453 ; free virtual = 406842
+INFO: [Project 1-571] Translating synthesized netlist
+Netlist sorting complete. Time (s): cpu = 00:00:00.08 ; elapsed = 00:00:00.09 . Memory (MB): peak = 6131.543 ; gain = 0.000 ; free physical = 320615 ; free virtual = 407005
+INFO: [Netlist 29-17] Analyzing 1397 Unisim elements for replacement
+INFO: [Netlist 29-28] Unisim Transformation completed in 0 CPU seconds
+INFO: [Constraints 18-5720] The default GCLK Deskew mode is Off.
+INFO: [Device 21-9335] Optimized delay calculation is enabled for this device.
+INFO: [Constraints 18-13227] Created floorplan with Advanced Flow Feature Set
+INFO: [Project 1-570] Preparing netlist for logic optimization
+Parsing XDC File [/esat/studscratch/r1015673/Thesis/Scheduler_hw/.gen/ooc_iterC_200mhz/scheduler_clock.xdc]
+create_clock: Time (s): cpu = 00:00:13 ; elapsed = 00:00:13 . Memory (MB): peak = 6174.480 ; gain = 0.000 ; free physical = 320593 ; free virtual = 406982
+Finished Parsing XDC File [/esat/studscratch/r1015673/Thesis/Scheduler_hw/.gen/ooc_iterC_200mhz/scheduler_clock.xdc]
+INFO: [Opt 31-138] Pushed 0 inverter(s) to 0 load pin(s).
+INFO: [Ipconfig 75-709] Read and Merge Traffic Stats:  Before Read: 0 insts (0 INI), 0 paths (0 INI). Read In: 0 insts (0 INI), 0 paths (0 INI). After Merge: 0 insts (0 INI), 0 paths (0 INI). 0 error slaves
+INFO: [Ipconfig 75-709] Read and Merge Traffic Stats:  Before Read: 0 insts (0 INI), 0 paths (0 INI). Read In: 8 insts (0 INI), 12 paths (0 INI). After Merge: 8 insts (0 INI), 12 paths (0 INI). 0 error slaves
+Netlist sorting complete. Time (s): cpu = 00:00:00.01 ; elapsed = 00:00:00.01 . Memory (MB): peak = 6174.480 ; gain = 0.000 ; free physical = 320593 ; free virtual = 406983
+INFO: [Project 1-111] Unisim Transformation Summary:
+  A total of 1397 instances were transformed.
+  LUT6CY => LUT6CY (LUTCY1, LUTCY2): 1338 instances
+  LUT6_2 => LUT6_2 (LUT5, LUT6): 59 instances
+
+Synth Design complete | Checksum: 8ee0a75
+INFO: [Common 17-83] Releasing license: Synthesis
+32 Infos, 41 Warnings, 0 Critical Warnings and 0 Errors encountered.
+synth_design completed successfully
+synth_design: Time (s): cpu = 00:04:23 ; elapsed = 00:04:28 . Memory (MB): peak = 6174.516 ; gain = 4278.098 ; free physical = 320599 ; free virtual = 406988
+INFO: [Common 17-2834] synth_design peak Physical Memory [PSS] (MB): overall = 5510.892; main = 5329.979; forked = 351.552
+INFO: [Common 17-2834] synth_design peak Virtual Memory [VSS] (MB): overall = 7748.344; main = 6182.488; forked = 1616.797
+# write_checkpoint -force $output_dir/scheduler_distilled_synth.dcp
+INFO: [Timing 38-35] Done setting XDC timing constraints.
+INFO: [Timing 38-480] Writing timing data to binary archive.
+Write ShapeDB Complete: Time (s): cpu = 00:00:00.11 ; elapsed = 00:00:00.04 . Memory (MB): peak = 6833.699 ; gain = 0.000 ; free physical = 319356 ; free virtual = 405746
+INFO: [Common 17-1381] The checkpoint '/esat/studscratch/r1015673/Thesis/Scheduler_hw/.gen/ooc_iterC_200mhz/scheduler_distilled_synth.dcp' has been generated.
+write_checkpoint: Time (s): cpu = 00:00:53 ; elapsed = 00:00:53 . Memory (MB): peak = 6833.699 ; gain = 651.215 ; free physical = 319353 ; free virtual = 405744
+# report_utilization -hierarchical -file $output_dir/utilization_hier.rpt
+# report_timing_summary -delay_type max -max_paths 20 \
+#   -file $output_dir/timing_summary.rpt
+INFO: [Timing 38-91] UpdateTimingParams: Speed grade: -2MP, Temperature grade: E, Delay Type: max.
+INFO: [Timing 38-191] Multithreading enabled for timing update using a maximum of 8 CPUs
+WARNING: [Timing 38-242] The property HD.CLK_SRC of clock port "clk_i" is not set. In out-of-context mode, this prevents timing estimation for clock delay/skew
+Resolution: Set the HD.CLK_SRC property of the out-of-context port to the location of the clock buffer instance in the top-level design
+report_timing_summary: Time (s): cpu = 00:00:44 ; elapsed = 00:00:40 . Memory (MB): peak = 7708.340 ; gain = 874.641 ; free physical = 318502 ; free virtual = 404894
+# report_high_fanout_nets -fanout_greater_than 32 -timing \
+#   -file $output_dir/high_fanout.rpt
+INFO: [Timing 38-91] UpdateTimingParams: Speed grade: -2MP, Temperature grade: E, Delay Type: max.
+INFO: [Timing 38-191] Multithreading enabled for timing update using a maximum of 8 CPUs
+INFO: [Timing 38-78] ReportTimingParams: -max_paths 10 -nworst 1 -delay_type max -sort_by slack.
+# report_design_analysis -logic_level_distribution \
+#   -of_timing_paths [get_timing_paths -max_paths 100] \
+#   -file $output_dir/logic_levels.rpt
+# exit
+INFO: [Common 17-206] Exiting Vivado at Tue Aug 18 19:13:48 2026...

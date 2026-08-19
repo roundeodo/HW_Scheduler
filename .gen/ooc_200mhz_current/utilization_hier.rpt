@@ -1,0 +1,39 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Tue Aug 18 16:35:06 2026
+| Host         : amazone.esat.kuleuven.be running 64-bit Rocky Linux 9.8 (Blue Onyx)
+| Command      : report_utilization -hierarchical -file .gen/ooc_200mhz_current/utilization_hier.rpt
+| Design       : moe_scheduler_reg_wrapper
+| Device       : xcvp1802-lsvc4072-2MP-e-S
+| Speed File   : -2MP
+| Design State : Synthesized
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++-------------------------------+---------------------------------+------------+------------+---------+------+------+--------+--------+------+------------+
+|            Instance           |              Module             | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs | RAMB36 | RAMB18 | URAM | DSP Blocks |
++-------------------------------+---------------------------------+------------+------------+---------+------+------+--------+--------+------+------------+
+| moe_scheduler_reg_wrapper     |                           (top) |       7588 |       7588 |       0 |    0 | 1685 |      0 |      0 |    0 |          0 |
+|   (moe_scheduler_reg_wrapper) |                           (top) |         22 |         22 |       0 |    0 |  312 |      0 |      0 |    0 |          0 |
+|   i_scheduler_core            |              moe_scheduler_core |       7566 |       7566 |       0 |    0 | 1373 |      0 |      0 |    0 |          0 |
+|     (i_scheduler_core)        |              moe_scheduler_core |        725 |        725 |       0 |    0 |  783 |      0 |      0 |    0 |          0 |
+|     i_round_engine            |    sched_distilled_round_engine |       6841 |       6841 |       0 |    0 |  590 |      0 |      0 |    0 |          0 |
+|       (i_round_engine)        |    sched_distilled_round_engine |       3040 |       3040 |       0 |    0 |  290 |      0 |      0 |    0 |          0 |
+|       i_bandwidth_check       |           sched_bandwidth_check |        119 |        119 |       0 |    0 |    8 |      0 |      0 |    0 |          0 |
+|       i_bound_score           |     sched_distilled_bound_score |       1212 |       1212 |       0 |    0 |  131 |      0 |      0 |    0 |          0 |
+|       i_pair_compare          |    sched_distilled_pair_compare |        394 |        394 |       0 |    0 |   10 |      0 |      0 |    0 |          0 |
+|       i_start_iter            |      sched_distilled_start_iter |        437 |        437 |       0 |    0 |   35 |      0 |      0 |    0 |          0 |
+|       i_target_s4pf           |     sched_distilled_target_s4pf |        139 |        139 |       0 |    0 |    8 |      0 |      0 |    0 |          0 |
+|       i_transition_eval       | sched_distilled_transition_eval |       1500 |       1500 |       0 |    0 |  108 |      0 |      0 |    0 |          0 |
++-------------------------------+---------------------------------+------------+------------+---------+------+------+--------+--------+------+------------+
+
+

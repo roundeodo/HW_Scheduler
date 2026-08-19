@@ -1,0 +1,59 @@
+#-----------------------------------------------------------
+# Vivado v2025.2 (64-bit)
+# SW Build 6299465 on Fri Nov 14 12:34:56 MST 2025
+# IP Build 6300035 on Fri Nov 14 10:48:45 MST 2025
+# SharedData Build 6298862 on Thu Nov 13 04:50:51 MST 2025
+# Start of session at: Tue Aug 18 16:30:19 2026
+# Process ID         : 103
+# Current directory  : /esat/studscratch/r1015673/Thesis/Scheduler_hw
+# Command line       : vivado -mode batch -nojournal -log .gen/ooc_200mhz_current/vivado.log -source synth_distilled_ooc.tcl -tclargs .gen/ooc_200mhz_current 5.000
+# Log file           : /esat/studscratch/r1015673/Thesis/Scheduler_hw/.gen/ooc_200mhz_current/vivado.log
+# Journal file       : 
+# Running On         : amazone.esat.kuleuven.be
+# Platform           : RockyLinux
+# Operating System   : Rocky Linux 9.8 (Blue Onyx)
+# Processor Detail   : Intel(R) Xeon(R) CPU E5-2690 v3 @ 2.60GHz
+# CPU Frequency      : 3000.031 MHz
+# CPU Physical cores : 24
+# CPU Logical cores  : 48
+# Host memory        : 388195 MB
+# Swap memory        : 68719 MB
+# Total Virtual      : 456914 MB
+# Available Virtual  : 431946 MB
+#-----------------------------------------------------------
+source synth_distilled_ooc.tcl
+# set output_dir [expr {$argc > 0 ? [lindex $argv 0] : "/tmp/scheduler_distilled_ooc"}]
+# set clock_period [expr {$argc > 1 ? [lindex $argv 1] : 25.000}]
+# file mkdir $output_dir
+# set scheduler_dir [file dirname [file normalize [info script]]]
+# set sources [list \
+#   $scheduler_dir/sched_pkg.sv \
+#   $scheduler_dir/sched_distilled_pkg.sv \
+#   $scheduler_dir/sched_distilled_profile_decode.sv \
+#   $scheduler_dir/sched_distilled_timeline.sv \
+#   $scheduler_dir/sched_bandwidth_check.sv \
+#   $scheduler_dir/sched_distilled_transition_eval.sv \
+#   $scheduler_dir/sched_distilled_bound_score.sv \
+#   $scheduler_dir/sched_distilled_pair_compare.sv \
+#   $scheduler_dir/sched_distilled_regime_classify.sv \
+#   $scheduler_dir/sched_distilled_start_iter.sv \
+#   $scheduler_dir/sched_distilled_target_s4pf.sv \
+#   $scheduler_dir/sched_distilled_round_engine.sv \
+#   $scheduler_dir/sched_task_word_pack.sv \
+#   $scheduler_dir/moe_scheduler_core.sv \
+#   $scheduler_dir/moe_scheduler_reg_wrapper.sv]
+# read_verilog -sv $sources
+# synth_design -top moe_scheduler_reg_wrapper \
+#   -part xcvp1802-lsvc4072-2MP-e-S -mode out_of_context \
+#   -flatten_hierarchy rebuilt
+Command: synth_design -top moe_scheduler_reg_wrapper -part xcvp1802-lsvc4072-2MP-e-S -mode out_of_context -flatten_hierarchy rebuilt
+Starting synth_design
+Attempting to get a license for feature 'Synthesis' and/or device 'xcvp1802'
+WARNING: [Common 17-348] Failed to get the license for feature 'Synthesis' and/or device 'xcvp1802'. Explanation: Cannot connect to a license server running the xilinxd licensing daemon on the specified host.
+Resolution: Check the status of your licenses in the Vivado License Manager. For debug help search Xilinx Support for "Licensing FAQ". 
+0 Infos, 1 Warnings, 0 Critical Warnings and 1 Errors encountered.
+synth_design failed
+ERROR: [Common 17-345] A valid license was not found for feature 'Synthesis' and/or device 'xcvp1802'. Please run the Vivado License Manager for assistance in determining
+which features and devices are licensed for your system.
+Resolution: Check the status of your licenses in the Vivado License Manager. For debug help search Xilinx Support for "Licensing FAQ". If you are using a license server, verify that the license server is up and running a version of the xilinx daemon that is compatible with the version of Xilinx software that you are using. Note: Vivado 2021.1 and later versions require upgrading your license server tools to the Flex 11.17.2.0 versions. Please confirm with your license admin that the correct version of the license server tools are installed.
+INFO: [Common 17-206] Exiting Vivado at Tue Aug 18 16:30:27 2026...

@@ -1,0 +1,29 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Tue Aug 18 19:13:48 2026
+| Host         : amazone.esat.kuleuven.be running 64-bit Rocky Linux 9.8 (Blue Onyx)
+| Command      : report_design_analysis -logic_level_distribution -of_timing_paths [get_timing_paths -max_paths 100] -file .gen/ooc_iterC_200mhz/logic_levels.rpt
+| Design       : moe_scheduler_reg_wrapper
+| Device       : xcvp1802
+| Design State : Synthesized
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Report Design Analysis
+
+Table of Contents
+-----------------
+1. Logic Level Distribution
+
+1. Logic Level Distribution
+---------------------------
+
++-----------------+-------------+----+----+----+----+----+----+----+
+| End Point Clock | Requirement | 18 | 20 | 22 | 23 | 25 | 26 | 27 |
++-----------------+-------------+----+----+----+----+----+----+----+
+| scheduler_clk   | 5.000ns     | 58 |  3 | 13 |  2 | 10 | 10 |  4 |
++-----------------+-------------+----+----+----+----+----+----+----+
+* Columns represent the logic levels per end point clock
+** Distribution is for top worst 100 paths
+
+

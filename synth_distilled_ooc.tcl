@@ -1,4 +1,5 @@
 set output_dir [expr {$argc > 0 ? [lindex $argv 0] : "/tmp/scheduler_distilled_ooc"}]
+set clock_period [expr {$argc > 1 ? [lindex $argv 1] : 25.000}]
 file mkdir $output_dir
 set scheduler_dir [file dirname [file normalize [info script]]]
 
@@ -20,10 +21,16 @@ set sources [list \
   $scheduler_dir/moe_scheduler_reg_wrapper.sv]
 
 read_verilog -sv $sources
+
+set clock_xdc $output_dir/scheduler_clock.xdc
+set clock_xdc_fd [open $clock_xdc w]
+puts $clock_xdc_fd "create_clock -name scheduler_clk -period $clock_period \[get_ports clk_i\]"
+close $clock_xdc_fd
+read_xdc $clock_xdc
+
 synth_design -top moe_scheduler_reg_wrapper \
   -part xcvp1802-lsvc4072-2MP-e-S -mode out_of_context \
   -flatten_hierarchy rebuilt
-create_clock -name scheduler_clk -period 25.000 [get_ports clk_i]
 
 write_checkpoint -force $output_dir/scheduler_distilled_synth.dcp
 report_utilization -hierarchical -file $output_dir/utilization_hier.rpt

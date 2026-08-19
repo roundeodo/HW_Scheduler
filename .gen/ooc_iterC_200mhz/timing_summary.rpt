@@ -1,0 +1,2057 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+--------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version      : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date              : Tue Aug 18 19:13:47 2026
+| Host              : amazone.esat.kuleuven.be running 64-bit Rocky Linux 9.8 (Blue Onyx)
+| Command           : report_timing_summary -delay_type max -max_paths 20 -file .gen/ooc_iterC_200mhz/timing_summary.rpt
+| Design            : moe_scheduler_reg_wrapper
+| Device            : xcvp1802-lsvc4072
+| Speed File        : -2MP  PRODUCTION 2.08 2024-04-16
+| Design State      : Synthesized
+| Temperature Grade : E
+--------------------------------------------------------------------------------------------------------------------------------------------------
+
+Timing Summary Report
+
+------------------------------------------------------------------------------------------------
+| Timer Settings
+| --------------
+------------------------------------------------------------------------------------------------
+
+  Enable Multi Corner Analysis               :  Yes
+  Enable Pessimism Removal                   :  Yes
+  Pessimism Removal Resolution               :  Nearest Common Node
+  Enable Input Delay Default Clock           :  No
+  Enable Preset / Clear Arcs                 :  No
+  Disable Flight Delays                      :  No
+  Ignore I/O Paths                           :  No
+  Timing Early Launch at Borrowing Latches   :  No
+  Borrow Time for Max Delay Exceptions       :  Yes
+  Merge Timing Exceptions                    :  Yes
+  Inter-SLR Compensation                     :  Conservative
+
+  Corner  Analyze    Analyze    
+  Name    Max Paths  Min Paths  
+  ------  ---------  ---------  
+  Slow    Yes        Yes        
+  Fast    Yes        Yes        
+
+
+------------------------------------------------------------------------------------------------
+| Report Methodology
+| ------------------
+------------------------------------------------------------------------------------------------
+
+No report available as report_methodology has not been run prior. Run report_methodology on the current design for the summary of methodology violations.
+
+
+
+check_timing report
+
+Table of Contents
+-----------------
+1. checking no_clock (0)
+2. checking constant_clock (0)
+3. checking pulse_width_clock (0)
+4. checking unconstrained_internal_endpoints (0)
+5. checking no_input_delay (71)
+6. checking no_output_delay (64)
+7. checking multiple_clock (0)
+8. checking generated_clocks (0)
+9. checking loops (0)
+10. checking partial_input_delay (0)
+11. checking partial_output_delay (0)
+12. checking latch_loops (0)
+
+1. checking no_clock (0)
+------------------------
+ There are 0 register/latch pins with no clock.
+
+
+2. checking constant_clock (0)
+------------------------------
+ There are 0 register/latch pins with constant_clock.
+
+
+3. checking pulse_width_clock (0)
+---------------------------------
+ There are 0 register/latch pins which need pulse_width check
+
+
+4. checking unconstrained_internal_endpoints (0)
+------------------------------------------------
+ There are 0 pins that are not constrained for maximum delay.
+
+ There are 0 pins that are not constrained for maximum delay due to constant clock.
+
+
+5. checking no_input_delay (71)
+-------------------------------
+ There are 71 input ports with no input delay specified. (HIGH)
+
+ There are 0 input ports with no input delay but user has a false path constraint.
+
+
+6. checking no_output_delay (64)
+--------------------------------
+ There are 64 ports with no output delay specified. (HIGH)
+
+ There are 0 ports with no output delay but user has a false path constraint
+
+ There are 0 ports with no output delay but with a timing clock defined on it or propagating through it
+
+
+7. checking multiple_clock (0)
+------------------------------
+ There are 0 register/latch pins with multiple clocks.
+
+
+8. checking generated_clocks (0)
+--------------------------------
+ There are 0 generated clocks that are not connected to a clock source.
+
+
+9. checking loops (0)
+---------------------
+ There are 0 combinational loops in the design.
+
+
+10. checking partial_input_delay (0)
+------------------------------------
+ There are 0 input ports with partial input delay specified.
+
+
+11. checking partial_output_delay (0)
+-------------------------------------
+ There are 0 ports with partial output delay specified.
+
+
+12. checking latch_loops (0)
+----------------------------
+ There are 0 combinational latch loops in the design through latch input
+
+
+
+------------------------------------------------------------------------------------------------
+| Design Timing Summary
+| ---------------------
+------------------------------------------------------------------------------------------------
+
+    WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints     WPWS(ns)     TPWS(ns)  TPWS Failing Endpoints  TPWS Total Endpoints  
+    -------      -------  ---------------------  -------------------     --------     --------  ----------------------  --------------------  
+     -1.572     -357.176                    519                 3671        2.225        0.000                       0                  1964  
+
+
+Timing constraints are not met.
+
+
+------------------------------------------------------------------------------------------------
+| Clock Summary
+| -------------
+------------------------------------------------------------------------------------------------
+
+Clock          Waveform(ns)         Period(ns)      Frequency(MHz)
+-----          ------------         ----------      --------------
+scheduler_clk  {0.000 2.500}        5.000           200.000         
+
+
+------------------------------------------------------------------------------------------------
+| Intra Clock Table
+| -----------------
+------------------------------------------------------------------------------------------------
+
+Clock              WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints     WPWS(ns)     TPWS(ns)  TPWS Failing Endpoints  TPWS Total Endpoints  
+-----              -------      -------  ---------------------  -------------------     --------     --------  ----------------------  --------------------  
+scheduler_clk       -1.572     -357.176                    519                 3671        2.225        0.000                       0                  1964  
+
+
+------------------------------------------------------------------------------------------------
+| Inter Clock Table
+| -----------------
+------------------------------------------------------------------------------------------------
+
+From Clock    To Clock          WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints  
+----------    --------          -------      -------  ---------------------  -------------------  
+
+
+------------------------------------------------------------------------------------------------
+| Other Path Groups Table
+| -----------------------
+------------------------------------------------------------------------------------------------
+
+Path Group    From Clock    To Clock          WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints  
+----------    ----------    --------          -------      -------  ---------------------  -------------------  
+
+
+------------------------------------------------------------------------------------------------
+| Timing Details
+| --------------
+------------------------------------------------------------------------------------------------
+
+
+---------------------------------------------------------------------------------------------------
+From Clock:  scheduler_clk
+  To Clock:  scheduler_clk
+
+Setup :          519  Failing Endpoints,  Worst Slack       -1.572ns,  Total Violation     -357.176ns
+Hold  :           NA  Failing Endpoints,  Worst Slack           NA  ,  Total Violation           NA
+PW    :            0  Failing Endpoints,  Worst Slack        2.225ns,  Total Violation        0.000ns
+---------------------------------------------------------------------------------------------------
+
+
+Max Delay Paths
+--------------------------------------------------------------------------------------
+Slack (VIOLATED) :        -1.572ns  (required time - arrival time)
+  Source:                 i_scheduler_core/i_round_engine/FSM_onehot_st_q_reg[14]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[0]_bret__0/D
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        6.239ns  (logic 2.350ns (37.666%)  route 3.889ns (62.334%))
+  Logic Levels:           27  (LOOKAHEAD8=6 LUT3=2 LUT4=1 LUT5=3 LUT6=9 LUTCY1=1 LUTCY2=5)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    i_scheduler_core/i_round_engine/clk_i
+                         FDCE                                         r  i_scheduler_core/i_round_engine/FSM_onehot_st_q_reg[14]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 r  i_scheduler_core/i_round_engine/FSM_onehot_st_q_reg[14]/Q
+                         net (fo=126, unplaced)       0.273     0.483    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q[17]_i_3_0[13]
+                         LUT3 (Prop_LUT3_I1_O)        0.051     0.534 f  i_scheduler_core/i_round_engine/i_transition_eval/materialization_q[1]_i_5/O
+                         net (fo=4, unplaced)         0.222     0.756    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q_reg[6]_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.844 r  i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_10/O
+                         net (fo=3, unplaced)         0.134     0.978    i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_10_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.074     1.052 r  i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_6/O
+                         net (fo=28, unplaced)        0.185     1.237    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q_reg[2]_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     1.311 r  i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_1/O
+                         net (fo=74, unplaced)        0.207     1.518    i_scheduler_core/i_round_engine/i_transition_eval/decode_address[0]
+                         LUT5 (Prop_LUT5_I2_O)        0.074     1.592 r  i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[1][tok_start][7]_i_5/O
+                         net (fo=49, unplaced)        0.279     1.871    i_scheduler_core/i_round_engine/i_transition_eval/decoded_profile[selector_a][1]
+                         LUT6 (Prop_LUT6_I2_O)        0.088     1.959 f  i_scheduler_core/i_round_engine/i_transition_eval/commit_remove_eid_a_q[0]_i_3/O
+                         net (fo=4, unplaced)         0.140     2.099    i_scheduler_core/i_round_engine/i_transition_eval/hot_q_reg[3][eid][0]_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     2.173 r  i_scheduler_core/i_round_engine/i_transition_eval/commit_remove_eid_a_q[0]_i_2/O
+                         net (fo=8, unplaced)         0.238     2.411    i_scheduler_core/i_round_engine/i_transition_eval/hot_q_reg[4][eid][0]_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.499 f  i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[0][dma_late_both]_i_9/O
+                         net (fo=1, unplaced)         0.210     2.709    i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[0][dma_late_both]_i_9_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.797 f  i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[0][dma_late_both]_i_6/O
+                         net (fo=7, unplaced)         0.170     2.967    i_scheduler_core/i_round_engine/i_bound_score/dma_q[13]_bret__2_bret__4_i_7
+                         LUT6 (Prop_LUT6_I4_O)        0.051     3.018 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q[13]_bret__2_bret__4_i_15/O
+                         net (fo=28, unplaced)        0.267     3.285    i_scheduler_core/i_round_engine/i_transition_eval/dma_q[13]_bret__2_bret__4_i_2_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.373 f  i_scheduler_core/i_round_engine/i_transition_eval/dma_q[1]_bret__1_i_8/O
+                         net (fo=2, unplaced)         0.210     3.583    i_scheduler_core/i_round_engine/i_transition_eval/dma_q[1]_bret__1_i_8_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     3.671 r  i_scheduler_core/i_round_engine/i_transition_eval/dma_q[1]_bret__1_i_13/O
+                         net (fo=7, unplaced)         0.153     3.824    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_94/I3
+                         LUTCY2 (Prop_LUTCY2_I3_GE)
+                                                      0.074     3.898 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_94/LUTCY2_INST/GE
+                         net (fo=1, unplaced)         0.036     3.934    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_94_n_0
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_GEA_COUTH)
+                                                      0.242     4.176 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_57/COUTH
+                         net (fo=3, unplaced)         0.002     4.178    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_57_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_CIN_COUTD)
+                                                      0.042     4.220 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_36/COUTD
+                         net (fo=2, unplaced)         0.014     4.234    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_16/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.048     4.282 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_16/LUTCY2_INST/O
+                         net (fo=20, unplaced)        0.194     4.476    i_scheduler_core/i_round_engine/i_transition_eval/next_valid6
+                         LUT3 (Prop_LUT3_I1_O)        0.051     4.527 r  i_scheduler_core/i_round_engine/i_transition_eval/dma_q[4]_bret__2_bret_i_3/O
+                         net (fo=5, unplaced)         0.228     4.755    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_52/I2
+                         LUTCY1 (Prop_LUTCY1_I2_PROP)
+                                                      0.079     4.834 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_52/LUTCY1_INST/PROP
+                         net (fo=1, unplaced)         0.000     4.834    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_52_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_PROPD_COUTH)
+                                                      0.163     4.997 f  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_31/COUTH
+                         net (fo=3, unplaced)         0.002     4.999    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_31_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_CIN_COUTD)
+                                                      0.042     5.041 f  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_14/COUTD
+                         net (fo=2, unplaced)         0.014     5.055    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_5/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.048     5.103 f  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_5/LUTCY2_INST/O
+                         net (fo=16, unplaced)        0.189     5.292    i_scheduler_core/i_round_engine/i_bound_score/next_valid3
+                         LUT4 (Prop_LUT4_I3_O)        0.051     5.343 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q[6]_bret__2_bret__3_i_1/O
+                         net (fo=30, unplaced)        0.268     5.611    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_9/I2
+                         LUTCY2 (Prop_LUTCY2_I2_GE)
+                                                      0.088     5.699 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_9/LUTCY2_INST/GE
+                         net (fo=1, unplaced)         0.036     5.735    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_9_n_0
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_GEA_COUTH)
+                                                      0.242     5.977 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_3/COUTH
+                         net (fo=3, unplaced)         0.002     5.979    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_3_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_CIN_COUTD)
+                                                      0.042     6.021 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_2/COUTD
+                         net (fo=2, unplaced)         0.014     6.035    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_1/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.048     6.083 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_1/LUTCY2_INST/O
+                         net (fo=4, unplaced)         0.140     6.223    i_scheduler_core/i_round_engine/i_bound_score/next_event3
+                         LUT5 (Prop_LUT5_I1_O)        0.074     6.297 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q[0]_bret__0_i_1/O
+                         net (fo=1, unplaced)         0.062     6.359    i_scheduler_core/i_round_engine/i_bound_score/dma_q[0]_bret__0_i_1_n_0
+                         FDCE                                         r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[0]_bret__0/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    i_scheduler_core/i_round_engine/i_bound_score/clk_i
+                         FDCE                                         r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[0]_bret__0/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_D)        0.007     4.787    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[0]_bret__0
+  -------------------------------------------------------------------
+                         required time                          4.787    
+                         arrival time                          -6.359    
+  -------------------------------------------------------------------
+                         slack                                 -1.572    
+
+Slack (VIOLATED) :        -1.572ns  (required time - arrival time)
+  Source:                 i_scheduler_core/i_round_engine/FSM_onehot_st_q_reg[14]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[1]_bret__1/D
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        6.239ns  (logic 2.350ns (37.666%)  route 3.889ns (62.334%))
+  Logic Levels:           27  (LOOKAHEAD8=6 LUT3=2 LUT4=1 LUT5=2 LUT6=10 LUTCY1=1 LUTCY2=5)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    i_scheduler_core/i_round_engine/clk_i
+                         FDCE                                         r  i_scheduler_core/i_round_engine/FSM_onehot_st_q_reg[14]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 r  i_scheduler_core/i_round_engine/FSM_onehot_st_q_reg[14]/Q
+                         net (fo=126, unplaced)       0.273     0.483    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q[17]_i_3_0[13]
+                         LUT3 (Prop_LUT3_I1_O)        0.051     0.534 f  i_scheduler_core/i_round_engine/i_transition_eval/materialization_q[1]_i_5/O
+                         net (fo=4, unplaced)         0.222     0.756    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q_reg[6]_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.844 r  i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_10/O
+                         net (fo=3, unplaced)         0.134     0.978    i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_10_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.074     1.052 r  i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_6/O
+                         net (fo=28, unplaced)        0.185     1.237    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q_reg[2]_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     1.311 r  i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_1/O
+                         net (fo=74, unplaced)        0.207     1.518    i_scheduler_core/i_round_engine/i_transition_eval/decode_address[0]
+                         LUT5 (Prop_LUT5_I2_O)        0.074     1.592 r  i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[1][tok_start][7]_i_5/O
+                         net (fo=49, unplaced)        0.279     1.871    i_scheduler_core/i_round_engine/i_transition_eval/decoded_profile[selector_a][1]
+                         LUT6 (Prop_LUT6_I2_O)        0.088     1.959 f  i_scheduler_core/i_round_engine/i_transition_eval/commit_remove_eid_a_q[0]_i_3/O
+                         net (fo=4, unplaced)         0.140     2.099    i_scheduler_core/i_round_engine/i_transition_eval/hot_q_reg[3][eid][0]_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     2.173 r  i_scheduler_core/i_round_engine/i_transition_eval/commit_remove_eid_a_q[0]_i_2/O
+                         net (fo=8, unplaced)         0.238     2.411    i_scheduler_core/i_round_engine/i_transition_eval/hot_q_reg[4][eid][0]_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.499 f  i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[0][dma_late_both]_i_9/O
+                         net (fo=1, unplaced)         0.210     2.709    i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[0][dma_late_both]_i_9_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.797 f  i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[0][dma_late_both]_i_6/O
+                         net (fo=7, unplaced)         0.170     2.967    i_scheduler_core/i_round_engine/i_bound_score/dma_q[13]_bret__2_bret__4_i_7
+                         LUT6 (Prop_LUT6_I4_O)        0.051     3.018 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q[13]_bret__2_bret__4_i_15/O
+                         net (fo=28, unplaced)        0.267     3.285    i_scheduler_core/i_round_engine/i_transition_eval/dma_q[13]_bret__2_bret__4_i_2_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.373 f  i_scheduler_core/i_round_engine/i_transition_eval/dma_q[1]_bret__1_i_8/O
+                         net (fo=2, unplaced)         0.210     3.583    i_scheduler_core/i_round_engine/i_transition_eval/dma_q[1]_bret__1_i_8_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     3.671 r  i_scheduler_core/i_round_engine/i_transition_eval/dma_q[1]_bret__1_i_13/O
+                         net (fo=7, unplaced)         0.153     3.824    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_94/I3
+                         LUTCY2 (Prop_LUTCY2_I3_GE)
+                                                      0.074     3.898 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_94/LUTCY2_INST/GE
+                         net (fo=1, unplaced)         0.036     3.934    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_94_n_0
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_GEA_COUTH)
+                                                      0.242     4.176 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_57/COUTH
+                         net (fo=3, unplaced)         0.002     4.178    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_57_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_CIN_COUTD)
+                                                      0.042     4.220 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_36/COUTD
+                         net (fo=2, unplaced)         0.014     4.234    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_16/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.048     4.282 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_16/LUTCY2_INST/O
+                         net (fo=20, unplaced)        0.194     4.476    i_scheduler_core/i_round_engine/i_transition_eval/next_valid6
+                         LUT3 (Prop_LUT3_I1_O)        0.051     4.527 r  i_scheduler_core/i_round_engine/i_transition_eval/dma_q[4]_bret__2_bret_i_3/O
+                         net (fo=5, unplaced)         0.228     4.755    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_52/I2
+                         LUTCY1 (Prop_LUTCY1_I2_PROP)
+                                                      0.079     4.834 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_52/LUTCY1_INST/PROP
+                         net (fo=1, unplaced)         0.000     4.834    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_52_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_PROPD_COUTH)
+                                                      0.163     4.997 f  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_31/COUTH
+                         net (fo=3, unplaced)         0.002     4.999    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_31_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_CIN_COUTD)
+                                                      0.042     5.041 f  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_14/COUTD
+                         net (fo=2, unplaced)         0.014     5.055    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_5/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.048     5.103 f  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_5/LUTCY2_INST/O
+                         net (fo=16, unplaced)        0.189     5.292    i_scheduler_core/i_round_engine/i_bound_score/next_valid3
+                         LUT4 (Prop_LUT4_I3_O)        0.051     5.343 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q[6]_bret__2_bret__3_i_1/O
+                         net (fo=30, unplaced)        0.268     5.611    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_9/I2
+                         LUTCY2 (Prop_LUTCY2_I2_GE)
+                                                      0.088     5.699 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_9/LUTCY2_INST/GE
+                         net (fo=1, unplaced)         0.036     5.735    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_9_n_0
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_GEA_COUTH)
+                                                      0.242     5.977 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_3/COUTH
+                         net (fo=3, unplaced)         0.002     5.979    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_3_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_CIN_COUTD)
+                                                      0.042     6.021 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_2/COUTD
+                         net (fo=2, unplaced)         0.014     6.035    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_1/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.048     6.083 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_1/LUTCY2_INST/O
+                         net (fo=4, unplaced)         0.140     6.223    i_scheduler_core/i_round_engine/i_transition_eval/next_event3
+                         LUT6 (Prop_LUT6_I3_O)        0.074     6.297 r  i_scheduler_core/i_round_engine/i_transition_eval/dma_q[1]_bret__1_i_1/O
+                         net (fo=1, unplaced)         0.062     6.359    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[1]_bret__1_0
+                         FDCE                                         r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[1]_bret__1/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    i_scheduler_core/i_round_engine/i_bound_score/clk_i
+                         FDCE                                         r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[1]_bret__1/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_D)        0.007     4.787    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[1]_bret__1
+  -------------------------------------------------------------------
+                         required time                          4.787    
+                         arrival time                          -6.359    
+  -------------------------------------------------------------------
+                         slack                                 -1.572    
+
+Slack (VIOLATED) :        -1.366ns  (required time - arrival time)
+  Source:                 i_scheduler_core/i_round_engine/FSM_onehot_st_q_reg[14]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1/D
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        6.029ns  (logic 2.276ns (37.751%)  route 3.753ns (62.249%))
+  Logic Levels:           26  (LOOKAHEAD8=6 LUT3=2 LUT4=1 LUT5=2 LUT6=9 LUTCY1=1 LUTCY2=5)
+  Clock Path Skew:        -0.044ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.076ns = ( 5.076 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    i_scheduler_core/i_round_engine/clk_i
+                         FDCE                                         r  i_scheduler_core/i_round_engine/FSM_onehot_st_q_reg[14]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 r  i_scheduler_core/i_round_engine/FSM_onehot_st_q_reg[14]/Q
+                         net (fo=126, unplaced)       0.273     0.483    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q[17]_i_3_0[13]
+                         LUT3 (Prop_LUT3_I1_O)        0.051     0.534 f  i_scheduler_core/i_round_engine/i_transition_eval/materialization_q[1]_i_5/O
+                         net (fo=4, unplaced)         0.222     0.756    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q_reg[6]_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.844 r  i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_10/O
+                         net (fo=3, unplaced)         0.134     0.978    i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_10_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.074     1.052 r  i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_6/O
+                         net (fo=28, unplaced)        0.185     1.237    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q_reg[2]_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     1.311 r  i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_1/O
+                         net (fo=74, unplaced)        0.207     1.518    i_scheduler_core/i_round_engine/i_transition_eval/decode_address[0]
+                         LUT5 (Prop_LUT5_I2_O)        0.074     1.592 r  i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[1][tok_start][7]_i_5/O
+                         net (fo=49, unplaced)        0.279     1.871    i_scheduler_core/i_round_engine/i_transition_eval/decoded_profile[selector_a][1]
+                         LUT6 (Prop_LUT6_I2_O)        0.088     1.959 f  i_scheduler_core/i_round_engine/i_transition_eval/commit_remove_eid_a_q[0]_i_3/O
+                         net (fo=4, unplaced)         0.140     2.099    i_scheduler_core/i_round_engine/i_transition_eval/hot_q_reg[3][eid][0]_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     2.173 r  i_scheduler_core/i_round_engine/i_transition_eval/commit_remove_eid_a_q[0]_i_2/O
+                         net (fo=8, unplaced)         0.238     2.411    i_scheduler_core/i_round_engine/i_transition_eval/hot_q_reg[4][eid][0]_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.499 f  i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[0][dma_late_both]_i_9/O
+                         net (fo=1, unplaced)         0.210     2.709    i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[0][dma_late_both]_i_9_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.797 f  i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[0][dma_late_both]_i_6/O
+                         net (fo=7, unplaced)         0.170     2.967    i_scheduler_core/i_round_engine/i_bound_score/dma_q[13]_bret__2_bret__4_i_7
+                         LUT6 (Prop_LUT6_I4_O)        0.051     3.018 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q[13]_bret__2_bret__4_i_15/O
+                         net (fo=28, unplaced)        0.267     3.285    i_scheduler_core/i_round_engine/i_transition_eval/dma_q[13]_bret__2_bret__4_i_2_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.373 f  i_scheduler_core/i_round_engine/i_transition_eval/dma_q[1]_bret__1_i_8/O
+                         net (fo=2, unplaced)         0.210     3.583    i_scheduler_core/i_round_engine/i_transition_eval/dma_q[1]_bret__1_i_8_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     3.671 r  i_scheduler_core/i_round_engine/i_transition_eval/dma_q[1]_bret__1_i_13/O
+                         net (fo=7, unplaced)         0.153     3.824    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_94/I3
+                         LUTCY2 (Prop_LUTCY2_I3_GE)
+                                                      0.074     3.898 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_94/LUTCY2_INST/GE
+                         net (fo=1, unplaced)         0.036     3.934    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_94_n_0
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_GEA_COUTH)
+                                                      0.242     4.176 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_57/COUTH
+                         net (fo=3, unplaced)         0.002     4.178    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_57_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_CIN_COUTD)
+                                                      0.042     4.220 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_36/COUTD
+                         net (fo=2, unplaced)         0.014     4.234    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_16/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.048     4.282 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_16/LUTCY2_INST/O
+                         net (fo=20, unplaced)        0.194     4.476    i_scheduler_core/i_round_engine/i_transition_eval/next_valid6
+                         LUT3 (Prop_LUT3_I1_O)        0.051     4.527 r  i_scheduler_core/i_round_engine/i_transition_eval/dma_q[4]_bret__2_bret_i_3/O
+                         net (fo=5, unplaced)         0.228     4.755    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_52/I2
+                         LUTCY1 (Prop_LUTCY1_I2_PROP)
+                                                      0.079     4.834 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_52/LUTCY1_INST/PROP
+                         net (fo=1, unplaced)         0.000     4.834    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_52_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_PROPD_COUTH)
+                                                      0.163     4.997 f  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_31/COUTH
+                         net (fo=3, unplaced)         0.002     4.999    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_31_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_CIN_COUTD)
+                                                      0.042     5.041 f  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_14/COUTD
+                         net (fo=2, unplaced)         0.014     5.055    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_5/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.048     5.103 f  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[13]_bret__2_bret_i_5/LUTCY2_INST/O
+                         net (fo=16, unplaced)        0.189     5.292    i_scheduler_core/i_round_engine/i_bound_score/next_valid3
+                         LUT4 (Prop_LUT4_I3_O)        0.051     5.343 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q[6]_bret__2_bret__3_i_1/O
+                         net (fo=30, unplaced)        0.268     5.611    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_9/I2
+                         LUTCY2 (Prop_LUTCY2_I2_GE)
+                                                      0.088     5.699 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_9/LUTCY2_INST/GE
+                         net (fo=1, unplaced)         0.036     5.735    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_9_n_0
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_GEA_COUTH)
+                                                      0.242     5.977 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_3/COUTH
+                         net (fo=3, unplaced)         0.002     5.979    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_3_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_CIN_COUTD)
+                                                      0.042     6.021 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_2/COUTD
+                         net (fo=2, unplaced)         0.014     6.035    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_1/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.048     6.083 r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1_i_1/LUTCY2_INST/O
+                         net (fo=4, unplaced)         0.066     6.149    i_scheduler_core/i_round_engine/i_bound_score/next_event3
+                         FDCE                                         r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.076     5.076    i_scheduler_core/i_round_engine/i_bound_score/clk_i
+                         FDCE                                         r  i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1/C
+                         clock pessimism              0.000     5.076    
+                         clock uncertainty           -0.300     4.776    
+                         FDCE (Setup_FDCE_C_D)        0.007     4.783    i_scheduler_core/i_round_engine/i_bound_score/dma_q_reg[6]_bret__2_bret__1
+  -------------------------------------------------------------------
+                         required time                          4.783    
+                         arrival time                          -6.149    
+  -------------------------------------------------------------------
+                         slack                                 -1.366    
+
+Slack (VIOLATED) :        -1.233ns  (required time - arrival time)
+  Source:                 i_scheduler_core/i_round_engine/FSM_onehot_st_q_reg[14]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__3/D
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.900ns  (logic 2.048ns (34.712%)  route 3.852ns (65.288%))
+  Logic Levels:           26  (LOOKAHEAD8=4 LUT3=1 LUT4=1 LUT5=4 LUT6=8 LUTCY1=4 LUTCY2=4)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    i_scheduler_core/i_round_engine/clk_i
+                         FDCE                                         r  i_scheduler_core/i_round_engine/FSM_onehot_st_q_reg[14]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 r  i_scheduler_core/i_round_engine/FSM_onehot_st_q_reg[14]/Q
+                         net (fo=126, unplaced)       0.273     0.483    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q[17]_i_3_0[13]
+                         LUT3 (Prop_LUT3_I1_O)        0.051     0.534 f  i_scheduler_core/i_round_engine/i_transition_eval/materialization_q[1]_i_5/O
+                         net (fo=4, unplaced)         0.222     0.756    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q_reg[6]_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.844 r  i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_10/O
+                         net (fo=3, unplaced)         0.134     0.978    i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_10_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.074     1.052 r  i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_6/O
+                         net (fo=28, unplaced)        0.185     1.237    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q_reg[2]_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     1.311 r  i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_1/O
+                         net (fo=74, unplaced)        0.207     1.518    i_scheduler_core/i_round_engine/i_transition_eval/decode_address[0]
+                         LUT5 (Prop_LUT5_I2_O)        0.074     1.592 r  i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[1][tok_start][7]_i_5/O
+                         net (fo=49, unplaced)        0.279     1.871    i_scheduler_core/i_round_engine/i_pair_compare/decoded_profile[selector_a][1]
+                         LUT6 (Prop_LUT6_I2_O)        0.088     1.959 r  i_scheduler_core/i_round_engine/i_pair_compare/s2_offset_q[1]_i_5/O
+                         net (fo=7, unplaced)         0.153     2.112    i_scheduler_core/i_round_engine/i_bound_score/s2_offset_q_reg[1]
+                         LUT6 (Prop_LUT6_I0_O)        0.074     2.186 f  i_scheduler_core/i_round_engine/i_bound_score/s2_offset_q[1]_i_2/O
+                         net (fo=38, unplaced)        0.274     2.460    i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][0]_i_2/I2
+                         LUTCY2 (Prop_LUTCY2_I2_O)    0.088     2.548 r  i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][0]_i_2/LUTCY2_INST/O
+                         net (fo=3, unplaced)         0.016     2.564    i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][1]_i_3/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.050     2.614 r  i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][1]_i_3/LUTCY2_INST/O
+                         net (fo=1, unplaced)         0.000     2.614    i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][1]_i_3_n_2
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_CYB_COUTD)
+                                                      0.113     2.727 r  i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][8]_i_7/COUTD
+                         net (fo=2, unplaced)         0.014     2.741    i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][4]_i_2/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.048     2.789 r  i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][4]_i_2/LUTCY2_INST/O
+                         net (fo=3, unplaced)         0.022     2.811    i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][5]_i_5/I4
+                         LUTCY1 (Prop_LUTCY1_I4_O)    0.056     2.867 r  i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][5]_i_5/LUTCY1_INST/O
+                         net (fo=1, unplaced)         0.206     3.073    i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q_reg[1][ntok][5]
+                         LUT5 (Prop_LUT5_I0_O)        0.074     3.147 r  i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[1][ntok][5]_i_2/O
+                         net (fo=2, unplaced)         0.145     3.292    i_scheduler_core/i_round_engine/i_transition_eval/group_local_q_reg[token][profile_addr][4]
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.343 f  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][1]_bret__6_bret__18_i_2/O
+                         net (fo=8, unplaced)         0.156     3.499    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q_reg[8]
+                         LUT5 (Prop_LUT5_I0_O)        0.074     3.573 f  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][1]_bret__6_bret__18_i_1/O
+                         net (fo=11, unplaced)        0.163     3.736    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][1]_bret__6_bret__18_i_1_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.810 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][9]_bret__4_i_5/O
+                         net (fo=9, unplaced)         0.176     3.986    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][9]_bret__4_i_5_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     4.037 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][1]_bret__4_i_34/O
+                         net (fo=4, unplaced)         0.222     4.259    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__4_i_32/I2
+                         LUTCY1 (Prop_LUTCY1_I2_PROP)
+                                                      0.082     4.341 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__4_i_32/LUTCY1_INST/PROP
+                         net (fo=1, unplaced)         0.001     4.342    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__4_i_32_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_PROPH_COUTH)
+                                                      0.129     4.471 f  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__4_i_14/COUTH
+                         net (fo=3, unplaced)         0.002     4.473    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__4_i_14_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_CIN_COUTB)
+                                                      0.051     4.524 f  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__4_i_10/COUTB
+                         net (fo=10, unplaced)        0.253     4.777    i_scheduler_core/i_round_engine/i_target_s4pf/s2_duration2
+                         LUT6 (Prop_LUT6_I5_O)        0.051     4.828 r  i_scheduler_core/i_round_engine/i_target_s4pf/c2_endpoint_q[task_end][9]_bret__4_i_4/O
+                         net (fo=20, unplaced)        0.259     5.087    i_scheduler_core/i_round_engine/i_start_iter/c2_endpoint_q_reg[task_end][1]_bret__6_bret__31_i_1/I2
+                         LUTCY1 (Prop_LUTCY1_I2_PROP)
+                                                      0.086     5.173 r  i_scheduler_core/i_round_engine/i_start_iter/c2_endpoint_q_reg[task_end][1]_bret__6_bret__31_i_1/LUTCY1_INST/PROP
+                         net (fo=1, unplaced)         0.002     5.175    i_scheduler_core/i_round_engine/i_start_iter/c2_endpoint_q_reg[task_end][1]_bret__6_bret__31_i_1_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_PROPB_COUTH)
+                                                      0.177     5.352 r  i_scheduler_core/i_round_engine/i_start_iter/c2_endpoint_q_reg[dma3_end][6]_bret__6_i_2/COUTH
+                         net (fo=3, unplaced)         0.198     5.550    i_scheduler_core/i_round_engine/i_start_iter/c2_endpoint_q_reg[task_end][1]_bret__6_bret__8_i_1/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.051     5.601 r  i_scheduler_core/i_round_engine/i_start_iter/c2_endpoint_q_reg[task_end][1]_bret__6_bret__8_i_1/LUTCY2_INST/O
+                         net (fo=3, unplaced)         0.016     5.617    i_scheduler_core/i_round_engine/i_start_iter/c2_endpoint_q_reg[task_end][1]_bret__6_bret__11_i_1/I4
+                         LUTCY1 (Prop_LUTCY1_I4_O)    0.055     5.672 r  i_scheduler_core/i_round_engine/i_start_iter/c2_endpoint_q_reg[task_end][1]_bret__6_bret__11_i_1/LUTCY1_INST/O
+                         net (fo=3, unplaced)         0.212     5.884    i_scheduler_core/i_round_engine/i_transition_eval/built_timeline[s2_end][9]
+                         LUT4 (Prop_LUT4_I1_O)        0.074     5.958 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][1]_bret__6_bret__28_bret_bret_bret__3_i_1/O
+                         net (fo=1, unplaced)         0.062     6.020    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][1]_bret__6_bret__28_bret_bret_bret__3_i_1_n_0
+                         FDCE                                         r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__3/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    i_scheduler_core/i_round_engine/i_transition_eval/clk_i
+                         FDCE                                         r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__3/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_D)        0.007     4.787    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__3
+  -------------------------------------------------------------------
+                         required time                          4.787    
+                         arrival time                          -6.020    
+  -------------------------------------------------------------------
+                         slack                                 -1.233    
+
+Slack (VIOLATED) :        -1.205ns  (required time - arrival time)
+  Source:                 i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__1_bret__2/C
+                            (rising edge-triggered cell FDPE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret__3/D
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.774ns  (logic 1.958ns (33.911%)  route 3.816ns (66.089%))
+  Logic Levels:           23  (LOOKAHEAD8=3 LUT3=3 LUT4=2 LUT5=4 LUT6=6 LUTCY1=3 LUTCY2=2)
+  Clock Path Skew:        -0.138ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.218ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.218     0.218    i_scheduler_core/i_round_engine/i_transition_eval/clk_i
+                         FDPE                                         r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__1_bret__2/C
+  -------------------------------------------------------------------    -------------------
+                         FDPE (Prop_FDPE_C_Q)         0.090     0.308 f  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__1_bret__2/Q
+                         net (fo=1, unplaced)         0.253     0.561    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__6_bret__28_bret_bret_bret__1_bret__2_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     0.649 f  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[dma3_end][12]_bret_i_6/O
+                         net (fo=1, unplaced)         0.128     0.777    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[dma3_end][12]_bret_i_6_n_0
+                         LUT5 (Prop_LUT5_I2_O)        0.074     0.851 f  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[dma3_end][12]_bret_i_5/O
+                         net (fo=1, unplaced)         0.145     0.996    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[dma3_end][12]_bret_i_5_n_0
+                         LUT5 (Prop_LUT5_I4_O)        0.051     1.047 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[dma3_end][12]_bret_i_4/O
+                         net (fo=1, unplaced)         0.145     1.192    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[dma3_end][12]_bret_i_4_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     1.243 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[dma3_end][12]_bret_i_3/O
+                         net (fo=33, unplaced)        0.205     1.448    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[dma3_end][12]_bret_i_3_n_0
+                         LUT3 (Prop_LUT3_I1_O)        0.051     1.499 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][2]_bret_i_3/O
+                         net (fo=2, unplaced)         0.210     1.709    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][2]_bret_i_2/I2
+                         LUTCY2 (Prop_LUTCY2_I2_GE)
+                                                      0.088     1.797 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][2]_bret_i_2/LUTCY2_INST/GE
+                         net (fo=1, unplaced)         0.034     1.831    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][2]_bret_i_2_n_0
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_GEC_COUTH)
+                                                      0.127     1.958 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][2]_bret_i_4/COUTH
+                         net (fo=3, unplaced)         0.198     2.156    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][9]_bret_i_3/I4
+                         LUTCY1 (Prop_LUTCY1_I4_O)    0.057     2.213 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][9]_bret_i_3/LUTCY1_INST/O
+                         net (fo=1, unplaced)         0.206     2.419    i_scheduler_core/i_round_engine/i_transition_eval/timeline_o[task_end]10_in[8]
+                         LUT4 (Prop_LUT4_I0_O)        0.074     2.493 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][8]_bret_i_2/O
+                         net (fo=3, unplaced)         0.151     2.644    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[8]
+                         LUT3 (Prop_LUT3_I2_O)        0.051     2.695 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][8]_bret__1_i_1/O
+                         net (fo=12, unplaced)        0.182     2.877    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][8]_bret__1_i_1_n_0
+                         LUT3 (Prop_LUT3_I2_O)        0.051     2.928 r  i_scheduler_core/i_round_engine/i_transition_eval/h_load_c3_q[8]_i_2/O
+                         net (fo=18, unplaced)        0.257     3.185    i_scheduler_core/i_round_engine/i_transition_eval/global_score_q_reg[early_end][12]_i_7/I2
+                         LUTCY1 (Prop_LUTCY1_I2_PROP)
+                                                      0.087     3.272 r  i_scheduler_core/i_round_engine/i_transition_eval/global_score_q_reg[early_end][12]_i_7/LUTCY1_INST/PROP
+                         net (fo=1, unplaced)         0.002     3.274    i_scheduler_core/i_round_engine/i_transition_eval/global_score_q_reg[early_end][12]_i_7_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_PROPE_COUTH)
+                                                      0.130     3.404 r  i_scheduler_core/i_round_engine/i_transition_eval/global_score_q_reg[early_end][12]_i_2/COUTH
+                         net (fo=142, unplaced)       0.358     3.762    i_scheduler_core/i_round_engine/i_transition_eval/current_score1
+                         LUT5 (Prop_LUT5_I1_O)        0.074     3.836 r  i_scheduler_core/i_round_engine/i_transition_eval/rhs_wins_q_bret__2_i_202/O
+                         net (fo=11, unplaced)        0.245     4.081    i_scheduler_core/i_round_engine/i_transition_eval/global_score_q_reg[late_end][8]_1[1]
+                         LUT6 (Prop_LUT6_I2_O)        0.088     4.169 r  i_scheduler_core/i_round_engine/i_transition_eval/rhs_wins_q_bret__3_i_74/O
+                         net (fo=8, unplaced)         0.238     4.407    i_scheduler_core/i_round_engine/i_transition_eval/global_score_q_reg[late_end][6]
+                         LUT6 (Prop_LUT6_I1_O)        0.088     4.495 r  i_scheduler_core/i_round_engine/i_transition_eval/rhs_wins_q_bret__3_i_84/O
+                         net (fo=2, unplaced)         0.187     4.682    i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret__3_i_63/I0
+                         LUTCY1 (Prop_LUTCY1_I0_PROP)
+                                                      0.131     4.813 r  i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret__3_i_63/LUTCY1_INST/PROP
+                         net (fo=1, unplaced)         0.002     4.815    i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret__3_i_63_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_PROPB_COUTD)
+                                                      0.149     4.964 r  i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret__3_i_32/COUTD
+                         net (fo=2, unplaced)         0.014     4.978    i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret__3_i_15/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.048     5.026 r  i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret__3_i_15/LUTCY2_INST/O
+                         net (fo=2, unplaced)         0.210     5.236    i_scheduler_core/i_round_engine/i_transition_eval/rhs_wins_q_bret__3_i_4
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.324 f  i_scheduler_core/i_round_engine/i_transition_eval/rhs_wins_q_bret__3_i_6/O
+                         net (fo=1, unplaced)         0.128     5.452    i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_bret__3_i_2_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     5.526 r  i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_bret__3_i_4/O
+                         net (fo=1, unplaced)         0.128     5.654    i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_bret__3_i_4_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.074     5.728 r  i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_bret__3_i_2/O
+                         net (fo=1, unplaced)         0.128     5.856    i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_bret__3_i_2_n_0
+                         LUT4 (Prop_LUT4_I1_O)        0.074     5.930 r  i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_bret__3_i_1/O
+                         net (fo=1, unplaced)         0.062     5.992    i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_bret__3_i_1_n_0
+                         FDCE                                         r  i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret__3/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    i_scheduler_core/i_round_engine/i_pair_compare/clk_i
+                         FDCE                                         r  i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret__3/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_D)        0.007     4.787    i_scheduler_core/i_round_engine/i_pair_compare/rhs_wins_q_reg_bret__3
+  -------------------------------------------------------------------
+                         required time                          4.787    
+                         arrival time                          -5.992    
+  -------------------------------------------------------------------
+                         slack                                 -1.205    
+
+Slack (VIOLATED) :        -1.182ns  (required time - arrival time)
+  Source:                 i_scheduler_core/i_round_engine/FSM_onehot_st_q_reg[14]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][9]_bret__4/D
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.845ns  (logic 2.041ns (34.919%)  route 3.804ns (65.081%))
+  Logic Levels:           26  (LOOKAHEAD8=4 LUT3=1 LUT5=4 LUT6=9 LUTCY1=4 LUTCY2=4)
+  Clock Path Skew:        -0.044ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.076ns = ( 5.076 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    i_scheduler_core/i_round_engine/clk_i
+                         FDCE                                         r  i_scheduler_core/i_round_engine/FSM_onehot_st_q_reg[14]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 r  i_scheduler_core/i_round_engine/FSM_onehot_st_q_reg[14]/Q
+                         net (fo=126, unplaced)       0.273     0.483    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q[17]_i_3_0[13]
+                         LUT3 (Prop_LUT3_I1_O)        0.051     0.534 f  i_scheduler_core/i_round_engine/i_transition_eval/materialization_q[1]_i_5/O
+                         net (fo=4, unplaced)         0.222     0.756    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q_reg[6]_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.844 r  i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_10/O
+                         net (fo=3, unplaced)         0.134     0.978    i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_10_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.074     1.052 r  i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_6/O
+                         net (fo=28, unplaced)        0.185     1.237    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q_reg[2]_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     1.311 r  i_scheduler_core/i_round_engine/i_transition_eval/g0_b0_i_1/O
+                         net (fo=74, unplaced)        0.207     1.518    i_scheduler_core/i_round_engine/i_transition_eval/decode_address[0]
+                         LUT5 (Prop_LUT5_I2_O)        0.074     1.592 r  i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[1][tok_start][7]_i_5/O
+                         net (fo=49, unplaced)        0.279     1.871    i_scheduler_core/i_round_engine/i_pair_compare/decoded_profile[selector_a][1]
+                         LUT6 (Prop_LUT6_I2_O)        0.088     1.959 r  i_scheduler_core/i_round_engine/i_pair_compare/s2_offset_q[1]_i_5/O
+                         net (fo=7, unplaced)         0.153     2.112    i_scheduler_core/i_round_engine/i_bound_score/s2_offset_q_reg[1]
+                         LUT6 (Prop_LUT6_I0_O)        0.074     2.186 f  i_scheduler_core/i_round_engine/i_bound_score/s2_offset_q[1]_i_2/O
+                         net (fo=38, unplaced)        0.274     2.460    i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][0]_i_2/I2
+                         LUTCY2 (Prop_LUTCY2_I2_O)    0.088     2.548 r  i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][0]_i_2/LUTCY2_INST/O
+                         net (fo=3, unplaced)         0.016     2.564    i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][1]_i_3/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.050     2.614 r  i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][1]_i_3/LUTCY2_INST/O
+                         net (fo=1, unplaced)         0.000     2.614    i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][1]_i_3_n_2
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_CYB_COUTD)
+                                                      0.113     2.727 r  i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][8]_i_7/COUTD
+                         net (fo=2, unplaced)         0.014     2.741    i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][4]_i_2/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.048     2.789 r  i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][4]_i_2/LUTCY2_INST/O
+                         net (fo=3, unplaced)         0.022     2.811    i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][5]_i_5/I4
+                         LUTCY1 (Prop_LUTCY1_I4_O)    0.056     2.867 r  i_scheduler_core/i_round_engine/commit_task_q_reg[1][ntok][5]_i_5/LUTCY1_INST/O
+                         net (fo=1, unplaced)         0.206     3.073    i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q_reg[1][ntok][5]
+                         LUT5 (Prop_LUT5_I0_O)        0.074     3.147 r  i_scheduler_core/i_round_engine/i_transition_eval/commit_task_q[1][ntok][5]_i_2/O
+                         net (fo=2, unplaced)         0.145     3.292    i_scheduler_core/i_round_engine/i_transition_eval/group_local_q_reg[token][profile_addr][4]
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.343 f  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][1]_bret__6_bret__18_i_2/O
+                         net (fo=8, unplaced)         0.156     3.499    i_scheduler_core/i_round_engine/i_transition_eval/FSM_onehot_st_q_reg[8]
+                         LUT5 (Prop_LUT5_I0_O)        0.074     3.573 f  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][1]_bret__6_bret__18_i_1/O
+                         net (fo=11, unplaced)        0.163     3.736    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][1]_bret__6_bret__18_i_1_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.810 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][9]_bret__4_i_5/O
+                         net (fo=9, unplaced)         0.176     3.986    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][9]_bret__4_i_5_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     4.037 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][1]_bret__4_i_34/O
+                         net (fo=4, unplaced)         0.222     4.259    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__4_i_32/I2
+                         LUTCY1 (Prop_LUTCY1_I2_PROP)
+                                                      0.082     4.341 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__4_i_32/LUTCY1_INST/PROP
+                         net (fo=1, unplaced)         0.001     4.342    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__4_i_32_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_PROPH_COUTH)
+                                                      0.129     4.471 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__4_i_14/COUTH
+                         net (fo=3, unplaced)         0.002     4.473    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__4_i_14_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_CIN_COUTB)
+                                                      0.051     4.524 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][1]_bret__4_i_10/COUTB
+                         net (fo=10, unplaced)        0.253     4.777    i_scheduler_core/i_round_engine/i_transition_eval/s2_duration2
+                         LUT6 (Prop_LUT6_I4_O)        0.051     4.828 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[dma3_end][3]_bret__4_i_2/O
+                         net (fo=6, unplaced)         0.232     5.060    i_scheduler_core/i_round_engine/i_transition_eval/s2_duration[2]
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.148 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q[task_end][3]_bret__4_i_2/O
+                         net (fo=2, unplaced)         0.210     5.358    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][3]_bret__4_i_1/I2
+                         LUTCY1 (Prop_LUTCY1_I2_PROP)
+                                                      0.079     5.437 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][3]_bret__4_i_1/LUTCY1_INST/PROP
+                         net (fo=1, unplaced)         0.000     5.437    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][3]_bret__4_i_1_n_3
+                         LOOKAHEAD8 (Prop_LOOKAHEAD8_PROPD_COUTH)
+                                                      0.163     5.600 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][8]_bret__4_i_4/COUTH
+                         net (fo=3, unplaced)         0.198     5.798    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][8]_bret__4_i_1/I4
+                         LUTCY2 (Prop_LUTCY2_I4_O)    0.051     5.849 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][8]_bret__4_i_1/LUTCY2_INST/O
+                         net (fo=3, unplaced)         0.016     5.865    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][9]_bret__4_i_1/I4
+                         LUTCY1 (Prop_LUTCY1_I4_O)    0.055     5.920 r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][9]_bret__4_i_1/LUTCY1_INST/O
+                         net (fo=1, unplaced)         0.045     5.965    i_scheduler_core/i_round_engine/i_transition_eval/timeline_o[task_end]1[9]
+                         FDCE                                         r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][9]_bret__4/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.076     5.076    i_scheduler_core/i_round_engine/i_transition_eval/clk_i
+                         FDCE                                         r  i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][9]_bret__4/C
+                         clock pessimism              0.000     5.076    
+                         clock uncertainty           -0.300     4.776    
+                         FDCE (Setup_FDCE_C_D)        0.007     4.783    i_scheduler_core/i_round_engine/i_transition_eval/c2_endpoint_q_reg[task_end][9]_bret__4
+  -------------------------------------------------------------------
+                         required time                          4.783    
+                         arrival time                          -5.965    
+  -------------------------------------------------------------------
+                         slack                                 -1.182    
+
+Slack (VIOLATED) :        -1.173ns  (required time - arrival time)
+  Source:                 refill_top_remaining_q_reg[2]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            hot_q_reg[4][eid][0]/CE
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.746ns  (logic 1.461ns (25.426%)  route 4.285ns (74.574%))
+  Logic Levels:           18  (LUT4=2 LUT6=16)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    clk_i
+                         FDCE                                         r  refill_top_remaining_q_reg[2]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 f  refill_top_remaining_q_reg[2]/Q
+                         net (fo=17, unplaced)        0.298     0.508    i_scheduler_core/reg_rsp_o[rdata][4][2]
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.596 f  i_scheduler_core/cold_count_q[0]_i_13/O
+                         net (fo=23, unplaced)        0.262     0.858    i_scheduler_core/cold_q[1][eid][5]_i_27/I2
+                         LUT6 (Prop_LUT6_I2_O)        0.088     0.946 r  i_scheduler_core/cold_q[1][eid][5]_i_27/LUT6/O
+                         net (fo=3, unplaced)         0.216     1.162    i_scheduler_core/cold_q[1][eid][5]_i_27_n_1
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.250 r  i_scheduler_core/hot_count_q[1]_i_23/O
+                         net (fo=7, unplaced)         0.235     1.485    i_scheduler_core/hot_count_q[1]_i_23_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.573 r  i_scheduler_core/hot_q[3][eid][3]_i_41/O
+                         net (fo=4, unplaced)         0.157     1.730    i_scheduler_core/hot_q[3][eid][3]_i_41_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     1.781 f  i_scheduler_core/hot_q[8][eid][5]_i_42/O
+                         net (fo=11, unplaced)        0.245     2.026    i_scheduler_core/hot_q[8][eid][5]_i_42_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     2.114 r  i_scheduler_core/cold_q[4][eid][5]_i_26/O
+                         net (fo=59, unplaced)        0.201     2.315    i_scheduler_core/cold_q[4][eid][5]_i_26_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.074     2.389 r  i_scheduler_core/hot_q[3][eid][3]_i_22/O
+                         net (fo=32, unplaced)        0.270     2.659    i_scheduler_core/hot_q[3][eid][3]_i_22_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.747 f  i_scheduler_core/hot_q[3][eid][3]_i_21/O
+                         net (fo=9, unplaced)         0.176     2.923    i_scheduler_core/hot_q[3][eid][3]_i_21_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     2.974 f  i_scheduler_core/hot_count_q[1]_i_25/O
+                         net (fo=9, unplaced)         0.176     3.150    i_scheduler_core/hot_count_q[1]_i_25_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.201 r  i_scheduler_core/cold_q[4][eid][5]_i_18/O
+                         net (fo=50, unplaced)        0.198     3.399    i_scheduler_core/cold_q[4][eid][5]_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.473 f  i_scheduler_core/cold_q[2][eid][5]_i_36/O
+                         net (fo=8, unplaced)         0.238     3.711    i_scheduler_core/cold_q[2][eid][5]_i_36_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.799 f  i_scheduler_core/cold_q[2][eid][5]_i_28/O
+                         net (fo=28, unplaced)        0.202     4.001    i_scheduler_core/cold_q[2][eid][5]_i_28_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.051     4.052 r  i_scheduler_core/hot_count_q[1]_i_17/O
+                         net (fo=26, unplaced)        0.200     4.252    i_scheduler_core/hot_count_q[1]_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     4.303 r  i_scheduler_core/hot_count_q[1]_i_7/O
+                         net (fo=4, unplaced)         0.222     4.525    i_scheduler_core/hot_count_q[1]_i_7_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     4.613 r  i_scheduler_core/cold_q[1][eid][5]_i_16/O
+                         net (fo=45, unplaced)        0.277     4.890    i_scheduler_core/cold_q[1][eid][5]_i_16_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     4.978 f  i_scheduler_core/hot_q[4][eid][5]_i_14/O
+                         net (fo=17, unplaced)        0.255     5.233    i_scheduler_core/hot_q[4][eid][5]_i_14_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.321 f  i_scheduler_core/hot_q[4][eid][5]_i_5/O
+                         net (fo=1, unplaced)         0.210     5.531    i_scheduler_core/hot_q[4][eid][5]_i_5_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.619 r  i_scheduler_core/hot_q[4][eid][5]_i_1/O
+                         net (fo=16, unplaced)        0.247     5.866    i_scheduler_core_n_87
+                         FDCE                                         r  hot_q_reg[4][eid][0]/CE
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    clk_i
+                         FDCE                                         r  hot_q_reg[4][eid][0]/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_CE)      -0.087     4.693    hot_q_reg[4][eid][0]
+  -------------------------------------------------------------------
+                         required time                          4.693    
+                         arrival time                          -5.866    
+  -------------------------------------------------------------------
+                         slack                                 -1.173    
+
+Slack (VIOLATED) :        -1.173ns  (required time - arrival time)
+  Source:                 refill_top_remaining_q_reg[2]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            hot_q_reg[4][eid][1]/CE
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.746ns  (logic 1.461ns (25.426%)  route 4.285ns (74.574%))
+  Logic Levels:           18  (LUT4=2 LUT6=16)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    clk_i
+                         FDCE                                         r  refill_top_remaining_q_reg[2]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 f  refill_top_remaining_q_reg[2]/Q
+                         net (fo=17, unplaced)        0.298     0.508    i_scheduler_core/reg_rsp_o[rdata][4][2]
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.596 f  i_scheduler_core/cold_count_q[0]_i_13/O
+                         net (fo=23, unplaced)        0.262     0.858    i_scheduler_core/cold_q[1][eid][5]_i_27/I2
+                         LUT6 (Prop_LUT6_I2_O)        0.088     0.946 r  i_scheduler_core/cold_q[1][eid][5]_i_27/LUT6/O
+                         net (fo=3, unplaced)         0.216     1.162    i_scheduler_core/cold_q[1][eid][5]_i_27_n_1
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.250 r  i_scheduler_core/hot_count_q[1]_i_23/O
+                         net (fo=7, unplaced)         0.235     1.485    i_scheduler_core/hot_count_q[1]_i_23_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.573 r  i_scheduler_core/hot_q[3][eid][3]_i_41/O
+                         net (fo=4, unplaced)         0.157     1.730    i_scheduler_core/hot_q[3][eid][3]_i_41_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     1.781 f  i_scheduler_core/hot_q[8][eid][5]_i_42/O
+                         net (fo=11, unplaced)        0.245     2.026    i_scheduler_core/hot_q[8][eid][5]_i_42_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     2.114 r  i_scheduler_core/cold_q[4][eid][5]_i_26/O
+                         net (fo=59, unplaced)        0.201     2.315    i_scheduler_core/cold_q[4][eid][5]_i_26_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.074     2.389 r  i_scheduler_core/hot_q[3][eid][3]_i_22/O
+                         net (fo=32, unplaced)        0.270     2.659    i_scheduler_core/hot_q[3][eid][3]_i_22_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.747 f  i_scheduler_core/hot_q[3][eid][3]_i_21/O
+                         net (fo=9, unplaced)         0.176     2.923    i_scheduler_core/hot_q[3][eid][3]_i_21_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     2.974 f  i_scheduler_core/hot_count_q[1]_i_25/O
+                         net (fo=9, unplaced)         0.176     3.150    i_scheduler_core/hot_count_q[1]_i_25_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.201 r  i_scheduler_core/cold_q[4][eid][5]_i_18/O
+                         net (fo=50, unplaced)        0.198     3.399    i_scheduler_core/cold_q[4][eid][5]_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.473 f  i_scheduler_core/cold_q[2][eid][5]_i_36/O
+                         net (fo=8, unplaced)         0.238     3.711    i_scheduler_core/cold_q[2][eid][5]_i_36_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.799 f  i_scheduler_core/cold_q[2][eid][5]_i_28/O
+                         net (fo=28, unplaced)        0.202     4.001    i_scheduler_core/cold_q[2][eid][5]_i_28_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.051     4.052 r  i_scheduler_core/hot_count_q[1]_i_17/O
+                         net (fo=26, unplaced)        0.200     4.252    i_scheduler_core/hot_count_q[1]_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     4.303 r  i_scheduler_core/hot_count_q[1]_i_7/O
+                         net (fo=4, unplaced)         0.222     4.525    i_scheduler_core/hot_count_q[1]_i_7_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     4.613 r  i_scheduler_core/cold_q[1][eid][5]_i_16/O
+                         net (fo=45, unplaced)        0.277     4.890    i_scheduler_core/cold_q[1][eid][5]_i_16_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     4.978 f  i_scheduler_core/hot_q[4][eid][5]_i_14/O
+                         net (fo=17, unplaced)        0.255     5.233    i_scheduler_core/hot_q[4][eid][5]_i_14_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.321 f  i_scheduler_core/hot_q[4][eid][5]_i_5/O
+                         net (fo=1, unplaced)         0.210     5.531    i_scheduler_core/hot_q[4][eid][5]_i_5_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.619 r  i_scheduler_core/hot_q[4][eid][5]_i_1/O
+                         net (fo=16, unplaced)        0.247     5.866    i_scheduler_core_n_87
+                         FDCE                                         r  hot_q_reg[4][eid][1]/CE
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    clk_i
+                         FDCE                                         r  hot_q_reg[4][eid][1]/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_CE)      -0.087     4.693    hot_q_reg[4][eid][1]
+  -------------------------------------------------------------------
+                         required time                          4.693    
+                         arrival time                          -5.866    
+  -------------------------------------------------------------------
+                         slack                                 -1.173    
+
+Slack (VIOLATED) :        -1.173ns  (required time - arrival time)
+  Source:                 refill_top_remaining_q_reg[2]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            hot_q_reg[4][eid][2]/CE
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.746ns  (logic 1.461ns (25.426%)  route 4.285ns (74.574%))
+  Logic Levels:           18  (LUT4=2 LUT6=16)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    clk_i
+                         FDCE                                         r  refill_top_remaining_q_reg[2]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 f  refill_top_remaining_q_reg[2]/Q
+                         net (fo=17, unplaced)        0.298     0.508    i_scheduler_core/reg_rsp_o[rdata][4][2]
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.596 f  i_scheduler_core/cold_count_q[0]_i_13/O
+                         net (fo=23, unplaced)        0.262     0.858    i_scheduler_core/cold_q[1][eid][5]_i_27/I2
+                         LUT6 (Prop_LUT6_I2_O)        0.088     0.946 r  i_scheduler_core/cold_q[1][eid][5]_i_27/LUT6/O
+                         net (fo=3, unplaced)         0.216     1.162    i_scheduler_core/cold_q[1][eid][5]_i_27_n_1
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.250 r  i_scheduler_core/hot_count_q[1]_i_23/O
+                         net (fo=7, unplaced)         0.235     1.485    i_scheduler_core/hot_count_q[1]_i_23_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.573 r  i_scheduler_core/hot_q[3][eid][3]_i_41/O
+                         net (fo=4, unplaced)         0.157     1.730    i_scheduler_core/hot_q[3][eid][3]_i_41_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     1.781 f  i_scheduler_core/hot_q[8][eid][5]_i_42/O
+                         net (fo=11, unplaced)        0.245     2.026    i_scheduler_core/hot_q[8][eid][5]_i_42_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     2.114 r  i_scheduler_core/cold_q[4][eid][5]_i_26/O
+                         net (fo=59, unplaced)        0.201     2.315    i_scheduler_core/cold_q[4][eid][5]_i_26_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.074     2.389 r  i_scheduler_core/hot_q[3][eid][3]_i_22/O
+                         net (fo=32, unplaced)        0.270     2.659    i_scheduler_core/hot_q[3][eid][3]_i_22_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.747 f  i_scheduler_core/hot_q[3][eid][3]_i_21/O
+                         net (fo=9, unplaced)         0.176     2.923    i_scheduler_core/hot_q[3][eid][3]_i_21_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     2.974 f  i_scheduler_core/hot_count_q[1]_i_25/O
+                         net (fo=9, unplaced)         0.176     3.150    i_scheduler_core/hot_count_q[1]_i_25_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.201 r  i_scheduler_core/cold_q[4][eid][5]_i_18/O
+                         net (fo=50, unplaced)        0.198     3.399    i_scheduler_core/cold_q[4][eid][5]_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.473 f  i_scheduler_core/cold_q[2][eid][5]_i_36/O
+                         net (fo=8, unplaced)         0.238     3.711    i_scheduler_core/cold_q[2][eid][5]_i_36_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.799 f  i_scheduler_core/cold_q[2][eid][5]_i_28/O
+                         net (fo=28, unplaced)        0.202     4.001    i_scheduler_core/cold_q[2][eid][5]_i_28_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.051     4.052 r  i_scheduler_core/hot_count_q[1]_i_17/O
+                         net (fo=26, unplaced)        0.200     4.252    i_scheduler_core/hot_count_q[1]_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     4.303 r  i_scheduler_core/hot_count_q[1]_i_7/O
+                         net (fo=4, unplaced)         0.222     4.525    i_scheduler_core/hot_count_q[1]_i_7_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     4.613 r  i_scheduler_core/cold_q[1][eid][5]_i_16/O
+                         net (fo=45, unplaced)        0.277     4.890    i_scheduler_core/cold_q[1][eid][5]_i_16_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     4.978 f  i_scheduler_core/hot_q[4][eid][5]_i_14/O
+                         net (fo=17, unplaced)        0.255     5.233    i_scheduler_core/hot_q[4][eid][5]_i_14_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.321 f  i_scheduler_core/hot_q[4][eid][5]_i_5/O
+                         net (fo=1, unplaced)         0.210     5.531    i_scheduler_core/hot_q[4][eid][5]_i_5_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.619 r  i_scheduler_core/hot_q[4][eid][5]_i_1/O
+                         net (fo=16, unplaced)        0.247     5.866    i_scheduler_core_n_87
+                         FDCE                                         r  hot_q_reg[4][eid][2]/CE
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    clk_i
+                         FDCE                                         r  hot_q_reg[4][eid][2]/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_CE)      -0.087     4.693    hot_q_reg[4][eid][2]
+  -------------------------------------------------------------------
+                         required time                          4.693    
+                         arrival time                          -5.866    
+  -------------------------------------------------------------------
+                         slack                                 -1.173    
+
+Slack (VIOLATED) :        -1.173ns  (required time - arrival time)
+  Source:                 refill_top_remaining_q_reg[2]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            hot_q_reg[4][eid][3]/CE
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.746ns  (logic 1.461ns (25.426%)  route 4.285ns (74.574%))
+  Logic Levels:           18  (LUT4=2 LUT6=16)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    clk_i
+                         FDCE                                         r  refill_top_remaining_q_reg[2]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 f  refill_top_remaining_q_reg[2]/Q
+                         net (fo=17, unplaced)        0.298     0.508    i_scheduler_core/reg_rsp_o[rdata][4][2]
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.596 f  i_scheduler_core/cold_count_q[0]_i_13/O
+                         net (fo=23, unplaced)        0.262     0.858    i_scheduler_core/cold_q[1][eid][5]_i_27/I2
+                         LUT6 (Prop_LUT6_I2_O)        0.088     0.946 r  i_scheduler_core/cold_q[1][eid][5]_i_27/LUT6/O
+                         net (fo=3, unplaced)         0.216     1.162    i_scheduler_core/cold_q[1][eid][5]_i_27_n_1
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.250 r  i_scheduler_core/hot_count_q[1]_i_23/O
+                         net (fo=7, unplaced)         0.235     1.485    i_scheduler_core/hot_count_q[1]_i_23_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.573 r  i_scheduler_core/hot_q[3][eid][3]_i_41/O
+                         net (fo=4, unplaced)         0.157     1.730    i_scheduler_core/hot_q[3][eid][3]_i_41_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     1.781 f  i_scheduler_core/hot_q[8][eid][5]_i_42/O
+                         net (fo=11, unplaced)        0.245     2.026    i_scheduler_core/hot_q[8][eid][5]_i_42_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     2.114 r  i_scheduler_core/cold_q[4][eid][5]_i_26/O
+                         net (fo=59, unplaced)        0.201     2.315    i_scheduler_core/cold_q[4][eid][5]_i_26_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.074     2.389 r  i_scheduler_core/hot_q[3][eid][3]_i_22/O
+                         net (fo=32, unplaced)        0.270     2.659    i_scheduler_core/hot_q[3][eid][3]_i_22_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.747 f  i_scheduler_core/hot_q[3][eid][3]_i_21/O
+                         net (fo=9, unplaced)         0.176     2.923    i_scheduler_core/hot_q[3][eid][3]_i_21_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     2.974 f  i_scheduler_core/hot_count_q[1]_i_25/O
+                         net (fo=9, unplaced)         0.176     3.150    i_scheduler_core/hot_count_q[1]_i_25_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.201 r  i_scheduler_core/cold_q[4][eid][5]_i_18/O
+                         net (fo=50, unplaced)        0.198     3.399    i_scheduler_core/cold_q[4][eid][5]_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.473 f  i_scheduler_core/cold_q[2][eid][5]_i_36/O
+                         net (fo=8, unplaced)         0.238     3.711    i_scheduler_core/cold_q[2][eid][5]_i_36_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.799 f  i_scheduler_core/cold_q[2][eid][5]_i_28/O
+                         net (fo=28, unplaced)        0.202     4.001    i_scheduler_core/cold_q[2][eid][5]_i_28_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.051     4.052 r  i_scheduler_core/hot_count_q[1]_i_17/O
+                         net (fo=26, unplaced)        0.200     4.252    i_scheduler_core/hot_count_q[1]_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     4.303 r  i_scheduler_core/hot_count_q[1]_i_7/O
+                         net (fo=4, unplaced)         0.222     4.525    i_scheduler_core/hot_count_q[1]_i_7_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     4.613 r  i_scheduler_core/cold_q[1][eid][5]_i_16/O
+                         net (fo=45, unplaced)        0.277     4.890    i_scheduler_core/cold_q[1][eid][5]_i_16_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     4.978 f  i_scheduler_core/hot_q[4][eid][5]_i_14/O
+                         net (fo=17, unplaced)        0.255     5.233    i_scheduler_core/hot_q[4][eid][5]_i_14_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.321 f  i_scheduler_core/hot_q[4][eid][5]_i_5/O
+                         net (fo=1, unplaced)         0.210     5.531    i_scheduler_core/hot_q[4][eid][5]_i_5_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.619 r  i_scheduler_core/hot_q[4][eid][5]_i_1/O
+                         net (fo=16, unplaced)        0.247     5.866    i_scheduler_core_n_87
+                         FDCE                                         r  hot_q_reg[4][eid][3]/CE
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    clk_i
+                         FDCE                                         r  hot_q_reg[4][eid][3]/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_CE)      -0.087     4.693    hot_q_reg[4][eid][3]
+  -------------------------------------------------------------------
+                         required time                          4.693    
+                         arrival time                          -5.866    
+  -------------------------------------------------------------------
+                         slack                                 -1.173    
+
+Slack (VIOLATED) :        -1.173ns  (required time - arrival time)
+  Source:                 refill_top_remaining_q_reg[2]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            hot_q_reg[4][eid][4]/CE
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.746ns  (logic 1.461ns (25.426%)  route 4.285ns (74.574%))
+  Logic Levels:           18  (LUT4=2 LUT6=16)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    clk_i
+                         FDCE                                         r  refill_top_remaining_q_reg[2]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 f  refill_top_remaining_q_reg[2]/Q
+                         net (fo=17, unplaced)        0.298     0.508    i_scheduler_core/reg_rsp_o[rdata][4][2]
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.596 f  i_scheduler_core/cold_count_q[0]_i_13/O
+                         net (fo=23, unplaced)        0.262     0.858    i_scheduler_core/cold_q[1][eid][5]_i_27/I2
+                         LUT6 (Prop_LUT6_I2_O)        0.088     0.946 r  i_scheduler_core/cold_q[1][eid][5]_i_27/LUT6/O
+                         net (fo=3, unplaced)         0.216     1.162    i_scheduler_core/cold_q[1][eid][5]_i_27_n_1
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.250 r  i_scheduler_core/hot_count_q[1]_i_23/O
+                         net (fo=7, unplaced)         0.235     1.485    i_scheduler_core/hot_count_q[1]_i_23_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.573 r  i_scheduler_core/hot_q[3][eid][3]_i_41/O
+                         net (fo=4, unplaced)         0.157     1.730    i_scheduler_core/hot_q[3][eid][3]_i_41_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     1.781 f  i_scheduler_core/hot_q[8][eid][5]_i_42/O
+                         net (fo=11, unplaced)        0.245     2.026    i_scheduler_core/hot_q[8][eid][5]_i_42_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     2.114 r  i_scheduler_core/cold_q[4][eid][5]_i_26/O
+                         net (fo=59, unplaced)        0.201     2.315    i_scheduler_core/cold_q[4][eid][5]_i_26_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.074     2.389 r  i_scheduler_core/hot_q[3][eid][3]_i_22/O
+                         net (fo=32, unplaced)        0.270     2.659    i_scheduler_core/hot_q[3][eid][3]_i_22_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.747 f  i_scheduler_core/hot_q[3][eid][3]_i_21/O
+                         net (fo=9, unplaced)         0.176     2.923    i_scheduler_core/hot_q[3][eid][3]_i_21_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     2.974 f  i_scheduler_core/hot_count_q[1]_i_25/O
+                         net (fo=9, unplaced)         0.176     3.150    i_scheduler_core/hot_count_q[1]_i_25_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.201 r  i_scheduler_core/cold_q[4][eid][5]_i_18/O
+                         net (fo=50, unplaced)        0.198     3.399    i_scheduler_core/cold_q[4][eid][5]_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.473 f  i_scheduler_core/cold_q[2][eid][5]_i_36/O
+                         net (fo=8, unplaced)         0.238     3.711    i_scheduler_core/cold_q[2][eid][5]_i_36_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.799 f  i_scheduler_core/cold_q[2][eid][5]_i_28/O
+                         net (fo=28, unplaced)        0.202     4.001    i_scheduler_core/cold_q[2][eid][5]_i_28_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.051     4.052 r  i_scheduler_core/hot_count_q[1]_i_17/O
+                         net (fo=26, unplaced)        0.200     4.252    i_scheduler_core/hot_count_q[1]_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     4.303 r  i_scheduler_core/hot_count_q[1]_i_7/O
+                         net (fo=4, unplaced)         0.222     4.525    i_scheduler_core/hot_count_q[1]_i_7_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     4.613 r  i_scheduler_core/cold_q[1][eid][5]_i_16/O
+                         net (fo=45, unplaced)        0.277     4.890    i_scheduler_core/cold_q[1][eid][5]_i_16_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     4.978 f  i_scheduler_core/hot_q[4][eid][5]_i_14/O
+                         net (fo=17, unplaced)        0.255     5.233    i_scheduler_core/hot_q[4][eid][5]_i_14_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.321 f  i_scheduler_core/hot_q[4][eid][5]_i_5/O
+                         net (fo=1, unplaced)         0.210     5.531    i_scheduler_core/hot_q[4][eid][5]_i_5_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.619 r  i_scheduler_core/hot_q[4][eid][5]_i_1/O
+                         net (fo=16, unplaced)        0.247     5.866    i_scheduler_core_n_87
+                         FDCE                                         r  hot_q_reg[4][eid][4]/CE
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    clk_i
+                         FDCE                                         r  hot_q_reg[4][eid][4]/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_CE)      -0.087     4.693    hot_q_reg[4][eid][4]
+  -------------------------------------------------------------------
+                         required time                          4.693    
+                         arrival time                          -5.866    
+  -------------------------------------------------------------------
+                         slack                                 -1.173    
+
+Slack (VIOLATED) :        -1.173ns  (required time - arrival time)
+  Source:                 refill_top_remaining_q_reg[2]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            hot_q_reg[4][eid][5]/CE
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.746ns  (logic 1.461ns (25.426%)  route 4.285ns (74.574%))
+  Logic Levels:           18  (LUT4=2 LUT6=16)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    clk_i
+                         FDCE                                         r  refill_top_remaining_q_reg[2]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 f  refill_top_remaining_q_reg[2]/Q
+                         net (fo=17, unplaced)        0.298     0.508    i_scheduler_core/reg_rsp_o[rdata][4][2]
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.596 f  i_scheduler_core/cold_count_q[0]_i_13/O
+                         net (fo=23, unplaced)        0.262     0.858    i_scheduler_core/cold_q[1][eid][5]_i_27/I2
+                         LUT6 (Prop_LUT6_I2_O)        0.088     0.946 r  i_scheduler_core/cold_q[1][eid][5]_i_27/LUT6/O
+                         net (fo=3, unplaced)         0.216     1.162    i_scheduler_core/cold_q[1][eid][5]_i_27_n_1
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.250 r  i_scheduler_core/hot_count_q[1]_i_23/O
+                         net (fo=7, unplaced)         0.235     1.485    i_scheduler_core/hot_count_q[1]_i_23_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.573 r  i_scheduler_core/hot_q[3][eid][3]_i_41/O
+                         net (fo=4, unplaced)         0.157     1.730    i_scheduler_core/hot_q[3][eid][3]_i_41_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     1.781 f  i_scheduler_core/hot_q[8][eid][5]_i_42/O
+                         net (fo=11, unplaced)        0.245     2.026    i_scheduler_core/hot_q[8][eid][5]_i_42_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     2.114 r  i_scheduler_core/cold_q[4][eid][5]_i_26/O
+                         net (fo=59, unplaced)        0.201     2.315    i_scheduler_core/cold_q[4][eid][5]_i_26_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.074     2.389 r  i_scheduler_core/hot_q[3][eid][3]_i_22/O
+                         net (fo=32, unplaced)        0.270     2.659    i_scheduler_core/hot_q[3][eid][3]_i_22_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.747 f  i_scheduler_core/hot_q[3][eid][3]_i_21/O
+                         net (fo=9, unplaced)         0.176     2.923    i_scheduler_core/hot_q[3][eid][3]_i_21_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     2.974 f  i_scheduler_core/hot_count_q[1]_i_25/O
+                         net (fo=9, unplaced)         0.176     3.150    i_scheduler_core/hot_count_q[1]_i_25_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.201 r  i_scheduler_core/cold_q[4][eid][5]_i_18/O
+                         net (fo=50, unplaced)        0.198     3.399    i_scheduler_core/cold_q[4][eid][5]_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.473 f  i_scheduler_core/cold_q[2][eid][5]_i_36/O
+                         net (fo=8, unplaced)         0.238     3.711    i_scheduler_core/cold_q[2][eid][5]_i_36_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.799 f  i_scheduler_core/cold_q[2][eid][5]_i_28/O
+                         net (fo=28, unplaced)        0.202     4.001    i_scheduler_core/cold_q[2][eid][5]_i_28_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.051     4.052 r  i_scheduler_core/hot_count_q[1]_i_17/O
+                         net (fo=26, unplaced)        0.200     4.252    i_scheduler_core/hot_count_q[1]_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     4.303 r  i_scheduler_core/hot_count_q[1]_i_7/O
+                         net (fo=4, unplaced)         0.222     4.525    i_scheduler_core/hot_count_q[1]_i_7_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     4.613 r  i_scheduler_core/cold_q[1][eid][5]_i_16/O
+                         net (fo=45, unplaced)        0.277     4.890    i_scheduler_core/cold_q[1][eid][5]_i_16_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     4.978 f  i_scheduler_core/hot_q[4][eid][5]_i_14/O
+                         net (fo=17, unplaced)        0.255     5.233    i_scheduler_core/hot_q[4][eid][5]_i_14_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.321 f  i_scheduler_core/hot_q[4][eid][5]_i_5/O
+                         net (fo=1, unplaced)         0.210     5.531    i_scheduler_core/hot_q[4][eid][5]_i_5_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.619 r  i_scheduler_core/hot_q[4][eid][5]_i_1/O
+                         net (fo=16, unplaced)        0.247     5.866    i_scheduler_core_n_87
+                         FDCE                                         r  hot_q_reg[4][eid][5]/CE
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    clk_i
+                         FDCE                                         r  hot_q_reg[4][eid][5]/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_CE)      -0.087     4.693    hot_q_reg[4][eid][5]
+  -------------------------------------------------------------------
+                         required time                          4.693    
+                         arrival time                          -5.866    
+  -------------------------------------------------------------------
+                         slack                                 -1.173    
+
+Slack (VIOLATED) :        -1.173ns  (required time - arrival time)
+  Source:                 refill_top_remaining_q_reg[2]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            hot_q_reg[4][ntok][0]/CE
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.746ns  (logic 1.461ns (25.426%)  route 4.285ns (74.574%))
+  Logic Levels:           18  (LUT4=2 LUT6=16)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    clk_i
+                         FDCE                                         r  refill_top_remaining_q_reg[2]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 f  refill_top_remaining_q_reg[2]/Q
+                         net (fo=17, unplaced)        0.298     0.508    i_scheduler_core/reg_rsp_o[rdata][4][2]
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.596 f  i_scheduler_core/cold_count_q[0]_i_13/O
+                         net (fo=23, unplaced)        0.262     0.858    i_scheduler_core/cold_q[1][eid][5]_i_27/I2
+                         LUT6 (Prop_LUT6_I2_O)        0.088     0.946 r  i_scheduler_core/cold_q[1][eid][5]_i_27/LUT6/O
+                         net (fo=3, unplaced)         0.216     1.162    i_scheduler_core/cold_q[1][eid][5]_i_27_n_1
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.250 r  i_scheduler_core/hot_count_q[1]_i_23/O
+                         net (fo=7, unplaced)         0.235     1.485    i_scheduler_core/hot_count_q[1]_i_23_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.573 r  i_scheduler_core/hot_q[3][eid][3]_i_41/O
+                         net (fo=4, unplaced)         0.157     1.730    i_scheduler_core/hot_q[3][eid][3]_i_41_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     1.781 f  i_scheduler_core/hot_q[8][eid][5]_i_42/O
+                         net (fo=11, unplaced)        0.245     2.026    i_scheduler_core/hot_q[8][eid][5]_i_42_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     2.114 r  i_scheduler_core/cold_q[4][eid][5]_i_26/O
+                         net (fo=59, unplaced)        0.201     2.315    i_scheduler_core/cold_q[4][eid][5]_i_26_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.074     2.389 r  i_scheduler_core/hot_q[3][eid][3]_i_22/O
+                         net (fo=32, unplaced)        0.270     2.659    i_scheduler_core/hot_q[3][eid][3]_i_22_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.747 f  i_scheduler_core/hot_q[3][eid][3]_i_21/O
+                         net (fo=9, unplaced)         0.176     2.923    i_scheduler_core/hot_q[3][eid][3]_i_21_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     2.974 f  i_scheduler_core/hot_count_q[1]_i_25/O
+                         net (fo=9, unplaced)         0.176     3.150    i_scheduler_core/hot_count_q[1]_i_25_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.201 r  i_scheduler_core/cold_q[4][eid][5]_i_18/O
+                         net (fo=50, unplaced)        0.198     3.399    i_scheduler_core/cold_q[4][eid][5]_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.473 f  i_scheduler_core/cold_q[2][eid][5]_i_36/O
+                         net (fo=8, unplaced)         0.238     3.711    i_scheduler_core/cold_q[2][eid][5]_i_36_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.799 f  i_scheduler_core/cold_q[2][eid][5]_i_28/O
+                         net (fo=28, unplaced)        0.202     4.001    i_scheduler_core/cold_q[2][eid][5]_i_28_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.051     4.052 r  i_scheduler_core/hot_count_q[1]_i_17/O
+                         net (fo=26, unplaced)        0.200     4.252    i_scheduler_core/hot_count_q[1]_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     4.303 r  i_scheduler_core/hot_count_q[1]_i_7/O
+                         net (fo=4, unplaced)         0.222     4.525    i_scheduler_core/hot_count_q[1]_i_7_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     4.613 r  i_scheduler_core/cold_q[1][eid][5]_i_16/O
+                         net (fo=45, unplaced)        0.277     4.890    i_scheduler_core/cold_q[1][eid][5]_i_16_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     4.978 f  i_scheduler_core/hot_q[4][eid][5]_i_14/O
+                         net (fo=17, unplaced)        0.255     5.233    i_scheduler_core/hot_q[4][eid][5]_i_14_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.321 f  i_scheduler_core/hot_q[4][eid][5]_i_5/O
+                         net (fo=1, unplaced)         0.210     5.531    i_scheduler_core/hot_q[4][eid][5]_i_5_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.619 r  i_scheduler_core/hot_q[4][eid][5]_i_1/O
+                         net (fo=16, unplaced)        0.247     5.866    i_scheduler_core_n_87
+                         FDCE                                         r  hot_q_reg[4][ntok][0]/CE
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    clk_i
+                         FDCE                                         r  hot_q_reg[4][ntok][0]/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_CE)      -0.087     4.693    hot_q_reg[4][ntok][0]
+  -------------------------------------------------------------------
+                         required time                          4.693    
+                         arrival time                          -5.866    
+  -------------------------------------------------------------------
+                         slack                                 -1.173    
+
+Slack (VIOLATED) :        -1.173ns  (required time - arrival time)
+  Source:                 refill_top_remaining_q_reg[2]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            hot_q_reg[4][ntok][1]/CE
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.746ns  (logic 1.461ns (25.426%)  route 4.285ns (74.574%))
+  Logic Levels:           18  (LUT4=2 LUT6=16)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    clk_i
+                         FDCE                                         r  refill_top_remaining_q_reg[2]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 f  refill_top_remaining_q_reg[2]/Q
+                         net (fo=17, unplaced)        0.298     0.508    i_scheduler_core/reg_rsp_o[rdata][4][2]
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.596 f  i_scheduler_core/cold_count_q[0]_i_13/O
+                         net (fo=23, unplaced)        0.262     0.858    i_scheduler_core/cold_q[1][eid][5]_i_27/I2
+                         LUT6 (Prop_LUT6_I2_O)        0.088     0.946 r  i_scheduler_core/cold_q[1][eid][5]_i_27/LUT6/O
+                         net (fo=3, unplaced)         0.216     1.162    i_scheduler_core/cold_q[1][eid][5]_i_27_n_1
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.250 r  i_scheduler_core/hot_count_q[1]_i_23/O
+                         net (fo=7, unplaced)         0.235     1.485    i_scheduler_core/hot_count_q[1]_i_23_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.573 r  i_scheduler_core/hot_q[3][eid][3]_i_41/O
+                         net (fo=4, unplaced)         0.157     1.730    i_scheduler_core/hot_q[3][eid][3]_i_41_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     1.781 f  i_scheduler_core/hot_q[8][eid][5]_i_42/O
+                         net (fo=11, unplaced)        0.245     2.026    i_scheduler_core/hot_q[8][eid][5]_i_42_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     2.114 r  i_scheduler_core/cold_q[4][eid][5]_i_26/O
+                         net (fo=59, unplaced)        0.201     2.315    i_scheduler_core/cold_q[4][eid][5]_i_26_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.074     2.389 r  i_scheduler_core/hot_q[3][eid][3]_i_22/O
+                         net (fo=32, unplaced)        0.270     2.659    i_scheduler_core/hot_q[3][eid][3]_i_22_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.747 f  i_scheduler_core/hot_q[3][eid][3]_i_21/O
+                         net (fo=9, unplaced)         0.176     2.923    i_scheduler_core/hot_q[3][eid][3]_i_21_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     2.974 f  i_scheduler_core/hot_count_q[1]_i_25/O
+                         net (fo=9, unplaced)         0.176     3.150    i_scheduler_core/hot_count_q[1]_i_25_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.201 r  i_scheduler_core/cold_q[4][eid][5]_i_18/O
+                         net (fo=50, unplaced)        0.198     3.399    i_scheduler_core/cold_q[4][eid][5]_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.473 f  i_scheduler_core/cold_q[2][eid][5]_i_36/O
+                         net (fo=8, unplaced)         0.238     3.711    i_scheduler_core/cold_q[2][eid][5]_i_36_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.799 f  i_scheduler_core/cold_q[2][eid][5]_i_28/O
+                         net (fo=28, unplaced)        0.202     4.001    i_scheduler_core/cold_q[2][eid][5]_i_28_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.051     4.052 r  i_scheduler_core/hot_count_q[1]_i_17/O
+                         net (fo=26, unplaced)        0.200     4.252    i_scheduler_core/hot_count_q[1]_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     4.303 r  i_scheduler_core/hot_count_q[1]_i_7/O
+                         net (fo=4, unplaced)         0.222     4.525    i_scheduler_core/hot_count_q[1]_i_7_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     4.613 r  i_scheduler_core/cold_q[1][eid][5]_i_16/O
+                         net (fo=45, unplaced)        0.277     4.890    i_scheduler_core/cold_q[1][eid][5]_i_16_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     4.978 f  i_scheduler_core/hot_q[4][eid][5]_i_14/O
+                         net (fo=17, unplaced)        0.255     5.233    i_scheduler_core/hot_q[4][eid][5]_i_14_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.321 f  i_scheduler_core/hot_q[4][eid][5]_i_5/O
+                         net (fo=1, unplaced)         0.210     5.531    i_scheduler_core/hot_q[4][eid][5]_i_5_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.619 r  i_scheduler_core/hot_q[4][eid][5]_i_1/O
+                         net (fo=16, unplaced)        0.247     5.866    i_scheduler_core_n_87
+                         FDCE                                         r  hot_q_reg[4][ntok][1]/CE
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    clk_i
+                         FDCE                                         r  hot_q_reg[4][ntok][1]/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_CE)      -0.087     4.693    hot_q_reg[4][ntok][1]
+  -------------------------------------------------------------------
+                         required time                          4.693    
+                         arrival time                          -5.866    
+  -------------------------------------------------------------------
+                         slack                                 -1.173    
+
+Slack (VIOLATED) :        -1.173ns  (required time - arrival time)
+  Source:                 refill_top_remaining_q_reg[2]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            hot_q_reg[4][ntok][2]/CE
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.746ns  (logic 1.461ns (25.426%)  route 4.285ns (74.574%))
+  Logic Levels:           18  (LUT4=2 LUT6=16)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    clk_i
+                         FDCE                                         r  refill_top_remaining_q_reg[2]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 f  refill_top_remaining_q_reg[2]/Q
+                         net (fo=17, unplaced)        0.298     0.508    i_scheduler_core/reg_rsp_o[rdata][4][2]
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.596 f  i_scheduler_core/cold_count_q[0]_i_13/O
+                         net (fo=23, unplaced)        0.262     0.858    i_scheduler_core/cold_q[1][eid][5]_i_27/I2
+                         LUT6 (Prop_LUT6_I2_O)        0.088     0.946 r  i_scheduler_core/cold_q[1][eid][5]_i_27/LUT6/O
+                         net (fo=3, unplaced)         0.216     1.162    i_scheduler_core/cold_q[1][eid][5]_i_27_n_1
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.250 r  i_scheduler_core/hot_count_q[1]_i_23/O
+                         net (fo=7, unplaced)         0.235     1.485    i_scheduler_core/hot_count_q[1]_i_23_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.573 r  i_scheduler_core/hot_q[3][eid][3]_i_41/O
+                         net (fo=4, unplaced)         0.157     1.730    i_scheduler_core/hot_q[3][eid][3]_i_41_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     1.781 f  i_scheduler_core/hot_q[8][eid][5]_i_42/O
+                         net (fo=11, unplaced)        0.245     2.026    i_scheduler_core/hot_q[8][eid][5]_i_42_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     2.114 r  i_scheduler_core/cold_q[4][eid][5]_i_26/O
+                         net (fo=59, unplaced)        0.201     2.315    i_scheduler_core/cold_q[4][eid][5]_i_26_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.074     2.389 r  i_scheduler_core/hot_q[3][eid][3]_i_22/O
+                         net (fo=32, unplaced)        0.270     2.659    i_scheduler_core/hot_q[3][eid][3]_i_22_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.747 f  i_scheduler_core/hot_q[3][eid][3]_i_21/O
+                         net (fo=9, unplaced)         0.176     2.923    i_scheduler_core/hot_q[3][eid][3]_i_21_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     2.974 f  i_scheduler_core/hot_count_q[1]_i_25/O
+                         net (fo=9, unplaced)         0.176     3.150    i_scheduler_core/hot_count_q[1]_i_25_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.201 r  i_scheduler_core/cold_q[4][eid][5]_i_18/O
+                         net (fo=50, unplaced)        0.198     3.399    i_scheduler_core/cold_q[4][eid][5]_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.473 f  i_scheduler_core/cold_q[2][eid][5]_i_36/O
+                         net (fo=8, unplaced)         0.238     3.711    i_scheduler_core/cold_q[2][eid][5]_i_36_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.799 f  i_scheduler_core/cold_q[2][eid][5]_i_28/O
+                         net (fo=28, unplaced)        0.202     4.001    i_scheduler_core/cold_q[2][eid][5]_i_28_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.051     4.052 r  i_scheduler_core/hot_count_q[1]_i_17/O
+                         net (fo=26, unplaced)        0.200     4.252    i_scheduler_core/hot_count_q[1]_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     4.303 r  i_scheduler_core/hot_count_q[1]_i_7/O
+                         net (fo=4, unplaced)         0.222     4.525    i_scheduler_core/hot_count_q[1]_i_7_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     4.613 r  i_scheduler_core/cold_q[1][eid][5]_i_16/O
+                         net (fo=45, unplaced)        0.277     4.890    i_scheduler_core/cold_q[1][eid][5]_i_16_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     4.978 f  i_scheduler_core/hot_q[4][eid][5]_i_14/O
+                         net (fo=17, unplaced)        0.255     5.233    i_scheduler_core/hot_q[4][eid][5]_i_14_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.321 f  i_scheduler_core/hot_q[4][eid][5]_i_5/O
+                         net (fo=1, unplaced)         0.210     5.531    i_scheduler_core/hot_q[4][eid][5]_i_5_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.619 r  i_scheduler_core/hot_q[4][eid][5]_i_1/O
+                         net (fo=16, unplaced)        0.247     5.866    i_scheduler_core_n_87
+                         FDCE                                         r  hot_q_reg[4][ntok][2]/CE
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    clk_i
+                         FDCE                                         r  hot_q_reg[4][ntok][2]/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_CE)      -0.087     4.693    hot_q_reg[4][ntok][2]
+  -------------------------------------------------------------------
+                         required time                          4.693    
+                         arrival time                          -5.866    
+  -------------------------------------------------------------------
+                         slack                                 -1.173    
+
+Slack (VIOLATED) :        -1.173ns  (required time - arrival time)
+  Source:                 refill_top_remaining_q_reg[2]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            hot_q_reg[4][ntok][3]/CE
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.746ns  (logic 1.461ns (25.426%)  route 4.285ns (74.574%))
+  Logic Levels:           18  (LUT4=2 LUT6=16)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    clk_i
+                         FDCE                                         r  refill_top_remaining_q_reg[2]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 f  refill_top_remaining_q_reg[2]/Q
+                         net (fo=17, unplaced)        0.298     0.508    i_scheduler_core/reg_rsp_o[rdata][4][2]
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.596 f  i_scheduler_core/cold_count_q[0]_i_13/O
+                         net (fo=23, unplaced)        0.262     0.858    i_scheduler_core/cold_q[1][eid][5]_i_27/I2
+                         LUT6 (Prop_LUT6_I2_O)        0.088     0.946 r  i_scheduler_core/cold_q[1][eid][5]_i_27/LUT6/O
+                         net (fo=3, unplaced)         0.216     1.162    i_scheduler_core/cold_q[1][eid][5]_i_27_n_1
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.250 r  i_scheduler_core/hot_count_q[1]_i_23/O
+                         net (fo=7, unplaced)         0.235     1.485    i_scheduler_core/hot_count_q[1]_i_23_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.573 r  i_scheduler_core/hot_q[3][eid][3]_i_41/O
+                         net (fo=4, unplaced)         0.157     1.730    i_scheduler_core/hot_q[3][eid][3]_i_41_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     1.781 f  i_scheduler_core/hot_q[8][eid][5]_i_42/O
+                         net (fo=11, unplaced)        0.245     2.026    i_scheduler_core/hot_q[8][eid][5]_i_42_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     2.114 r  i_scheduler_core/cold_q[4][eid][5]_i_26/O
+                         net (fo=59, unplaced)        0.201     2.315    i_scheduler_core/cold_q[4][eid][5]_i_26_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.074     2.389 r  i_scheduler_core/hot_q[3][eid][3]_i_22/O
+                         net (fo=32, unplaced)        0.270     2.659    i_scheduler_core/hot_q[3][eid][3]_i_22_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.747 f  i_scheduler_core/hot_q[3][eid][3]_i_21/O
+                         net (fo=9, unplaced)         0.176     2.923    i_scheduler_core/hot_q[3][eid][3]_i_21_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     2.974 f  i_scheduler_core/hot_count_q[1]_i_25/O
+                         net (fo=9, unplaced)         0.176     3.150    i_scheduler_core/hot_count_q[1]_i_25_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.201 r  i_scheduler_core/cold_q[4][eid][5]_i_18/O
+                         net (fo=50, unplaced)        0.198     3.399    i_scheduler_core/cold_q[4][eid][5]_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.473 f  i_scheduler_core/cold_q[2][eid][5]_i_36/O
+                         net (fo=8, unplaced)         0.238     3.711    i_scheduler_core/cold_q[2][eid][5]_i_36_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.799 f  i_scheduler_core/cold_q[2][eid][5]_i_28/O
+                         net (fo=28, unplaced)        0.202     4.001    i_scheduler_core/cold_q[2][eid][5]_i_28_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.051     4.052 r  i_scheduler_core/hot_count_q[1]_i_17/O
+                         net (fo=26, unplaced)        0.200     4.252    i_scheduler_core/hot_count_q[1]_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     4.303 r  i_scheduler_core/hot_count_q[1]_i_7/O
+                         net (fo=4, unplaced)         0.222     4.525    i_scheduler_core/hot_count_q[1]_i_7_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     4.613 r  i_scheduler_core/cold_q[1][eid][5]_i_16/O
+                         net (fo=45, unplaced)        0.277     4.890    i_scheduler_core/cold_q[1][eid][5]_i_16_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     4.978 f  i_scheduler_core/hot_q[4][eid][5]_i_14/O
+                         net (fo=17, unplaced)        0.255     5.233    i_scheduler_core/hot_q[4][eid][5]_i_14_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.321 f  i_scheduler_core/hot_q[4][eid][5]_i_5/O
+                         net (fo=1, unplaced)         0.210     5.531    i_scheduler_core/hot_q[4][eid][5]_i_5_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.619 r  i_scheduler_core/hot_q[4][eid][5]_i_1/O
+                         net (fo=16, unplaced)        0.247     5.866    i_scheduler_core_n_87
+                         FDCE                                         r  hot_q_reg[4][ntok][3]/CE
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    clk_i
+                         FDCE                                         r  hot_q_reg[4][ntok][3]/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_CE)      -0.087     4.693    hot_q_reg[4][ntok][3]
+  -------------------------------------------------------------------
+                         required time                          4.693    
+                         arrival time                          -5.866    
+  -------------------------------------------------------------------
+                         slack                                 -1.173    
+
+Slack (VIOLATED) :        -1.173ns  (required time - arrival time)
+  Source:                 refill_top_remaining_q_reg[2]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            hot_q_reg[4][ntok][4]/CE
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.746ns  (logic 1.461ns (25.426%)  route 4.285ns (74.574%))
+  Logic Levels:           18  (LUT4=2 LUT6=16)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    clk_i
+                         FDCE                                         r  refill_top_remaining_q_reg[2]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 f  refill_top_remaining_q_reg[2]/Q
+                         net (fo=17, unplaced)        0.298     0.508    i_scheduler_core/reg_rsp_o[rdata][4][2]
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.596 f  i_scheduler_core/cold_count_q[0]_i_13/O
+                         net (fo=23, unplaced)        0.262     0.858    i_scheduler_core/cold_q[1][eid][5]_i_27/I2
+                         LUT6 (Prop_LUT6_I2_O)        0.088     0.946 r  i_scheduler_core/cold_q[1][eid][5]_i_27/LUT6/O
+                         net (fo=3, unplaced)         0.216     1.162    i_scheduler_core/cold_q[1][eid][5]_i_27_n_1
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.250 r  i_scheduler_core/hot_count_q[1]_i_23/O
+                         net (fo=7, unplaced)         0.235     1.485    i_scheduler_core/hot_count_q[1]_i_23_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.573 r  i_scheduler_core/hot_q[3][eid][3]_i_41/O
+                         net (fo=4, unplaced)         0.157     1.730    i_scheduler_core/hot_q[3][eid][3]_i_41_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     1.781 f  i_scheduler_core/hot_q[8][eid][5]_i_42/O
+                         net (fo=11, unplaced)        0.245     2.026    i_scheduler_core/hot_q[8][eid][5]_i_42_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     2.114 r  i_scheduler_core/cold_q[4][eid][5]_i_26/O
+                         net (fo=59, unplaced)        0.201     2.315    i_scheduler_core/cold_q[4][eid][5]_i_26_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.074     2.389 r  i_scheduler_core/hot_q[3][eid][3]_i_22/O
+                         net (fo=32, unplaced)        0.270     2.659    i_scheduler_core/hot_q[3][eid][3]_i_22_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.747 f  i_scheduler_core/hot_q[3][eid][3]_i_21/O
+                         net (fo=9, unplaced)         0.176     2.923    i_scheduler_core/hot_q[3][eid][3]_i_21_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     2.974 f  i_scheduler_core/hot_count_q[1]_i_25/O
+                         net (fo=9, unplaced)         0.176     3.150    i_scheduler_core/hot_count_q[1]_i_25_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.201 r  i_scheduler_core/cold_q[4][eid][5]_i_18/O
+                         net (fo=50, unplaced)        0.198     3.399    i_scheduler_core/cold_q[4][eid][5]_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.473 f  i_scheduler_core/cold_q[2][eid][5]_i_36/O
+                         net (fo=8, unplaced)         0.238     3.711    i_scheduler_core/cold_q[2][eid][5]_i_36_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.799 f  i_scheduler_core/cold_q[2][eid][5]_i_28/O
+                         net (fo=28, unplaced)        0.202     4.001    i_scheduler_core/cold_q[2][eid][5]_i_28_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.051     4.052 r  i_scheduler_core/hot_count_q[1]_i_17/O
+                         net (fo=26, unplaced)        0.200     4.252    i_scheduler_core/hot_count_q[1]_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     4.303 r  i_scheduler_core/hot_count_q[1]_i_7/O
+                         net (fo=4, unplaced)         0.222     4.525    i_scheduler_core/hot_count_q[1]_i_7_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     4.613 r  i_scheduler_core/cold_q[1][eid][5]_i_16/O
+                         net (fo=45, unplaced)        0.277     4.890    i_scheduler_core/cold_q[1][eid][5]_i_16_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     4.978 f  i_scheduler_core/hot_q[4][eid][5]_i_14/O
+                         net (fo=17, unplaced)        0.255     5.233    i_scheduler_core/hot_q[4][eid][5]_i_14_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.321 f  i_scheduler_core/hot_q[4][eid][5]_i_5/O
+                         net (fo=1, unplaced)         0.210     5.531    i_scheduler_core/hot_q[4][eid][5]_i_5_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.619 r  i_scheduler_core/hot_q[4][eid][5]_i_1/O
+                         net (fo=16, unplaced)        0.247     5.866    i_scheduler_core_n_87
+                         FDCE                                         r  hot_q_reg[4][ntok][4]/CE
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    clk_i
+                         FDCE                                         r  hot_q_reg[4][ntok][4]/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_CE)      -0.087     4.693    hot_q_reg[4][ntok][4]
+  -------------------------------------------------------------------
+                         required time                          4.693    
+                         arrival time                          -5.866    
+  -------------------------------------------------------------------
+                         slack                                 -1.173    
+
+Slack (VIOLATED) :        -1.173ns  (required time - arrival time)
+  Source:                 refill_top_remaining_q_reg[2]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            hot_q_reg[4][ntok][5]/CE
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.746ns  (logic 1.461ns (25.426%)  route 4.285ns (74.574%))
+  Logic Levels:           18  (LUT4=2 LUT6=16)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    clk_i
+                         FDCE                                         r  refill_top_remaining_q_reg[2]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 f  refill_top_remaining_q_reg[2]/Q
+                         net (fo=17, unplaced)        0.298     0.508    i_scheduler_core/reg_rsp_o[rdata][4][2]
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.596 f  i_scheduler_core/cold_count_q[0]_i_13/O
+                         net (fo=23, unplaced)        0.262     0.858    i_scheduler_core/cold_q[1][eid][5]_i_27/I2
+                         LUT6 (Prop_LUT6_I2_O)        0.088     0.946 r  i_scheduler_core/cold_q[1][eid][5]_i_27/LUT6/O
+                         net (fo=3, unplaced)         0.216     1.162    i_scheduler_core/cold_q[1][eid][5]_i_27_n_1
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.250 r  i_scheduler_core/hot_count_q[1]_i_23/O
+                         net (fo=7, unplaced)         0.235     1.485    i_scheduler_core/hot_count_q[1]_i_23_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.573 r  i_scheduler_core/hot_q[3][eid][3]_i_41/O
+                         net (fo=4, unplaced)         0.157     1.730    i_scheduler_core/hot_q[3][eid][3]_i_41_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     1.781 f  i_scheduler_core/hot_q[8][eid][5]_i_42/O
+                         net (fo=11, unplaced)        0.245     2.026    i_scheduler_core/hot_q[8][eid][5]_i_42_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     2.114 r  i_scheduler_core/cold_q[4][eid][5]_i_26/O
+                         net (fo=59, unplaced)        0.201     2.315    i_scheduler_core/cold_q[4][eid][5]_i_26_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.074     2.389 r  i_scheduler_core/hot_q[3][eid][3]_i_22/O
+                         net (fo=32, unplaced)        0.270     2.659    i_scheduler_core/hot_q[3][eid][3]_i_22_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.747 f  i_scheduler_core/hot_q[3][eid][3]_i_21/O
+                         net (fo=9, unplaced)         0.176     2.923    i_scheduler_core/hot_q[3][eid][3]_i_21_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     2.974 f  i_scheduler_core/hot_count_q[1]_i_25/O
+                         net (fo=9, unplaced)         0.176     3.150    i_scheduler_core/hot_count_q[1]_i_25_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.201 r  i_scheduler_core/cold_q[4][eid][5]_i_18/O
+                         net (fo=50, unplaced)        0.198     3.399    i_scheduler_core/cold_q[4][eid][5]_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.473 f  i_scheduler_core/cold_q[2][eid][5]_i_36/O
+                         net (fo=8, unplaced)         0.238     3.711    i_scheduler_core/cold_q[2][eid][5]_i_36_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.799 f  i_scheduler_core/cold_q[2][eid][5]_i_28/O
+                         net (fo=28, unplaced)        0.202     4.001    i_scheduler_core/cold_q[2][eid][5]_i_28_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.051     4.052 r  i_scheduler_core/hot_count_q[1]_i_17/O
+                         net (fo=26, unplaced)        0.200     4.252    i_scheduler_core/hot_count_q[1]_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     4.303 r  i_scheduler_core/hot_count_q[1]_i_7/O
+                         net (fo=4, unplaced)         0.222     4.525    i_scheduler_core/hot_count_q[1]_i_7_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     4.613 r  i_scheduler_core/cold_q[1][eid][5]_i_16/O
+                         net (fo=45, unplaced)        0.277     4.890    i_scheduler_core/cold_q[1][eid][5]_i_16_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     4.978 f  i_scheduler_core/hot_q[4][eid][5]_i_14/O
+                         net (fo=17, unplaced)        0.255     5.233    i_scheduler_core/hot_q[4][eid][5]_i_14_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.321 f  i_scheduler_core/hot_q[4][eid][5]_i_5/O
+                         net (fo=1, unplaced)         0.210     5.531    i_scheduler_core/hot_q[4][eid][5]_i_5_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.619 r  i_scheduler_core/hot_q[4][eid][5]_i_1/O
+                         net (fo=16, unplaced)        0.247     5.866    i_scheduler_core_n_87
+                         FDCE                                         r  hot_q_reg[4][ntok][5]/CE
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    clk_i
+                         FDCE                                         r  hot_q_reg[4][ntok][5]/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_CE)      -0.087     4.693    hot_q_reg[4][ntok][5]
+  -------------------------------------------------------------------
+                         required time                          4.693    
+                         arrival time                          -5.866    
+  -------------------------------------------------------------------
+                         slack                                 -1.173    
+
+Slack (VIOLATED) :        -1.173ns  (required time - arrival time)
+  Source:                 refill_top_remaining_q_reg[2]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            hot_q_reg[4][ntok][6]/CE
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.746ns  (logic 1.461ns (25.426%)  route 4.285ns (74.574%))
+  Logic Levels:           18  (LUT4=2 LUT6=16)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    clk_i
+                         FDCE                                         r  refill_top_remaining_q_reg[2]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 f  refill_top_remaining_q_reg[2]/Q
+                         net (fo=17, unplaced)        0.298     0.508    i_scheduler_core/reg_rsp_o[rdata][4][2]
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.596 f  i_scheduler_core/cold_count_q[0]_i_13/O
+                         net (fo=23, unplaced)        0.262     0.858    i_scheduler_core/cold_q[1][eid][5]_i_27/I2
+                         LUT6 (Prop_LUT6_I2_O)        0.088     0.946 r  i_scheduler_core/cold_q[1][eid][5]_i_27/LUT6/O
+                         net (fo=3, unplaced)         0.216     1.162    i_scheduler_core/cold_q[1][eid][5]_i_27_n_1
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.250 r  i_scheduler_core/hot_count_q[1]_i_23/O
+                         net (fo=7, unplaced)         0.235     1.485    i_scheduler_core/hot_count_q[1]_i_23_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.573 r  i_scheduler_core/hot_q[3][eid][3]_i_41/O
+                         net (fo=4, unplaced)         0.157     1.730    i_scheduler_core/hot_q[3][eid][3]_i_41_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     1.781 f  i_scheduler_core/hot_q[8][eid][5]_i_42/O
+                         net (fo=11, unplaced)        0.245     2.026    i_scheduler_core/hot_q[8][eid][5]_i_42_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     2.114 r  i_scheduler_core/cold_q[4][eid][5]_i_26/O
+                         net (fo=59, unplaced)        0.201     2.315    i_scheduler_core/cold_q[4][eid][5]_i_26_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.074     2.389 r  i_scheduler_core/hot_q[3][eid][3]_i_22/O
+                         net (fo=32, unplaced)        0.270     2.659    i_scheduler_core/hot_q[3][eid][3]_i_22_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.747 f  i_scheduler_core/hot_q[3][eid][3]_i_21/O
+                         net (fo=9, unplaced)         0.176     2.923    i_scheduler_core/hot_q[3][eid][3]_i_21_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     2.974 f  i_scheduler_core/hot_count_q[1]_i_25/O
+                         net (fo=9, unplaced)         0.176     3.150    i_scheduler_core/hot_count_q[1]_i_25_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.201 r  i_scheduler_core/cold_q[4][eid][5]_i_18/O
+                         net (fo=50, unplaced)        0.198     3.399    i_scheduler_core/cold_q[4][eid][5]_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.473 f  i_scheduler_core/cold_q[2][eid][5]_i_36/O
+                         net (fo=8, unplaced)         0.238     3.711    i_scheduler_core/cold_q[2][eid][5]_i_36_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.799 f  i_scheduler_core/cold_q[2][eid][5]_i_28/O
+                         net (fo=28, unplaced)        0.202     4.001    i_scheduler_core/cold_q[2][eid][5]_i_28_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.051     4.052 r  i_scheduler_core/hot_count_q[1]_i_17/O
+                         net (fo=26, unplaced)        0.200     4.252    i_scheduler_core/hot_count_q[1]_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     4.303 r  i_scheduler_core/hot_count_q[1]_i_7/O
+                         net (fo=4, unplaced)         0.222     4.525    i_scheduler_core/hot_count_q[1]_i_7_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     4.613 r  i_scheduler_core/cold_q[1][eid][5]_i_16/O
+                         net (fo=45, unplaced)        0.277     4.890    i_scheduler_core/cold_q[1][eid][5]_i_16_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     4.978 f  i_scheduler_core/hot_q[4][eid][5]_i_14/O
+                         net (fo=17, unplaced)        0.255     5.233    i_scheduler_core/hot_q[4][eid][5]_i_14_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.321 f  i_scheduler_core/hot_q[4][eid][5]_i_5/O
+                         net (fo=1, unplaced)         0.210     5.531    i_scheduler_core/hot_q[4][eid][5]_i_5_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.619 r  i_scheduler_core/hot_q[4][eid][5]_i_1/O
+                         net (fo=16, unplaced)        0.247     5.866    i_scheduler_core_n_87
+                         FDCE                                         r  hot_q_reg[4][ntok][6]/CE
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    clk_i
+                         FDCE                                         r  hot_q_reg[4][ntok][6]/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_CE)      -0.087     4.693    hot_q_reg[4][ntok][6]
+  -------------------------------------------------------------------
+                         required time                          4.693    
+                         arrival time                          -5.866    
+  -------------------------------------------------------------------
+                         slack                                 -1.173    
+
+Slack (VIOLATED) :        -1.173ns  (required time - arrival time)
+  Source:                 refill_top_remaining_q_reg[2]/C
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            hot_q_reg[4][ntok][7]/CE
+                            (rising edge-triggered cell FDCE clocked by scheduler_clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             scheduler_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (scheduler_clk rise@5.000ns - scheduler_clk rise@0.000ns)
+  Data Path Delay:        5.746ns  (logic 1.461ns (25.426%)  route 4.285ns (74.574%))
+  Logic Levels:           18  (LUT4=2 LUT6=16)
+  Clock Path Skew:        -0.040ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.080ns = ( 5.080 - 5.000 ) 
+    Source Clock Delay      (SCD):    0.120ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.300ns  (CJ)/2 + PE + PJ
+    Clock Jitter             (CJ):    0.600ns
+    Phase Error              (PE):    0.000ns
+    Phase Jitter             (PJ):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock scheduler_clk rise edge)
+                                                      0.000     0.000 r  
+                                                      0.000     0.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.120     0.120    clk_i
+                         FDCE                                         r  refill_top_remaining_q_reg[2]/C
+  -------------------------------------------------------------------    -------------------
+                         FDCE (Prop_FDCE_C_Q)         0.090     0.210 f  refill_top_remaining_q_reg[2]/Q
+                         net (fo=17, unplaced)        0.298     0.508    i_scheduler_core/reg_rsp_o[rdata][4][2]
+                         LUT6 (Prop_LUT6_I1_O)        0.088     0.596 f  i_scheduler_core/cold_count_q[0]_i_13/O
+                         net (fo=23, unplaced)        0.262     0.858    i_scheduler_core/cold_q[1][eid][5]_i_27/I2
+                         LUT6 (Prop_LUT6_I2_O)        0.088     0.946 r  i_scheduler_core/cold_q[1][eid][5]_i_27/LUT6/O
+                         net (fo=3, unplaced)         0.216     1.162    i_scheduler_core/cold_q[1][eid][5]_i_27_n_1
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.250 r  i_scheduler_core/hot_count_q[1]_i_23/O
+                         net (fo=7, unplaced)         0.235     1.485    i_scheduler_core/hot_count_q[1]_i_23_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     1.573 r  i_scheduler_core/hot_q[3][eid][3]_i_41/O
+                         net (fo=4, unplaced)         0.157     1.730    i_scheduler_core/hot_q[3][eid][3]_i_41_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     1.781 f  i_scheduler_core/hot_q[8][eid][5]_i_42/O
+                         net (fo=11, unplaced)        0.245     2.026    i_scheduler_core/hot_q[8][eid][5]_i_42_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     2.114 r  i_scheduler_core/cold_q[4][eid][5]_i_26/O
+                         net (fo=59, unplaced)        0.201     2.315    i_scheduler_core/cold_q[4][eid][5]_i_26_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.074     2.389 r  i_scheduler_core/hot_q[3][eid][3]_i_22/O
+                         net (fo=32, unplaced)        0.270     2.659    i_scheduler_core/hot_q[3][eid][3]_i_22_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     2.747 f  i_scheduler_core/hot_q[3][eid][3]_i_21/O
+                         net (fo=9, unplaced)         0.176     2.923    i_scheduler_core/hot_q[3][eid][3]_i_21_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     2.974 f  i_scheduler_core/hot_count_q[1]_i_25/O
+                         net (fo=9, unplaced)         0.176     3.150    i_scheduler_core/hot_count_q[1]_i_25_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.051     3.201 r  i_scheduler_core/cold_q[4][eid][5]_i_18/O
+                         net (fo=50, unplaced)        0.198     3.399    i_scheduler_core/cold_q[4][eid][5]_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.074     3.473 f  i_scheduler_core/cold_q[2][eid][5]_i_36/O
+                         net (fo=8, unplaced)         0.238     3.711    i_scheduler_core/cold_q[2][eid][5]_i_36_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     3.799 f  i_scheduler_core/cold_q[2][eid][5]_i_28/O
+                         net (fo=28, unplaced)        0.202     4.001    i_scheduler_core/cold_q[2][eid][5]_i_28_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.051     4.052 r  i_scheduler_core/hot_count_q[1]_i_17/O
+                         net (fo=26, unplaced)        0.200     4.252    i_scheduler_core/hot_count_q[1]_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.051     4.303 r  i_scheduler_core/hot_count_q[1]_i_7/O
+                         net (fo=4, unplaced)         0.222     4.525    i_scheduler_core/hot_count_q[1]_i_7_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.088     4.613 r  i_scheduler_core/cold_q[1][eid][5]_i_16/O
+                         net (fo=45, unplaced)        0.277     4.890    i_scheduler_core/cold_q[1][eid][5]_i_16_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     4.978 f  i_scheduler_core/hot_q[4][eid][5]_i_14/O
+                         net (fo=17, unplaced)        0.255     5.233    i_scheduler_core/hot_q[4][eid][5]_i_14_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.321 f  i_scheduler_core/hot_q[4][eid][5]_i_5/O
+                         net (fo=1, unplaced)         0.210     5.531    i_scheduler_core/hot_q[4][eid][5]_i_5_n_0
+                         LUT6 (Prop_LUT6_I2_O)        0.088     5.619 r  i_scheduler_core/hot_q[4][eid][5]_i_1/O
+                         net (fo=16, unplaced)        0.247     5.866    i_scheduler_core_n_87
+                         FDCE                                         r  hot_q_reg[4][ntok][7]/CE
+  -------------------------------------------------------------------    -------------------
+
+                         (clock scheduler_clk rise edge)
+                                                      5.000     5.000 r  
+                                                      0.000     5.000 r  clk_i (IN)
+                         net (fo=1963, unset)         0.080     5.080    clk_i
+                         FDCE                                         r  hot_q_reg[4][ntok][7]/C
+                         clock pessimism              0.000     5.080    
+                         clock uncertainty           -0.300     4.780    
+                         FDCE (Setup_FDCE_C_CE)      -0.087     4.693    hot_q_reg[4][ntok][7]
+  -------------------------------------------------------------------
+                         required time                          4.693    
+                         arrival time                          -5.866    
+  -------------------------------------------------------------------
+                         slack                                 -1.173    
+
+
+
+
+
+Pulse Width Checks
+--------------------------------------------------------------------------------------
+Clock Name:         scheduler_clk
+Waveform(ns):       { 0.000 2.500 }
+Period(ns):         5.000
+Sources:            { clk_i }
+
+Check Type        Corner  Lib Pin  Reference Pin  Required(ns)  Actual(ns)  Slack(ns)  Location  Pin
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                active_count_q_reg[0]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                active_count_q_reg[1]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                active_count_q_reg[2]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                active_count_q_reg[3]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                active_count_q_reg[4]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                active_count_q_reg[5]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                active_count_q_reg[6]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                auto_run_q_reg/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                cold_count_q_reg[0]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                cold_count_q_reg[1]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                cold_count_q_reg[2]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                cold_q_reg[0][eid][0]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                cold_q_reg[0][eid][1]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                cold_q_reg[0][eid][2]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                cold_q_reg[0][eid][3]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                cold_q_reg[0][eid][4]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                cold_q_reg[0][eid][5]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                cold_q_reg[0][ntok][0]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                cold_q_reg[0][ntok][1]/C
+Min Period        n/a     FDCE/C   n/a            0.550         5.000       4.450                cold_q_reg[0][ntok][2]/C
+Low Pulse Width   Slow    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[0]/C
+Low Pulse Width   Fast    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[0]/C
+Low Pulse Width   Slow    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[1]/C
+Low Pulse Width   Fast    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[1]/C
+Low Pulse Width   Slow    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[2]/C
+Low Pulse Width   Fast    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[2]/C
+Low Pulse Width   Slow    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[3]/C
+Low Pulse Width   Fast    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[3]/C
+Low Pulse Width   Slow    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[4]/C
+Low Pulse Width   Fast    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[4]/C
+Low Pulse Width   Slow    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[5]/C
+Low Pulse Width   Fast    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[5]/C
+Low Pulse Width   Slow    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[6]/C
+Low Pulse Width   Fast    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[6]/C
+Low Pulse Width   Slow    FDCE/C   n/a            0.275         2.500       2.225                auto_run_q_reg/C
+Low Pulse Width   Fast    FDCE/C   n/a            0.275         2.500       2.225                auto_run_q_reg/C
+Low Pulse Width   Slow    FDCE/C   n/a            0.275         2.500       2.225                cold_count_q_reg[0]/C
+Low Pulse Width   Fast    FDCE/C   n/a            0.275         2.500       2.225                cold_count_q_reg[0]/C
+Low Pulse Width   Slow    FDCE/C   n/a            0.275         2.500       2.225                cold_count_q_reg[1]/C
+Low Pulse Width   Fast    FDCE/C   n/a            0.275         2.500       2.225                cold_count_q_reg[1]/C
+High Pulse Width  Slow    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[0]/C
+High Pulse Width  Fast    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[0]/C
+High Pulse Width  Slow    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[1]/C
+High Pulse Width  Fast    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[1]/C
+High Pulse Width  Slow    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[2]/C
+High Pulse Width  Fast    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[2]/C
+High Pulse Width  Slow    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[3]/C
+High Pulse Width  Fast    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[3]/C
+High Pulse Width  Slow    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[4]/C
+High Pulse Width  Fast    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[4]/C
+High Pulse Width  Slow    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[5]/C
+High Pulse Width  Fast    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[5]/C
+High Pulse Width  Slow    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[6]/C
+High Pulse Width  Fast    FDCE/C   n/a            0.275         2.500       2.225                active_count_q_reg[6]/C
+High Pulse Width  Slow    FDCE/C   n/a            0.275         2.500       2.225                auto_run_q_reg/C
+High Pulse Width  Fast    FDCE/C   n/a            0.275         2.500       2.225                auto_run_q_reg/C
+High Pulse Width  Slow    FDCE/C   n/a            0.275         2.500       2.225                cold_count_q_reg[0]/C
+High Pulse Width  Fast    FDCE/C   n/a            0.275         2.500       2.225                cold_count_q_reg[0]/C
+High Pulse Width  Slow    FDCE/C   n/a            0.275         2.500       2.225                cold_count_q_reg[1]/C
+High Pulse Width  Fast    FDCE/C   n/a            0.275         2.500       2.225                cold_count_q_reg[1]/C
+
+
+

@@ -39,6 +39,7 @@ module sched_distilled_round_engine (
     ST_NEXT_ACTION,
     ST_SCORE_EVAL_START,
     ST_SCORE_EVAL_WAIT,
+    ST_SCORE_BYPASS_START,
     ST_BOUND_WAIT,
     ST_COMPARE_WAIT,
     ST_SCORE_NEXT,
@@ -59,6 +60,15 @@ module sched_distilled_round_engine (
   distilled_replay_token_t global_token_q, global_token_d;
   distilled_score_record_t global_score_q, global_score_d;
 
+  typedef enum logic [1:0] {
+    MAT_NONE,
+    MAT_LOCAL,
+    MAT_TARGET,
+    MAT_SCORE
+  } materialization_t;
+  materialization_t materialization_q, materialization_d;
+  logic materialization_global_q, materialization_global_d;
+
   logic [4:0] profile_limit;
   logic [4:0] decode_address;
   distilled_profile_t decoded_profile;
@@ -75,8 +85,6 @@ module sched_distilled_round_engine (
   distilled_cluster_state_t iter_peer;
 
   logic start_iter_begin;
-  logic start_iter_advance;
-  logic start_iter_stop;
   logic start_iter_valid;
   logic start_iter_done;
   time_t start_iter_value;
@@ -96,7 +104,8 @@ module sched_distilled_round_engine (
   logic shared_bw_start;
   logic shared_bw_done;
   logic shared_bw_ok;
-  logic bw_owner_target;
+  logic bw_owner_target_q;
+  logic bw_request_target;
   snap_bw_view_t shared_bw_c2;
   snap_bw_view_t shared_bw_c3;
   distilled_cluster_state_t eval_child_c2;
@@ -148,6 +157,8 @@ module sched_distilled_round_engine (
   dma_binding_t s4_c3_binding;
   logic [1:0] s4_count;
   logic [1:0] group_target_s4_count;
+  logic group_target_wins;
+  logic score_materialized;
 
   function automatic head_ctx_t resolve_selector(
     input distilled_selector_t selector,
@@ -181,14 +192,19 @@ module sched_distilled_round_engine (
   endfunction
 
   assign profile_limit = distilled_mode_profile_limit(mode_q);
-  assign score_phase = (st_q >= ST_SCORE_EVAL_START) &&
-                       (st_q <= ST_SCORE_NEXT);
+  assign score_phase = (st_q == ST_SCORE_EVAL_START) ||
+                       (st_q == ST_SCORE_EVAL_WAIT) ||
+                       (st_q == ST_SCORE_BYPASS_START) ||
+                       (st_q == ST_BOUND_WAIT) ||
+                       (st_q == ST_COMPARE_WAIT) ||
+                       (st_q == ST_SCORE_NEXT);
   assign replay_phase = score_phase ||
                         (st_q == ST_COMMIT_REBUILD_START) ||
                         (st_q == ST_COMMIT_REBUILD_WAIT) ||
                         (st_q == ST_DONE);
-  assign target_phase = (st_q >= ST_TARGET_START_WAIT) &&
-                        (st_q <= ST_TARGET_EVAL_WAIT);
+  assign target_phase = (st_q == ST_TARGET_START_WAIT) ||
+                        (st_q == ST_TARGET_EVAL_START) ||
+                        (st_q == ST_TARGET_EVAL_WAIT);
   assign token_phase = replay_phase || target_phase;
   always_comb begin
     target_token = '0;
@@ -252,8 +268,10 @@ module sched_distilled_round_engine (
     .rst_ni     (rst_ni),
     .clear_i    (clear_i),
     .begin_i    (start_iter_begin),
-    .advance_i  (start_iter_advance),
-    .stop_i     (start_iter_stop),
+    .target_i   ((st_q == ST_S4_WAIT) && s4_done),
+    .result_valid_i      (eval_done),
+    .result_feasible_i   (eval_feasible),
+    .result_strict_gain_i(eval_strict_gain),
     .profile_i  (decoded_profile),
     .eid_i      (selected_descriptor.eid),
     .ntok_i     (selected_descriptor.ntok),
@@ -309,7 +327,7 @@ module sched_distilled_round_engine (
     .bw_start_o           (transition_bw_start),
     .bw_c2_o              (transition_bw_c2),
     .bw_c3_o              (transition_bw_c3),
-    .bw_done_i            (shared_bw_done && !bw_owner_target),
+    .bw_done_i            (shared_bw_done && !bw_owner_target_q),
     .bw_ok_i              (shared_bw_ok),
     .child_c2_o           (eval_child_c2),
     .child_c3_o           (eval_child_c3),
@@ -335,6 +353,11 @@ module sched_distilled_round_engine (
   assign group_target_s4_count =
       {1'b0, group_target_q.token.targeted_s4pf_c2 != DMA_NONE} +
       {1'b0, group_target_q.token.targeted_s4pf_c3 != DMA_NONE};
+  assign group_target_wins = group_local_q.valid && group_target_q.valid &&
+                             (group_target_q.max_end < group_local_q.max_end);
+  assign score_materialized = group_target_wins ?
+      (materialization_q == MAT_TARGET) :
+      (materialization_q == MAT_LOCAL);
   sched_distilled_target_s4pf i_target_s4pf (
     .clk_i             (clk_i),
     .rst_ni            (rst_ni),
@@ -349,16 +372,18 @@ module sched_distilled_round_engine (
     .bw_start_o        (target_bw_start),
     .bw_c2_o           (target_bw_c2),
     .bw_c3_o           (target_bw_c3),
-    .bw_done_i         (shared_bw_done && bw_owner_target),
+    .bw_done_i         (shared_bw_done && bw_owner_target_q),
     .bw_ok_i           (shared_bw_ok),
     .c2_binding_o      (s4_c2_binding),
     .c3_binding_o      (s4_c3_binding)
   );
 
-  assign bw_owner_target = (st_q == ST_S4_WAIT);
   assign shared_bw_start = transition_bw_start || target_bw_start;
-  assign shared_bw_c2 = bw_owner_target ? target_bw_c2 : transition_bw_c2;
-  assign shared_bw_c3 = bw_owner_target ? target_bw_c3 : transition_bw_c3;
+  assign bw_request_target = target_bw_start ? 1'b1 :
+                             (transition_bw_start ? 1'b0 :
+                                                    bw_owner_target_q);
+  assign shared_bw_c2 = bw_request_target ? target_bw_c2 : transition_bw_c2;
+  assign shared_bw_c3 = bw_request_target ? target_bw_c3 : transition_bw_c3;
 
   sched_bandwidth_check i_bandwidth_check (
     .clk_i    (clk_i),
@@ -370,6 +395,17 @@ module sched_distilled_round_engine (
     .snap_b_i (shared_bw_c3),
     .ok_o     (shared_bw_ok)
   );
+
+  // The shared checker is a transaction resource.  Capture its requester at
+  // launch so response routing does not depend on a high-fanout outer state bit.
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni)
+      bw_owner_target_q <= 1'b0;
+    else if (clear_i)
+      bw_owner_target_q <= 1'b0;
+    else if (shared_bw_start)
+      bw_owner_target_q <= target_bw_start;
+  end
 
   assign target_compare_phase = (st_q == ST_TARGET_EVAL_WAIT);
   assign group_compare_record = target_compare_phase ?
@@ -554,10 +590,10 @@ module sched_distilled_round_engine (
     global_valid_d = global_valid_q;
     global_token_d = global_token_q;
     global_score_d = global_score_q;
+    materialization_d = materialization_q;
+    materialization_global_d = materialization_global_q;
 
     start_iter_begin = 1'b0;
-    start_iter_advance = 1'b0;
-    start_iter_stop = 1'b0;
     eval_start = 1'b0;
     bound_start = 1'b0;
     compare_start = 1'b0;
@@ -574,6 +610,8 @@ module sched_distilled_round_engine (
           group_local_d = '0;
           group_target_d = '0;
           global_valid_d = 1'b0;
+          materialization_d = MAT_NONE;
+          materialization_global_d = 1'b0;
           st_d = ST_PROFILE_SETUP;
         end
       end
@@ -608,6 +646,7 @@ module sched_distilled_round_engine (
 
       ST_EVAL_WAIT: begin
         if (eval_done) begin
+          materialization_d = MAT_NONE;
           if (eval_feasible && group_candidate_better) begin
             group_local_d.valid = 1'b1;
             group_local_d.token.profile_addr = profile_addr_q;
@@ -623,10 +662,10 @@ module sched_distilled_round_engine (
             group_local_d.sum_end = eval_sum_end;
             group_local_d.s2pf_count =
                 eval_s2pf_count;
+            materialization_d = MAT_LOCAL;
           end
           if (decoded_profile.family == DIST_FAMILY_SINGLE) begin
             if (eval_feasible) begin
-              start_iter_stop = 1'b1;
               if (s4_candidate_possible) begin
                 s4_start = 1'b1;
                 st_d = ST_S4_WAIT;
@@ -634,7 +673,6 @@ module sched_distilled_round_engine (
                 st_d = ST_NEXT_ACTION;
               end
             end else begin
-              start_iter_advance = 1'b1;
               st_d = ST_START_WAIT;
             end
           end else begin
@@ -677,22 +715,21 @@ module sched_distilled_round_engine (
 
       ST_TARGET_EVAL_WAIT: begin
         if (eval_done) begin
+          materialization_d = MAT_NONE;
           if (eval_feasible && group_candidate_better) begin
             group_target_d.valid = 1'b1;
             group_target_d.token = target_token;
             group_target_d.max_end = eval_max_end;
             group_target_d.sum_end = eval_sum_end;
             group_target_d.s2pf_count = eval_s2pf_count;
+            materialization_d = MAT_TARGET;
           end
           if (decoded_profile.family == DIST_FAMILY_SINGLE) begin
             if (!eval_strict_gain) begin
-              start_iter_stop = 1'b1;
               st_d = ST_NEXT_ACTION;
             end else if (eval_feasible) begin
-              start_iter_stop = 1'b1;
               st_d = ST_NEXT_ACTION;
             end else begin
-              start_iter_advance = 1'b1;
               st_d = ST_TARGET_START_WAIT;
             end
           end else begin
@@ -709,12 +746,12 @@ module sched_distilled_round_engine (
           st_d = ST_EVAL_WAIT;
         end else begin
           if (decoded_profile.logical_last) begin
-            if (group_local_q.valid && group_target_q.valid &&
-                (group_target_q.max_end < group_local_q.max_end))
+            if (group_target_wins)
               group_local_d.token = group_target_q.token;
             group_target_d = '0;
             if (group_local_q.valid) begin
-              st_d = ST_SCORE_EVAL_START;
+              st_d = score_materialized ? ST_SCORE_BYPASS_START :
+                                          ST_SCORE_EVAL_START;
             end else if ((profile_addr_q + 1'b1) < profile_limit) begin
               group_local_d = '0;
               profile_addr_d = profile_addr_q + 1'b1;
@@ -722,14 +759,20 @@ module sched_distilled_round_engine (
               st_d = ST_PROFILE_SETUP;
             end else begin
               group_local_d = '0;
-              st_d = global_valid_q ? ST_COMMIT_REBUILD_START : ST_DONE;
+              st_d = global_valid_q ?
+                  (materialization_global_q ? ST_DONE :
+                                              ST_COMMIT_REBUILD_START) :
+                  ST_DONE;
             end
           end else if ((profile_addr_q + 1'b1) < profile_limit) begin
             profile_addr_d = profile_addr_q + 1'b1;
             assignment_swap_d = 1'b0;
             st_d = ST_PROFILE_SETUP;
           end else begin
-            st_d = global_valid_q ? ST_COMMIT_REBUILD_START : ST_DONE;
+            st_d = global_valid_q ?
+                (materialization_global_q ? ST_DONE :
+                                            ST_COMMIT_REBUILD_START) :
+                ST_DONE;
           end
         end
       end
@@ -742,12 +785,19 @@ module sched_distilled_round_engine (
       ST_SCORE_EVAL_WAIT: begin
         if (eval_done) begin
           if (!eval_feasible) begin
+            materialization_d = MAT_NONE;
             st_d = ST_SCORE_NEXT;
           end else begin
+            materialization_d = MAT_SCORE;
             bound_start = 1'b1;
             st_d = ST_BOUND_WAIT;
           end
         end
+      end
+
+      ST_SCORE_BYPASS_START: begin
+        bound_start = 1'b1;
+        st_d = ST_BOUND_WAIT;
       end
 
       ST_BOUND_WAIT: begin
@@ -756,6 +806,7 @@ module sched_distilled_round_engine (
             global_valid_d = 1'b1;
             global_token_d = active_token;
             global_score_d = current_score;
+            materialization_global_d = 1'b1;
             st_d = ST_SCORE_NEXT;
           end else begin
             compare_start = 1'b1;
@@ -769,6 +820,9 @@ module sched_distilled_round_engine (
           if (compare_rhs_wins) begin
             global_token_d = active_token;
             global_score_d = current_score;
+            materialization_global_d = 1'b1;
+          end else begin
+            materialization_global_d = 1'b0;
           end
           st_d = ST_SCORE_NEXT;
         end
@@ -782,7 +836,9 @@ module sched_distilled_round_engine (
           assignment_swap_d = 1'b0;
           st_d = ST_PROFILE_SETUP;
         end else begin
-          st_d = global_valid_q ? ST_COMMIT_REBUILD_START : ST_DONE;
+          st_d = global_valid_q ?
+              (materialization_global_q ? ST_DONE : ST_COMMIT_REBUILD_START) :
+              ST_DONE;
         end
       end
 
@@ -798,6 +854,11 @@ module sched_distilled_round_engine (
 
       default: st_d = ST_IDLE;
     endcase
+
+    if (eval_start) begin
+      materialization_d = MAT_NONE;
+      materialization_global_d = 1'b0;
+    end
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -812,6 +873,8 @@ module sched_distilled_round_engine (
       global_valid_q <= 1'b0;
       global_token_q <= '0;
       global_score_q <= '0;
+      materialization_q <= MAT_NONE;
+      materialization_global_q <= 1'b0;
     end else if (clear_i) begin
       st_q <= ST_IDLE;
       mode_q <= DIST_MODE_TERMINAL;
@@ -823,6 +886,8 @@ module sched_distilled_round_engine (
       global_valid_q <= 1'b0;
       global_token_q <= '0;
       global_score_q <= '0;
+      materialization_q <= MAT_NONE;
+      materialization_global_q <= 1'b0;
     end else begin
       st_q <= st_d;
       mode_q <= mode_d;
@@ -834,16 +899,66 @@ module sched_distilled_round_engine (
       global_valid_q <= global_valid_d;
       global_token_q <= global_token_d;
       global_score_q <= global_score_d;
+      materialization_q <= materialization_d;
+      materialization_global_q <= materialization_global_d;
     end
   end
 
 `ifndef SYNTHESIS
+  longint unsigned trace_cycle_q;
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni)
+      trace_cycle_q <= 0;
+    else if (clear_i)
+      trace_cycle_q <= 0;
+    else
+      trace_cycle_q <= trace_cycle_q + 1;
+  end
+
   always_ff @(posedge clk_i) begin
     if (rst_ni) begin
       assert (profile_addr_q < 5'd28);
       assert (!(transition_bw_start && target_bw_start));
       if (s4_start)
         assert (s4_candidate_possible);
+      if (st_q == ST_SCORE_BYPASS_START)
+        assert (materialization_q inside {MAT_LOCAL, MAT_TARGET});
+
+      if ($test$plusargs("MOE_SCHED_RTL_TRACE")) begin
+        if (start_i)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=round event=START remaining=%0d",
+                   $realtime, trace_cycle_q, counters_i.count);
+        if (eval_start)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=round event=EVAL_START state=%0d profile=%0d swap=%0d",
+                   $realtime, trace_cycle_q, st_q, decode_address,
+                   eval_assignment_swap);
+        if (eval_done)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=round event=EVAL_DONE state=%0d profile=%0d feasible=%0d",
+                   $realtime, trace_cycle_q, st_q, decode_address,
+                   eval_feasible);
+        if (s4_start)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=round event=S4_START profile=%0d",
+                   $realtime, trace_cycle_q, decode_address);
+        if (s4_done)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=round event=S4_DONE profile=%0d count=%0d",
+                   $realtime, trace_cycle_q, decode_address, s4_count);
+        if (bound_start)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=round event=BOUND_START profile=%0d",
+                   $realtime, trace_cycle_q, decode_address);
+        if (bound_done)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=round event=BOUND_DONE profile=%0d",
+                   $realtime, trace_cycle_q, decode_address);
+        if (compare_start)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=round event=COMPARE_START profile=%0d",
+                   $realtime, trace_cycle_q, decode_address);
+        if (compare_done)
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=round event=COMPARE_DONE profile=%0d rhs_wins=%0d",
+                   $realtime, trace_cycle_q, decode_address, compare_rhs_wins);
+        if ((st_q != ST_DONE) && (st_d == ST_DONE))
+          $display("[MOE_SCHED_RTL_TRACE] time_ns=%0.3f cycle=%0d scope=round event=DONE feasible=%0d",
+                   $realtime, trace_cycle_q, global_valid_d);
+      end
     end
   end
 `endif

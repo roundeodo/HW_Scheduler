@@ -188,6 +188,9 @@ module tb_distilled_transition_eval;
       profile_addr_i = distilled_mode_profile_base(mode_i) + mode_index_i;
       assignment_swap_i = header[2];
       start_time_i = time_t'(header[3]);
+      incremental_i = 1'b0;
+      rebuild_only_i = 1'b0;
+      gain_ok_i = 1'b1;
       force_s1_hit_c2_i = header[4];
       force_s1_hit_c3_i = header[5];
       for (int slot = 0; slot < 5; slot++) begin
@@ -200,7 +203,18 @@ module tb_distilled_transition_eval;
       bottom_i.ntok = ntok_t'(desc[5][2]);
 
       @(negedge clk_i); start_i = 1'b1;
-      @(negedge clk_i); start_i = 1'b0;
+      @(negedge clk_i);
+      start_i = 1'b0;
+      // The accepted request must be independent of subsequent live inputs.
+      profile_addr_i = (profile_addr_i == 5'd0) ? 5'd1 : 5'd0;
+      assignment_swap_i = ~assignment_swap_i;
+      start_time_i = '1;
+      incremental_i = 1'b1;
+      rebuild_only_i = 1'b1;
+      force_s1_hit_c2_i = ~force_s1_hit_c2_i;
+      force_s1_hit_c3_i = ~force_s1_hit_c3_i;
+      top_i = '{default: '0};
+      bottom_i = '0;
       wait_cycles = 0;
       while (!done_o && wait_cycles < 40) begin
         @(negedge clk_i);

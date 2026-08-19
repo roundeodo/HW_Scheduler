@@ -25,6 +25,7 @@ module sched_distilled_bound_score (
 
   typedef enum logic [3:0] {
     ST_IDLE,
+    ST_BASE_BOUND,
     ST_H_HEAD,
     ST_H_HIST,
     ST_H_OVERFLOW,
@@ -66,6 +67,8 @@ module sched_distilled_bound_score (
   time_t h_tail_work_q, h_tail_work_d;
   logic [2:0] h_head_index_q, h_head_index_d;
   logic [1:0] h_bucket_q, h_bucket_d;
+  distilled_bound_head_t h_head_current_q, h_head_current_d;
+  logic [2:0] h_head_count_q, h_head_count_d;
   logic [T_W+1:0] h_total_work;
   logic [T_W+1:0] h_sum_a;
   logic [T_W+1:0] h_sum_b;
@@ -94,13 +97,12 @@ module sched_distilled_bound_score (
 
   time_t earlier_end;
   time_t later_end;
-  time_t three_blocks;
+  time_t input_three_blocks;
   time_t c_balanced_end;
   time_t release_chain;
-  time_t critical_chain;
-  ntok_t hottest_ntok;
-  ntok_t hottest_blocks;
-  ntok_t hottest_quarter;
+  ntok_t input_hottest_ntok;
+  ntok_t input_hottest_blocks;
+  ntok_t base_hottest_blocks;
 
   logic [1:0] cache_slots;
   logic [NR_W-1:0] missing_cache_count;
@@ -154,31 +156,31 @@ module sched_distilled_bound_score (
   endfunction
 
   always_comb begin
-    if (child_c2_i.task_end <= child_c3_i.task_end) begin
-      earlier_end = child_c2_i.task_end;
-      later_end = child_c3_i.task_end;
+    if (h_load_c2_q <= h_load_c3_q) begin
+      earlier_end = h_load_c2_q;
+      later_end = h_load_c3_q;
     end else begin
-      earlier_end = child_c3_i.task_end;
-      later_end = child_c2_i.task_end;
+      earlier_end = h_load_c3_q;
+      later_end = h_load_c2_q;
     end
-    hottest_ntok = child_head5_i[0].valid ? child_head5_i[0].ntok : '0;
-    hottest_blocks = ceil_div2_ntok(hottest_ntok);
-    hottest_quarter = ceil_div4_ntok(hottest_ntok);
-    three_blocks = time_t'({1'b0, child_counters_i.block_sum, 1'b0}) +
-                   time_t'(child_counters_i.block_sum);
-    release_chain = child_counters_i.count == NR_W'(0) ? later_end : min_t(
-        earlier_end + time_t'({1'b0, hottest_blocks, 1'b0}) +
-                       time_t'(hottest_blocks),
-        later_end + time_t'({1'b0, ceil_div2_ntok(hottest_blocks), 1'b0}) +
-                     time_t'(ceil_div2_ntok(hottest_blocks)));
-    critical_chain = child_counters_i.count == NR_W'(0) ? earlier_end :
-        earlier_end + time_t'({1'b0, hottest_quarter, 1'b0}) +
-                      time_t'(hottest_quarter);
+    input_hottest_ntok = child_head5_i[0].valid ?
+                         child_head5_i[0].ntok : '0;
+    input_hottest_blocks = ceil_div2_ntok(input_hottest_ntok);
+    input_three_blocks =
+        time_t'({1'b0, child_counters_i.block_sum, 1'b0}) +
+        time_t'(child_counters_i.block_sum);
+    base_hottest_blocks = ntok_t'(compute_q);
+    release_chain = min_t(
+        earlier_end + time_t'({1'b0, base_hottest_blocks, 1'b0}) +
+                       time_t'(base_hottest_blocks),
+        later_end +
+            time_t'({1'b0, ceil_div2_ntok(base_hottest_blocks), 1'b0}) +
+            time_t'(ceil_div2_ntok(base_hottest_blocks)));
   end
 
   always_comb begin
-    crossing_dividend = DIV_W'(child_c3_i.task_end + three_blocks -
-                               child_c2_i.task_end);
+    crossing_dividend = DIV_W'(h_load_c3_q + h_tail_work_q -
+                               h_load_c2_q);
     crossing_quotient = crossing_dividend / DIV_W'(6);
     crossing_remainder = crossing_dividend % DIV_W'(6);
     crossing_k_floor = crossing_quotient[DIST_BLOCK_SUM_W-1:0];
@@ -186,7 +188,7 @@ module sched_distilled_bound_score (
                                 3'd3 : crossing_remainder;
     // For D = 6*q+r, floor ends at A+r and ceil at A+3, where
     // A = c2_end+3*q.  The best endpoint is A+min(r,3).
-    c_balanced_end = child_c2_i.task_end +
+    c_balanced_end = h_load_c2_q +
         time_t'({1'b0, crossing_k_floor, 1'b0}) +
         time_t'(crossing_k_floor) +
         time_t'(crossing_remainder_adjust);
@@ -261,7 +263,7 @@ module sched_distilled_bound_score (
     interval_capacity = free_lanes * interval_span;
   end
 
-  assign h_head_item = child_head5_i[h_head_index_q];
+  assign h_head_item = h_head_current_q;
   assign h_item_blocks = (st_q == ST_H_HEAD) ?
       ceil_div2_ntok(h_head_item.ntok) : ntok_t'(h_bucket_q + 2'd1);
   assign h_item_work = time_t'({1'b0, h_item_blocks, 1'b0}) +
@@ -280,6 +282,8 @@ module sched_distilled_bound_score (
     h_tail_work_d = h_tail_work_q;
     h_head_index_d = h_head_index_q;
     h_bucket_d = h_bucket_q;
+    h_head_current_d = h_head_current_q;
+    h_head_count_d = h_head_count_q;
     d_time_d = d_time_q;
     d_work_d = d_work_q;
     d_interval_d = d_interval_q;
@@ -293,36 +297,40 @@ module sched_distilled_bound_score (
         if (start_i) begin
           h_load_c2_d = child_c2_i.task_end;
           h_load_c3_d = child_c3_i.task_end;
-          h_tail_work_d = three_blocks;
-          if (child_counters_i.count == NR_W'(0)) begin
-            h_hist_d = child_counters_i.small_hist;
-            h_head_index_d = '0;
-            h_bucket_d = 2'd3;
-            scratch_h_we = 1'b1;
-            compute_d = later_end;
-            st_d = ST_H_OVERFLOW;
-          end else if ((child_c3_i.task_end + three_blocks) <= child_c2_i.task_end) begin
-            h_hist_d = child_counters_i.small_hist;
-            h_head_index_d = '0;
-            h_bucket_d = 2'd3;
-            scratch_h_we = 1'b1;
-            compute_d = child_c2_i.task_end;
-            st_d = ST_H_HEAD;
-          end else if ((child_c2_i.task_end + three_blocks) <= child_c3_i.task_end) begin
-            h_hist_d = child_counters_i.small_hist;
-            h_head_index_d = '0;
-            h_bucket_d = 2'd3;
-            scratch_h_we = 1'b1;
-            compute_d = child_c3_i.task_end;
-            st_d = ST_H_HEAD;
-          end else begin
+          h_tail_work_d = input_three_blocks;
+          h_hist_d = child_counters_i.small_hist;
+          h_head_index_d = '0;
+          h_bucket_d = 2'd3;
+          h_head_current_d = child_head5_i[0];
+          h_head_count_d = (child_counters_i.count >= NR_W'(5)) ?
+                           3'd5 : 3'(child_counters_i.count);
+          scratch_h_we = 1'b1;
+          compute_d = time_t'(input_hottest_blocks);
+          f_d = child_counters_i.parent_bound;
+          h_d = '0;
+          dma_d = '0;
+          st_d = ST_BASE_BOUND;
+        end
+      end
+
+      ST_BASE_BOUND: begin
+        distilled_bound_t committed_or_later;
+        scratch_h_we = 1'b1;
+        committed_or_later = max_b(f_q, to_bound(later_end));
+        h_d = to_bound(later_end);
+        if (base_hottest_blocks == ntok_t'(0)) begin
+          compute_d = later_end;
+          f_d = committed_or_later;
+          st_d = ST_H_OVERFLOW;
+        end else begin
+          f_d = max_b(committed_or_later, to_bound(release_chain));
+          if ((h_load_c3_q + h_tail_work_q) <= h_load_c2_q)
+            compute_d = h_load_c2_q;
+          else if ((h_load_c2_q + h_tail_work_q) <= h_load_c3_q)
+            compute_d = h_load_c3_q;
+          else
             compute_d = c_balanced_end;
-            h_hist_d = child_counters_i.small_hist;
-            h_head_index_d = '0;
-            h_bucket_d = 2'd3;
-            scratch_h_we = 1'b1;
-            st_d = ST_H_HEAD;
-          end
+          st_d = ST_H_HEAD;
         end
       end
 
@@ -338,12 +346,12 @@ module sched_distilled_bound_score (
             h_hist_d[h_item_blocks-1'b1] =
                 h_hist_q[h_item_blocks-1'b1] - 1'b1;
         end
-        if (h_head_index_q == 3'd4)
+        if ((h_head_index_q + 3'd1) >= h_head_count_q)
           st_d = ST_H_HIST;
-        else if (!child_head5_i[h_head_index_q + 1'b1].valid)
-          st_d = ST_H_HIST;
-        else
+        else begin
+          h_head_current_d = child_head5_i[h_head_index_q + 1'b1];
           h_head_index_d = h_head_index_q + 1'b1;
+        end
       end
 
       ST_H_HIST: begin
@@ -407,7 +415,7 @@ module sched_distilled_bound_score (
         d_used_d = DMA_NONE;
         d_next_valid_d = 1'b0;
         if (mandatory_dma_work == DMA_WORK_W'(0)) begin
-          dma_d = to_bound(later_end);
+          dma_d = h_q;
           st_d = ST_FINISH;
         end else begin
           dma_d = '0;
@@ -450,12 +458,12 @@ module sched_distilled_bound_score (
       ST_D_APPLY: begin
         scratch_d_we = 1'b1;
         if (!d_next_valid_q) begin
-          dma_d = max_b(to_bound(later_end), d_time_q +
+          dma_d = max_b(h_q, d_time_q +
               distilled_bound_t'(d_work_q[DMA_WORK_W-1:1]) + d_work_q[0]);
           st_d = ST_FINISH;
         end else if ((free_lanes != 2'd0) &&
                      (DMA_WORK_W'(d_work_q) <= interval_capacity)) begin
-          dma_d = max_b(to_bound(later_end), d_time_q +
+          dma_d = max_b(h_q, d_time_q +
               ((free_lanes == 2'd2) ?
                (distilled_bound_t'(d_work_q[DMA_WORK_W-1:1]) + d_work_q[0]) :
                distilled_bound_t'(d_work_q)));
@@ -473,15 +481,12 @@ module sched_distilled_bound_score (
       end
 
       ST_FINISH: begin
-        distilled_bound_t combined;
-        combined = to_bound(later_end);
-        combined = max_b(combined, to_bound(compute_q));
-        combined = max_b(combined, to_bound(release_chain));
-        combined = max_b(combined, to_bound(critical_chain));
-        combined = max_b(combined, dma_q);
-        f_d = max_b(child_counters_i.parent_bound, combined);
-        h_d = max_b(to_bound(max_t(h_load_c2_q, h_load_c3_q)),
-                    max_b(child_counters_i.parent_bound, combined));
+        distilled_bound_t compute_or_dma;
+        distilled_bound_t final_f;
+        compute_or_dma = max_b(to_bound(compute_q), dma_q);
+        final_f = max_b(f_q, compute_or_dma);
+        f_d = final_f;
+        h_d = max_b(to_bound(max_t(h_load_c2_q, h_load_c3_q)), final_f);
         st_d = ST_DONE;
       end
 
@@ -522,6 +527,8 @@ module sched_distilled_bound_score (
       h_load_c2_q <= '0;
       h_load_c3_q <= '0;
       h_tail_work_q <= '0;
+      h_head_current_q <= '0;
+      h_head_count_q <= '0;
     end else if (clear_i) begin
       st_q <= ST_IDLE;
       f_q <= '0;
@@ -532,6 +539,8 @@ module sched_distilled_bound_score (
       h_load_c2_q <= '0;
       h_load_c3_q <= '0;
       h_tail_work_q <= '0;
+      h_head_current_q <= '0;
+      h_head_count_q <= '0;
     end else begin
       st_q <= st_d;
       f_q <= f_d;
@@ -542,8 +551,26 @@ module sched_distilled_bound_score (
       h_load_c2_q <= h_load_c2_d;
       h_load_c3_q <= h_load_c3_d;
       h_tail_work_q <= h_tail_work_d;
+      h_head_current_q <= h_head_current_d;
+      h_head_count_q <= h_head_count_d;
     end
   end
+
+`ifndef SYNTHESIS
+  always_ff @(posedge clk_i) begin
+    if (rst_ni && !clear_i && (st_q == ST_IDLE) && start_i &&
+        (child_counters_i.count != '0)) begin
+      assert (child_head5_i[0].valid && (child_head5_i[0].ntok != '0))
+        else $error("non-empty bound input requires a valid, non-zero head expert");
+    end
+    if (rst_ni && !clear_i && (st_q == ST_H_HEAD) &&
+        ((h_head_index_q + 3'd1) < h_head_count_q)) begin
+      assert (child_head5_i[h_head_index_q + 1'b1].valid &&
+              (child_head5_i[h_head_index_q + 1'b1].ntok != '0))
+        else $error("bound head window must be valid and contiguous");
+    end
+  end
+`endif
 
   assign done_o = (st_q == ST_DONE);
   assign f_o = f_q;
