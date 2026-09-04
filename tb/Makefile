@@ -50,6 +50,7 @@ REGIME_TB        := $(TB_DIR)/tb_distilled_regime_classify.sv
 ROUND_VECTOR_FILE := distilled_round_vectors.txt
 ROUND_GENERATOR := ../../Idea_Model/gen_scheduler_rtl_distilled_round_vectors.py
 ROUND_TB        := $(TB_DIR)/tb_distilled_round_engine.sv
+ROUND_VALIDATION_VECTOR_FILE := distilled_round_validation10k_vectors.txt
 S4_ROUND_VECTOR_FILE := distilled_s4_round_vectors.txt
 S4_ROUND_GENERATOR := ../../Idea_Model/gen_scheduler_rtl_distilled_s4_round_vectors.py
 
@@ -59,9 +60,11 @@ S4_ROUND_GENERATOR := ../../Idea_Model/gen_scheduler_rtl_distilled_s4_round_vect
         verify-distilled-transition transition-gen transition-compile transition-sim \
         verify-distilled-bound bound-gen bound-compile bound-sim \
         verify-distilled-compare compare-gen compare-compile compare-sim \
-        verify-distilled-regime regime-gen regime-compile regime-sim \
-        verify-distilled-round round-gen round-compile round-sim \
-        verify-distilled-s4-round s4-round-gen s4-round-sim \
+	verify-distilled-regime regime-gen regime-compile regime-sim \
+	verify-distilled-round round-gen round-compile round-sim \
+	verify-distilled-round-validation10k round-validation10k-gen \
+	round-validation10k-sim \
+	verify-distilled-s4-round s4-round-gen s4-round-sim \
         wrapper-compile wrapper-sim dma-resource-compile dma-resource-sim clean
 
 all: verify-wrapper
@@ -203,6 +206,21 @@ round-sim:
 	@! grep -q "\*\* Fatal" distilled_round_sim.log
 
 verify-distilled-round: round-gen round-compile round-sim
+
+round-validation10k-gen: $(ROUND_GENERATOR)
+	python3 $(ROUND_GENERATOR) --suite validation --round-limit 10000 \
+	    > $(ROUND_VALIDATION_VECTOR_FILE)
+
+round-validation10k-sim:
+	$(VSIM) -batch -work $(WORK) tb_distilled_round_engine \
+	    +VECTOR_FILE=$(ROUND_VALIDATION_VECTOR_FILE) \
+	    -do "run -all; quit -f" -logfile distilled_round_validation10k_sim.log
+	@grep -E "PASS|FAIL|RESULT" distilled_round_validation10k_sim.log || true
+	@! grep -q "\[RESULT\] FAIL" distilled_round_validation10k_sim.log
+	@! grep -q "\*\* Fatal" distilled_round_validation10k_sim.log
+
+verify-distilled-round-validation10k: round-validation10k-gen round-compile \
+	round-validation10k-sim
 
 s4-round-gen: $(S4_ROUND_GENERATOR)
 	python3 $(S4_ROUND_GENERATOR) > $(S4_ROUND_VECTOR_FILE)
